@@ -37,10 +37,6 @@ afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-/**
- * `verifyRuntime` with the Windows ACLs from {@link fixtureAcl}, so a test about content, structure or the cache starts no
- * PowerShell. A test of the ACL check passes its own `aclReader`, which wins.
- */
 function verify(
   launcherRoot: string,
   runtimeId: string,
@@ -49,7 +45,6 @@ function verify(
   return verifyRuntime(launcherRoot, runtimeId, { ...fixtureAcl, ...options });
 }
 
-/** The error `verifyRuntime` rejects with, for assertions on code and detail. */
 async function refusal(options?: Parameters<typeof verify>[2]): Promise<RuntimeError> {
   try {
     await verify(root, "rt-1", options);
@@ -323,7 +318,6 @@ describe("verifyRuntime: bookkeeping names are for plain files only", () => {
       if (name === "runtime-manifest.json") await fs.writeFile(path.join(root, "manifest-copy"), manifest);
       await fs.mkdir(path.join(runtimeDirectory, name, "evil"), { recursive: true });
       await fs.writeFile(path.join(runtimeDirectory, name, "evil", "payload.js"), "evil");
-      // For the manifest name the manifest itself is gone, so the failure is the manifest; the others fail on structure.
       const error = await refusal();
       expect(["RUNTIME_FILE_UNEXPECTED", "RUNTIME_MANIFEST_INVALID"]).toContain(error.code);
     },
@@ -357,7 +351,6 @@ describe("verifyRuntime: bookkeeping names are for plain files only", () => {
 });
 
 describe("verifyRuntime: symlink chains cannot leave the runtime", () => {
-  /** Writes a manifest that lists the given links by hand, bypassing the installer's own refusal. */
   async function manifestListing(links: { path: string; target: string }[]): Promise<void> {
     const manifest = JSON.parse(await fs.readFile(manifestPath(), "utf8")) as { symlinks: unknown[] };
     manifest.symlinks = links;
@@ -595,7 +588,6 @@ describe("verifyRuntime: permissions", () => {
       aclReader.read.mockClear();
       expect((await verify(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(false);
       expect(aclReader.read).not.toHaveBeenCalled();
-      // A shim is covered by the stamp: touching it (a new change time) reads the ACLs again, once.
       await tick();
       const shim = path.join(root, "bin", "work-intelligence-launcher");
       await fs.utimes(shim, new Date(), new Date());

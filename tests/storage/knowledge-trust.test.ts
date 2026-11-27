@@ -6,7 +6,6 @@ import type { FinalizeSessionInput, KnowledgeRecord } from "../../packages/core/
 import { matchesAppliesTo } from "../../packages/storage/src/applies-to-match.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -27,7 +26,6 @@ function setup() {
   stores.push(store);
   const project = store.addProject("Apiary", root);
   store.updateProject(project.id, { status: "tracked" });
-  // Each write happens one minute after the previous one so "later than" comparisons are strict.
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(Date.UTC(2030, 0, 1));
   const tick = () => vi.setSystemTime(Date.now() + 60_000);
@@ -154,7 +152,6 @@ describe("Knowledge trust", () => {
     const plain = record("plain", { appliesTo: ["docs"] });
     const secondTouch = finalize("second-touch", { changedFiles: ["src/hive/drone.ts"] });
 
-    // One searchKnowledge call batches every record of the project into a single Session scan.
     const result = store.searchKnowledge({ projectRoot: root, limit: 50 });
     const byId = new Map(result.outcome === "knowledge" ? result.items.map((item) => [item.id, item]) : []);
     expect(byId.get(early.id)?.possiblyStale).toMatchObject({ sessionId: firstTouch.session.id, sessionCount: 2 });
@@ -177,7 +174,6 @@ describe("Knowledge trust", () => {
       contradictedKnowledgeIds: [contradicted.id],
     });
     expect(result.knowledgeWarnings).toEqual(["missing-knowledge: Knowledge was not found in this project."]);
-    // The confirming Session itself changed the paths, so it does not make the Knowledge stale.
     expect(knowledgeById(applied.id)).toMatchObject({
       lastConfirmedSessionId: result.session.id,
       lastConfirmedAt: result.session.completedAt,

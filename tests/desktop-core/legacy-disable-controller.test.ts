@@ -1,4 +1,3 @@
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { createServer } from "node:net";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -11,12 +10,6 @@ import {
   type LegacyServiceDetection,
   type LegacyServiceFound,
 } from "../../packages/desktop-core/src/legacy-service/index.js";
-
-/**
- * The main-process controller behind 「停用舊的登入服務…」, with a fake OS, coordinator, supervisor and backend: what may
- * confirm, when the native dialog is asked, what the journal records, when the database is checked and what counts as
- * damage, and when 「立即啟動」 may start the backend. All data is synthetic.
- */
 
 const DEFINITION = "<plist>synthetic definition</plist>\n";
 const PORT = 43_210;
@@ -265,7 +258,6 @@ describe("the legacy disable controller", () => {
       });
       expect(own.files.size).toBe(0);
       expect(own.starts).toEqual([]);
-      // Someone else on that port: the old service may still be there, so nothing is removed.
       const other = setup({ ownBackendPort: port + 1, port });
       expect(await other.controller.confirm(await previewId(other.controller), false)).toEqual({
         ok: false,

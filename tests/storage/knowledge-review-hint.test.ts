@@ -93,7 +93,6 @@ describe("knowledge to review at finalize", () => {
       { id: ids.exact, title: "Synthetic exact rule", path: lease },
       { id: ids.globNarrow, title: "Synthetic glob-narrow rule", path: lease, appliesTo: "packages/shared/src/*.ts" },
     ]);
-    // Advisory only: no Knowledge record changes.
     const after = store.searchKnowledge({ projectRoot: root, limit: 50 });
     if (before.outcome !== "knowledge" || after.outcome !== "knowledge") throw new Error("Expected Knowledge lists.");
     const updatedAt = (list: typeof after) => list.items.map((item) => [item.id, item.updatedAt]);
@@ -134,7 +133,6 @@ describe("knowledge to review at finalize", () => {
     vi.setSystemTime(new Date("2026-06-01T09:00:00.000Z"));
     finalize(store, root, ["packages/shared/src/lease.ts"]);
     vi.setSystemTime(new Date("2026-06-01T10:00:00.000Z"));
-    // The first Session made every lease rule possiblyStale; a later Session adds nothing new.
     expect(finalize(store, root, ["packages/shared/src/lease.ts", "docs/guide.md"])).not.toHaveProperty(
       "knowledgeToReview",
     );
@@ -144,7 +142,6 @@ describe("knowledge to review at finalize", () => {
     expect(finalize(store, root, ["packages/shared/src/lease.ts", "docs/guide.md", "docs/more.md"])).toMatchObject({
       knowledgeToReview: [{ id: ids.exact }],
     });
-    // A backfilled Session that finished before the confirmation does not put it in doubt.
     const backfilled = store.finalizeSession({
       projectRoot: root,
       idempotencyKey: "knowledge-review-backfill",
@@ -160,7 +157,6 @@ describe("knowledge to review at finalize", () => {
   it("gives no hint for a Session with more than 20 files, and a broad earlier Session does not hide a later hint", () => {
     const { store, root, ids } = setup();
     const filler = (count: number) => Array.from({ length: count }, (_, index) => `vendor/bulk/file-${index}.ts`);
-    // A bulk change never sets possiblyStale, so it puts nothing in doubt and has no hint of its own.
     vi.setSystemTime(new Date("2026-06-01T09:00:00.000Z"));
     expect(finalize(store, root, ["packages/shared/src/lease.ts", ...filler(20)])).not.toHaveProperty(
       "knowledgeToReview",
@@ -171,7 +167,6 @@ describe("knowledge to review at finalize", () => {
     expect(exact?.possiblyStale).toBeUndefined();
     expect(exact?.broadChangesSince).toBe(1);
 
-    // A focused Session after it is the first to put the rule in doubt, so the hint is still offered.
     vi.setSystemTime(new Date("2026-06-01T10:00:00.000Z"));
     expect(finalize(store, root, ["packages/shared/src/lease.ts"])).toMatchObject({
       knowledgeToReview: expect.arrayContaining([expect.objectContaining({ id: ids.exactNewer })]),

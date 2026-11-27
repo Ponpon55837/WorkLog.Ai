@@ -99,7 +99,6 @@ describe("OperationJournal", () => {
     await expect(journal.enterPhase("op-1", "EXTERNAL")).rejects.toBeInstanceOf(RestoreForbiddenError);
     const stillStarted = await journal.enterPhase("op-1", "NEEDS_REPAIR");
     expect(stillStarted.migrationStarted).toBe(true);
-    // the flag cannot be cleared through any journal method: terminal updates keep it
     const done = await journal.finish("op-1", "failed", { error: "x" });
     expect(done.migrationStarted).toBe(true);
   });
@@ -121,7 +120,6 @@ describe("OperationJournal", () => {
       result: { recoveredState: "EXTERNAL", reason: "state is consistent" },
     });
     expect(await journal.findInProgress()).toBeNull();
-    // Terminal, so pruning may drop it once newer terminal records exist.
     await journal.begin(newInput({ operationId: "op-2" }));
     await journal.finish("op-2", "completed");
     await journal.begin(newInput({ operationId: "op-3" }));
@@ -252,7 +250,6 @@ describe("FileOperationJournalStore", () => {
     expect(asides).toHaveLength(contents.length);
     for (const q of quarantined) expect(path.basename(q.to).startsWith("journal.json.corrupt-")).toBe(true);
     expect(await readFile(quarantined[0]!.to, "utf8")).toBe("{not json");
-    // the journal is usable again right after
     const journal = new OperationJournal(store, makeClock());
     await journal.begin(newInput());
     expect((await journal.get("op-1"))?.status).toBe("in-progress");

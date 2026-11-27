@@ -8,7 +8,6 @@ import {
   tokenizeAppliesToGlobCompact,
 } from "../../packages/core/src/index.js";
 
-// Fictional scopes only.
 describe("appliesTo glob syntax", () => {
   it("tells globs from plain paths", () => {
     expect(isAppliesToGlob("src/a.ts")).toBe(false);

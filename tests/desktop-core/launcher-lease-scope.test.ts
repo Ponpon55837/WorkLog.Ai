@@ -5,7 +5,6 @@ import { MCP_LEASE_SCOPE_ENVIRONMENT } from "../../packages/shared/src/mcp-runti
 import { runLauncher, type LauncherHost } from "../../packages/desktop-core/src/runtime/index.js";
 import { INERT_LEASE_HOST, installFixture, makeRoot } from "./runtime-helpers.js";
 
-// Synthetic runtime only. The launcher gives the backend and every Agent's MCP one lease scope: the App's runtime root.
 let root = "";
 let runtimeDirectory = "";
 

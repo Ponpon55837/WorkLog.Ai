@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContextResult } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 const filler = "The fictional drone ledger keeps its verified comb spacing window and its source notes. ";
@@ -63,7 +62,6 @@ function contextOf(store: WorkIntelligenceStore, root: string, focus: { task?: s
   return context;
 }
 
-/** Every Knowledge id a context names anywhere, once per place it appears. */
 function namedKnowledgeIds(context: ContextResult): string[] {
   return [
     ...(context.relevant?.knowledge ?? []).map((item) => item.id),
@@ -93,7 +91,6 @@ describe("work_get_context path-matched Knowledge pointers", () => {
           filler.repeat(5),
         ).id,
     );
-    // A later Session that changed the covered files makes every rule possiblyStale.
     if (stale) fixture.finalize("touch-hive", ["src/hive/queen.ts"]);
     for (let index = 0; index < 6; index += 1) fixture.finalize(`heavy-${index}`, [`src/misc/part-${index}.ts`], true);
     return { ...fixture, ids };
@@ -107,14 +104,11 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     expect(context.relevant?.knowledge.length).toBeGreaterThanOrEqual(1);
     const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
     const withPath = (omission?.entries ?? []).filter((entry) => entry.path !== undefined);
-    // Pointers yield to full records under pressure, so title and path may be shortened or dropped; the flagged
-    // entry with its id always stays.
     expect(withPath.length).toBeLessThanOrEqual(5);
     for (const entry of withPath) {
       expect(entry).toMatchObject({ path: "src/hive/**", possiblyStale: true });
       expect(entry.title!.length).toBeLessThanOrEqual(60);
     }
-    // No path-matched record is lost to moreIds while the cap has room, and none is counted twice.
     expect(omission?.moreIds ?? 0).toBe(0);
     expect(omission?.readWith).toBe(
       withPath.length > 0 ? "work_get_file_history/work_search_knowledge" : "work_search_knowledge",
@@ -149,7 +143,6 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     const shownIds = new Set((context.relevant?.knowledge ?? []).map((item) => item.id));
     for (const id of ids) {
       if (shownIds.has(id)) continue;
-      // Possibly stale records keep their id and flag even past the cap; none is hidden in moreIds.
       expect(entries.some((entry) => entry.id === id && entry.possiblyStale === true)).toBe(true);
     }
     expect(omission?.moreIds ?? 0).toBe(0);
@@ -161,7 +154,6 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
     const entries = omission?.entries ?? [];
     expect(entries.filter((entry) => entry.path !== undefined)).toHaveLength(5);
-    // The better-ranked records hold the five path slots; the rest fall back to the plain id list.
     const entryIds = new Set(entries.map((entry) => entry.id));
     for (const id of omission?.ids ?? []) expect(entryIds.has(id)).toBe(false);
     expect((omission?.ids ?? []).length).toBeLessThanOrEqual(3);
@@ -169,9 +161,6 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     expect(new Set(named).size).toBe(named.length);
   });
 
-  // Reconciled with the pointer priority (full relevant records, then short pointers, then everything lower): this
-  // still holds because a pointer is demoted before any full relevant record is popped. The sweep test below pins the
-  // stricter order for lower-value content.
   it("pops full relevant records only after the pointers have been reduced", () => {
     const { store, root, ids } = crowdedHive(14, false);
     const focus = { task: "adjust drone comb layout", paths: ["src/hive/drone.ts"] };
@@ -179,10 +168,8 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     const shown = context.relevant?.knowledge ?? [];
     const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
     const pointers = (omission?.entries ?? []).filter((entry) => entry.path !== undefined);
-    // Same fixture without the path-matched pointers in play (no paths): the five relevant slots stay full here too.
     expect(shown.length).toBe(5);
     expect(JSON.stringify(context).length).toBeLessThanOrEqual(10_000);
-    // A trimmed record may be listed, but then no pointer for a record that was never shown may keep a long title.
     if (shown.length < 5) {
       for (const entry of pointers) expect((entry.title ?? "").length).toBeLessThanOrEqual(24);
     }
@@ -190,7 +177,6 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     expect(named.filter((id) => ids.includes(id)).length).toBeGreaterThanOrEqual(shown.length);
   });
 
-  /** A busy file: many Sessions touch it and Knowledge covers it through appliesTo, with long titles to add pressure. */
   function busyHive(options: { sessions: number; knowledge: number; titleRepeat?: number; heavy?: boolean }) {
     const fixture = setup();
     const ids = Array.from(
@@ -225,7 +211,6 @@ describe("work_get_context path-matched Knowledge pointers", () => {
       expect(entry).toMatchObject({ path: "src/hive/**", possiblyStale: true });
       expect(entry.title!.length).toBeLessThanOrEqual(24);
     }
-    // Nothing is left as an id-only pointer in the recentKnowledge section, and every record is named exactly once.
     const recentOmission = context.omitted?.find((candidate) => candidate.section === "recentKnowledge");
     const recentNamed = [...(recentOmission?.ids ?? []), ...(recentOmission?.entries ?? []).map((entry) => entry.id)];
     expect(recentNamed.filter((id) => ids.includes(id))).toEqual([]);
@@ -245,7 +230,6 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     expect(context.recentKnowledge.length).toBeGreaterThanOrEqual(1);
     const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
     const pointed = [...(omission?.ids ?? []), ...(omission?.entries ?? []).map((entry) => entry.id)];
-    // Full beats pointer: no record is both shown in full and listed in a pointer.
     expect(pointed.filter((id) => full.has(id))).toEqual([]);
     const named = namedKnowledgeIds(context).filter((id) => ids.includes(id));
     expect(new Set(named).size).toBe(named.length);
@@ -272,13 +256,11 @@ describe("work_get_context path-matched Knowledge pointers", () => {
       expect(relevant.knowledge.length, label).toBeGreaterThanOrEqual(1);
       const shownInFull = new Set([...relevant.knowledge, ...context.recentKnowledge].map((item) => item.id));
       if (lowerValueLeft) {
-        // Every pointer keeps its title (short form) and path, and no full relevant record was popped.
         expect(pointers.length, label).toBe(Math.min(5, ids.filter((id) => !shownInFull.has(id)).length));
         for (const entry of pointers) expect(entry.title!.length, label).toBeLessThanOrEqual(24);
         expect(omission?.reasons ?? [], label).not.toContain("預算限制：較低排名 Knowledge");
       }
       if (omission?.reasons?.includes("預算限制：較低排名 Knowledge")) expect(lowerValueLeft, label).toBe(false);
-      // Trust flags and ids are never lost.
       const named = namedKnowledgeIds(context).filter((id) => ids.includes(id));
       expect(new Set(named), label).toEqual(new Set(ids));
       expect(new Set(named).size, label).toBe(named.length);
@@ -293,10 +275,6 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     expect(recalled.hits.length).toBeLessThanOrEqual(8);
   });
 
-  /**
-   * The steady state of a real response: it sits at the 9,800 cap with several relevant Sessions that carry decisions,
-   * knowledge-page sections, and 6-10 possiblyStale appliesTo Knowledge that are also among the 12 newest Knowledge.
-   */
   function capHive(knowledgeCount: number) {
     const fixture = setup();
     const ids = Array.from(
@@ -347,7 +325,6 @@ describe("work_get_context path-matched Knowledge pointers", () => {
       const pointers = entries.filter((entry) => entry.path !== undefined);
       // Never fewer full records than before pointers yielded first (4, 4 and 3 on this fixture at e314433).
       expect(full.length).toBeGreaterThanOrEqual(count === 10 ? 3 : 4);
-      // Every path-matched record not shown in full is a pointer up to the cap of five; flags alone only past it.
       const notFull = ids.length - full.length - recentFull.length;
       expect(pointers).toHaveLength(Math.min(5, notFull));
       for (const entry of pointers) expect(entry).toMatchObject({ path: "src/hive/**", possiblyStale: true });

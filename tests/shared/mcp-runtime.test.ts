@@ -241,14 +241,12 @@ describe("MCP runtime build identity and process leases", () => {
     expect(first).toBeDefined();
     expect(readMcpBuildIdentity(root)).toEqual(first);
 
-    // A rebuild rewrites a dependency dist file; the stat signature changes and the hash is recomputed.
     writeFileSync(join(root, "packages/storage/dist/index.js"), 'export const runtime = "storage-rebuilt";\n');
     expect(readMcpBuildIdentity(root)).toBeUndefined();
     const rebuilt = finalizeFixtureBuild(root);
     expect(rebuilt.buildId).not.toBe(first?.buildId);
     expect(readMcpBuildIdentity(root)).toEqual(rebuilt);
 
-    // A new runtime file also invalidates the cache.
     writeFileSync(join(root, "apps/mcp/dist/extra.js"), "export const extra = true;\n");
     expect(readMcpBuildIdentity(root)).toBeUndefined();
   });
@@ -819,7 +817,6 @@ describe("MCP lease scope under the desktop App", () => {
     roots.push(base);
     const appRoot = join(base, "App Runtime Root");
     mkdirSync(appRoot, { recursive: true });
-    // Two runtimes of one installation: the backend runs from an older one than the launcher starts for the Agent.
     const backendRoot = createMcpRuntimeFixture(join(appRoot, "runtimes", "rt-old", "libexec"));
     const mcpRoot = createMcpRuntimeFixture(join(appRoot, "runtimes", "rt-new", "libexec"));
     return { backendRoot, mcpRoot, appRoot };
@@ -856,7 +853,6 @@ describe("MCP lease scope under the desktop App", () => {
 
   it("finds the App root from the runtime's own location when no launcher named it", () => {
     const { backendRoot, mcpRoot, appRoot } = twoRuntimes();
-    // The pointer file marks the root as the App's, which a repository checkout under a folder named runtimes lacks.
     writeFileSync(join(appRoot, "current"), "rt-new\n");
     expect(appRootOf(backendRoot)).toBe(appRoot);
 
@@ -864,7 +860,6 @@ describe("MCP lease scope under the desktop App", () => {
     if (!build) throw new Error("The synthetic runtime has no build identity.");
     cleanups.push(registerMcpProcess(mcpRoot, build, { now: () => now, environment: {} }));
 
-    // The MCP that an older launcher or a plain client started (no variable) and the backend (no variable either).
     expect(getMcpRuntimeDirectory(backendRoot, {})).toBe(getMcpRuntimeDirectory(mcpRoot, {}));
     expect(getMcpRuntimeStatus(backendRoot, readMcpBuildIdentity(backendRoot), { now, environment: {} })).toMatchObject(
       {

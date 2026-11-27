@@ -6,7 +6,6 @@ import type { KnowledgePageContextResult, KnowledgePageSection } from "../../pac
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 import { RELEASE_FILES, sectionFile, seedSectionedPage } from "../helpers/knowledge-page-fixture.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 const slug = "architecture";
@@ -63,10 +62,6 @@ function fullContext(result: KnowledgePageContextResult) {
 
 const QUIET_SECTIONS = ["Swarming", "Honey harvest", "Pests"];
 
-/**
- * A written six-section page: Hive layout cites `hive` (hive.ts), Winter care cites `winter` (winter.ts), Feeding
- * cites nothing, and each quiet section cites one Session. Every cited Session also changed CHANGELOG.md.
- */
 function writtenPage() {
   const context = setup();
   const { store, projectRoot, finalize, read, save } = context;
@@ -91,7 +86,6 @@ function writtenPage() {
   return { ...context, hive, winter };
 }
 
-/** The 12-section page with `count` new Sessions, each changing every release file and the file of one section. */
 function sectionedPage(count: number, sectionOf: (index: number) => number) {
   const context = setup();
   const finalize = (key: string, changedFiles: string[]) => context.finalize(key, { changedFiles });
@@ -144,7 +138,6 @@ describe("review-only Knowledge page reads", () => {
         heading: "Winter care",
         content: "Insulate the lid before frost.",
         sourceSessionIds: [winter],
-        // Linking a Session to a cited one updates the cited Session, so its section is also a source check.
         reasons: ["source_updated_after_save", "new_session_linked"],
         changedSources: [{ sourceSessionId: winter, reasons: ["source_updated_after_save"] }],
         newSessionIds: [linked],
@@ -201,7 +194,6 @@ describe("review-only Knowledge page reads", () => {
       reviewToken: token,
     });
     const afterCite = reviewOnly(read({ reviewOnly: true }));
-    // followUp still maps to Hive layout through hive.ts, but not to Feeding, which already cites it.
     expect(afterCite.sections.map((section) => [section.heading, section.newSessionIds])).toEqual([
       ["Hive layout", [followUp]],
     ]);

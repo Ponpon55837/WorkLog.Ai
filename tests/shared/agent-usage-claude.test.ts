@@ -52,7 +52,6 @@ describe("Claude Code tool results and turns", () => {
         timestamp: stamp(3),
         message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t2", content: { not: "text" } }] },
       },
-      // Text next to a tool_result is not a human prompt.
       {
         type: "user",
         sessionId: SESSION,
@@ -65,7 +64,6 @@ describe("Claude Code tool results and turns", () => {
           ],
         },
       },
-      // A plain text block counts as one turn, a meta line and a sidechain prompt do not.
       {
         type: "user",
         sessionId: SESSION,

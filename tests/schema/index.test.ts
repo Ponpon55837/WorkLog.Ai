@@ -216,7 +216,6 @@ describe("schema input boundaries", () => {
       completedAt: "2026-09-27T01:52:48.000Z",
     });
 
-    // A local time written with Z is the common mistake: it lands hours in the future.
     const future = new Date(Date.now() + 8 * 3_600_000).toISOString();
     const rejected = finalizeSessionInputSchema.safeParse({ ...validFinalizeInput, completedAt: future });
     expect(rejected.success).toBe(false);

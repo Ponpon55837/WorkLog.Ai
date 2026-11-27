@@ -22,11 +22,6 @@ import {
 } from "../../packages/desktop-core/src/index.js";
 import { DB_A, DB_B, makeClock, newInput, probe } from "./operations-helpers.js";
 
-/**
- * Start-up recovery: what the App does with an operation a crash left in progress. The decision table below walks every
- * operation kind through every phase; the rest covers the cost of an empty journal, the copy cleanup and the notices.
- */
-
 const PATH: Record<string, ServiceOwnerState[]> = {
   PREPARING: ["PREPARING"],
   QUIESCING: ["PREPARING", "QUIESCING"],
@@ -36,7 +31,6 @@ const PATH: Record<string, ServiceOwnerState[]> = {
 
 const noCopy = async (): Promise<CopySettlement> => "absent";
 
-/** A store that counts how often the journal file would be read or written. */
 class CountingStore implements OperationJournalStore {
   loads = 0;
   saves = 0;
@@ -186,7 +180,6 @@ describe("start-up recovery decision table (every kind x phase)", () => {
         const record = (await journal.get("op-1")) as OperationRecord;
         expect(record.status).not.toBe("in-progress");
         expect(await journal.findInProgress()).toBeNull();
-        // nothing was claimed as restored: the App never starts the old login service by itself
         if (record.status === "cancelled") expect(record.recoveryPolicy).toBe("restore-previous");
         expect(outcome.holdStart).toBe(record.status === "failed");
       });
@@ -200,7 +193,7 @@ describe("start-up recovery decision table (every kind x phase)", () => {
       probe({ desktopChild: { running: true, identityVerified: true }, settingsState: "active" }),
     ).result;
     expect(first.holdStart).toBe(true);
-    expect((await running.get("op-1"))?.status).toBe("failed"); // resume cannot be carried out at start-up
+    expect((await running.get("op-1"))?.status).toBe("failed");
 
     const thrown = await journalWith("change-db", "STARTING", { previousOwner: "MANAGED" });
     const second = await run(thrown, () => {
@@ -365,7 +358,6 @@ describe("settleOrphanCopy containment", () => {
       }),
     ).toBe("refused");
     expect(await readdir(dir)).toEqual(["work-intelligence-local.sqlite"]);
-    // Written within the copy's own time budget of the record: an interrupted copy, removed as before.
     expect(
       await settleOrphanCopy({
         copyPath: copy,

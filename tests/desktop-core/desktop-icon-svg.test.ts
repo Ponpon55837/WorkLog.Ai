@@ -48,14 +48,12 @@ describe("desktop icon", () => {
     expect(x! - strokeWidth! / 2).toBeCloseTo(100, 2);
     expect(x! + width! + strokeWidth! / 2).toBeCloseTo(924, 2);
 
-    // Same colours.
     expect(text(desktopIcon, "rect", "fill")).toBe(mark.plate.fill);
     expect(text(desktopIcon, "rect", "stroke")).toBe(mark.plate.stroke);
     expect(text(desktopIcon, "g", "stroke")).toBe(mark.glyph.stroke);
     expect(mark.plate.fill).toBe("#0d1117");
     expect(mark.glyph.stroke).toBe("#e6edf3");
 
-    // Same W polyline points and I line, scaled.
     const points = numbers(desktopIcon, "polyline", "points");
     expect(points).toHaveLength(mark.glyph.points.length * 2);
     mark.glyph.points.forEach(([px, py], index) => {

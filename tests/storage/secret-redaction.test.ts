@@ -23,7 +23,6 @@ function marker(kind: string): string {
   return `[REDACTED:${kind}]`;
 }
 
-/** The time limit for a text of `length` characters on this machine. */
 function limitFor(length: number, referenceBudgetMs: number): number {
   const reference = redactionReferenceText(length);
   return scaledLimit({
@@ -33,12 +32,10 @@ function limitFor(length: number, referenceBudgetMs: number): number {
   }).limitMs;
 }
 
-/** Repeats `unit` to exactly `length` characters, the last of which come from `tail`. */
 function repeatTo(unit: string, length: number, tail = ""): string {
   return unit.repeat(Math.ceil(length / unit.length)).slice(0, length - tail.length) + tail;
 }
 
-/** Inputs that made a detector re-scan or backtrack through the rest of the text from many start positions. */
 function adversarialInputs(length: number): Record<string, string> {
   return {
     "one long word": "x".repeat(length),
@@ -83,7 +80,6 @@ describe("secret redaction", () => {
       { kind: "aws_access_key", value: `AKI${""}A${"G".repeat(16)}` },
       { kind: "aws_access_key", value: `ASIA${"H".repeat(16)}` },
       { kind: "aws_secret_key", value: `aws_secret_access_key=${"J".repeat(40)}` },
-      // The case-insensitive rules are found through their keywords in any case, not only as written above.
       { kind: "aws_secret_key", value: `AWS_Secret_Access_Key: ${"J".repeat(40)}` },
       {
         kind: "private_key",

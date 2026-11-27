@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContextResult } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 interface ServiceInternals {
   inferTaskPaths: boolean;
   searchIndex: { knowledgeForWeightedPaths: (...args: unknown[]) => unknown };
@@ -14,10 +13,8 @@ interface ServiceInternals {
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 const filler = "The fictional lantern ledger keeps its verified wick spacing window and its source notes. ";
-/** Long enough that its pointer needs more room than the heavy fixture leaves under the budget. */
 const BURNER_TITLE = `Burner tolerance rule ${"for the valve and dial assembly ".repeat(10)}`.trim();
 const TASK = "rework swarm frame splitting";
-/** Excerpts long enough that reducing a recentKnowledge record to its title saves room. */
 const LONG_FILLER = "x ".repeat(60);
 
 function setup() {
@@ -77,7 +74,6 @@ function contextOf(
   return context;
 }
 
-/** The scoped Knowledge shares no word with the task; only the files the similar Sessions changed reach it. */
 function lanternFixture(
   heavy = false,
   heavyCount = 5,
@@ -116,7 +112,6 @@ function withoutSupplements(context: ContextResult): unknown {
   return copy;
 }
 
-/** The response without what yielding may change: recentKnowledge, its omission, and the supplements. */
 function withoutRecentAndSupplements(context: ContextResult): unknown {
   const copy = structuredClone(withoutSupplements(context) as ContextResult);
   copy.recentKnowledge = [];
@@ -125,7 +120,6 @@ function withoutRecentAndSupplements(context: ContextResult): unknown {
   return copy;
 }
 
-/** The response the product would give without the feature (the replay experiment's `off` variant). */
 function withFeatureOff<T>(service: ServiceInternals, run: () => T): T {
   service.inferTaskPaths = false;
   try {
@@ -190,7 +184,6 @@ describe("work_get_context inferred-path Knowledge supplements", () => {
 
     expect(JSON.stringify(withoutSupplements(on))).toBe(JSON.stringify(withoutSupplements(off)));
     expect(JSON.stringify(on).length).toBeLessThanOrEqual(9_800);
-    // The budget is tight: the pointer was dropped last and only counted in its own omission entry.
     expect(on.omitted?.some((omission) => omission.section === "relevant.supplements")).toBe(true);
     expect((off.relevant?.supplements ?? []).some((item) => item.includedBecause.kind === "inferred_path")).toBe(false);
   });
@@ -201,7 +194,6 @@ describe("work_get_context inferred-path Knowledge supplements", () => {
     finalize("solo-1", "Swarm frame splitting solo gear", ["src/solo/gear.ts"]);
     const ids = () => (contextOf(store, root, { task: TASK }).relevant?.supplements ?? []).map((item) => item.id);
 
-    // The valve Knowledge has two supporting Sessions; the gear one has only one.
     expect(ids()).toContain(scoped.id);
     expect(ids()).not.toContain(solo.id);
     finalize("solo-2", "Swarm frame splitting solo gear again", ["src/solo/gear.ts"]);
@@ -219,7 +211,6 @@ describe("work_get_context inferred-path Knowledge supplements", () => {
 });
 
 describe("work_get_context inferred-path budget yield", () => {
-  /** One heavy Session leaves the page 10-12 characters short of the pointer, with recentKnowledge still present. */
   it("shortens unmatched recentKnowledge to titles before popping any, and changes nothing else", () => {
     const { store, root, scoped, service } = lanternFixture(true, 1, { fillerBody: LONG_FILLER });
     const on = contextOf(store, root, { task: TASK });
@@ -228,7 +219,6 @@ describe("work_get_context inferred-path budget yield", () => {
     expect(on.relevant?.supplements?.map((item) => item.id)).toEqual([scoped.id]);
     expect(JSON.stringify(on).length).toBeLessThanOrEqual(9_800);
     expect(JSON.stringify(withoutRecentAndSupplements(on))).toBe(JSON.stringify(withoutRecentAndSupplements(off)));
-    // Nothing was popped: the same records stay, the usual omission is untouched, and the last ones lost their excerpts.
     expect(on.recentKnowledge.map((item) => item.id)).toEqual(off.recentKnowledge.map((item) => item.id));
     expect(on.omitted?.find((omission) => omission.section === "recentKnowledge")).toEqual(
       off.omitted?.find((omission) => omission.section === "recentKnowledge"),
@@ -236,7 +226,6 @@ describe("work_get_context inferred-path budget yield", () => {
     const shortened = on.recentKnowledge.filter((item) => item.excerpt === "");
     expect(shortened.length).toBeGreaterThan(0);
     expect(shortened.every((item) => item.excerptTruncated === true)).toBe(true);
-    // From the end: every record after the first shortened one is shortened too, and the ones before are untouched.
     const firstShortened = on.recentKnowledge.findIndex((item) => item.excerpt === "");
     expect(on.recentKnowledge.slice(firstShortened).every((item) => item.excerpt === "")).toBe(true);
     expect(on.recentKnowledge.slice(0, firstShortened)).toEqual(off.recentKnowledge.slice(0, firstShortened));
@@ -283,7 +272,6 @@ describe("work_get_context inferred-path budget yield", () => {
       const pointers = (on.relevant?.supplements ?? []).map((item) => item.id);
       expect(pointers).toContain(matchedRecent!.id);
       expect(pointers).toContain(scoped.id);
-      // Counted once: the labelled pointer replaced the recent record, and no omission names it.
       expect(on.recentKnowledge.map((item) => item.id)).not.toContain(matchedRecent!.id);
       expect(JSON.stringify(on.omitted)).not.toContain(matchedRecent!.id);
       expect(JSON.stringify(on).length).toBeLessThanOrEqual(9_800);
@@ -295,7 +283,6 @@ describe("work_get_context inferred-path budget yield", () => {
       burnerTitle: "Burner rule",
       matchedRecentTitle: "Valve seat rule",
     });
-    // Only the recent record is left to match, so its short pointer is the one that has to fit.
     store.updateKnowledge({ projectRoot: root, knowledgeId: scoped.id, status: "archived" });
     const off = withFeatureOff(service, () => contextOf(store, root, { task: TASK }));
     const on = contextOf(store, root, { task: TASK });

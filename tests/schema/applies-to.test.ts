@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { APPLIES_TO_GLOB_STARS_FIX, MAX_APPLIES_TO_GLOB_STARS } from "../../packages/core/src/index.js";
 import { recordKnowledgeInputSchema, updateKnowledgeInputSchema } from "../../packages/schema/src/index.js";
 
-// Fictional scopes only.
 const BASE = {
   projectRoot: "/tmp/fictional-project",
   idempotencyKey: "applies-to-schema",

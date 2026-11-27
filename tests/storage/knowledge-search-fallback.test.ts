@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentKnowledgeQueryResult, KnowledgeKind, KnowledgeQuery } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -81,7 +80,6 @@ describe("Agent Knowledge search fallback", () => {
     expect(result.items.map((item) => item.id)).toEqual([graft]);
     expect(result).not.toHaveProperty("relaxedMatches");
     expect(result).not.toHaveProperty("otherStatusMatches");
-    // The Web list keeps its own shape.
     expect(list).not.toHaveProperty("match");
   });
 
@@ -97,10 +95,8 @@ describe("Agent Knowledge search fallback", () => {
     const result = search(store, { projectRoot: root, q: "apple graft union frostbite" });
     expect(result).toMatchObject({ match: "relaxed", items: [], pageInfo: { total: 0 } });
     expect(result.relaxedMatches?.map((match) => match.id)).toEqual([graft, prune]);
-    // Identifier parts count as terms: graftUnion contains both graft and union.
     expect(result.relaxedMatches?.[0]?.matchedTerms).toEqual(["apple", "graft", "union"]);
     expect(result.relaxedMatches?.[1]?.matchedTerms).toEqual(["apple"]);
-    // Each match is a digest; the full record is one work_get_knowledge_history read away.
     expect(result.relaxedMatches?.[0]).toEqual({
       id: graft,
       projectId: expect.any(String),
@@ -176,7 +172,6 @@ describe("Agent Knowledge search fallback", () => {
     expect(result.hint).toContain('pass status "archived"');
     expect(JSON.stringify(result)).not.toContain("Thin peach");
 
-    // Passing the named status answers with the records the count announced.
     const archived = search(store, { projectRoot: root, q: "peach blossoms thinning", status: "archived" });
     expect(archived.match).toBe("relaxed");
     expect(archived.relaxedMatches).toHaveLength(2);
@@ -197,7 +192,6 @@ describe("Agent Knowledge search fallback", () => {
     record(store, root, "k2", { title: "Cider barrel racking", archived: true });
     record(store, root, "k3", { title: "Mulch around young trees" });
 
-    // One archived record holds both words, one only "cider".
     const result = search(store, { projectRoot: root, q: "cider press" });
     expect(result).toMatchObject({
       match: "none",
@@ -206,7 +200,6 @@ describe("Agent Knowledge search fallback", () => {
     });
     expect(result.hint).toContain("contain every word");
 
-    // Only partial in archived: no full count, and the hint says passing the status gives leads, not an answer.
     const partial = search(store, { projectRoot: root, q: "cider zzyzx" });
     expect(partial).toMatchObject({ match: "none", otherStatusMatches: { archived: 2 } });
     expect(partial).not.toHaveProperty("otherStatusFullMatches");
@@ -226,7 +219,6 @@ describe("Agent Knowledge search fallback", () => {
       effectiveQuery: "alpha bravo charlie delta echo foxtrot golf hotel",
     });
     expect(result.hint).toContain("first 8 words");
-    // The count was computed against the effective query, and the re-query with the status answers it.
     const archived = search(store, { projectRoot: root, q: query, status: "archived" });
     expect(archived).toMatchObject({ match: "strict", pageInfo: { total: 1 } });
     const effective = search(store, { projectRoot: root, q: result.effectiveQuery!, status: "archived" });
@@ -269,7 +261,6 @@ describe("Agent Knowledge search fallback", () => {
     expect(scoped).not.toHaveProperty("relaxedMatches");
     expect(scoped).not.toHaveProperty("otherStatusMatches");
 
-    // Unscoped, only tracked projects count; the paused project's Knowledge stays out of both lists and counts.
     const unscoped = search(store, { q: "trellis tension zzyzx" });
     expect(unscoped.relaxedMatches?.map((match) => match.title)).toEqual(["Trellis wire tension"]);
     expect(unscoped.otherStatusMatches).toEqual({ archived: 1 });

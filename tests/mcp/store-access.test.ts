@@ -12,7 +12,6 @@ function failing(code: ConstructorParameters<typeof DatabaseInitializationError>
   };
 }
 
-/** A clock the test moves by hand, so retry spacing never depends on wall-clock time. */
 function manualClock(): { now: () => number; advance: (ms: number) => void } {
   let current = 1_000_000;
   return { now: () => current, advance: (ms) => (current += ms) };

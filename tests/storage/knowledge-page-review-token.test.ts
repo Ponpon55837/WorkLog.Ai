@@ -6,12 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgePageSection } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-/*
- * A reviewToken names the last Session an Agent was shown. A save may only record a coverage point a read of that page
- * could have produced, and a save without a token never counts Sessions the Agent did not read.
- */
-
-// Fictional fixtures only.
 const SEED = 4401;
 const SEQUENCE_STEPS = 400;
 const INVALID_FIX = "work_get_knowledge_page_context";
@@ -32,7 +26,6 @@ interface TokenPayload {
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
-/** mulberry32: a small deterministic generator, so the sequence never depends on Math.random. */
 function seededRandom(seed: number): () => number {
   let state = seed >>> 0;
   return () => {

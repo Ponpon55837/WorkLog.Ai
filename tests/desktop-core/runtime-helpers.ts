@@ -15,16 +15,13 @@ import type { DesktopRuntimeFixtures } from "./runtime-global-setup.js";
 export const IS_WINDOWS = process.platform === "win32";
 /** The most a hook may pay for one extra step of the launcher: the budget of the `[hook cost]` measurement. */
 export const HOOK_BUDGET_MS = 5;
-/** The lease members of a `LauncherHost` for tests whose subject is not the lease: they do nothing. */
 export const INERT_LEASE_HOST = {
   acquireLease: () => ({ refresh: () => undefined, remove: () => undefined }),
   onExit: () => undefined,
   startHeartbeat: () => undefined,
 } as const;
-/** A fake runtime executable: prints the Electron flag and its arguments, one per line (POSIX only). */
 const FAKE_EXECUTABLE = '#!/bin/sh\nprintf \'%s\\n\' "${ELECTRON_RUN_AS_NODE-unset}${ELECTRON_NO_ASAR-unset}" "$@"\n';
 
-/** Files of a small fake runtime; sizes and contents are arbitrary. */
 export const FIXTURE_FILES: Readonly<Record<string, string>> = {
   "node/bin/node": FAKE_EXECUTABLE,
   "launcher.mjs": "// launcher\n",
@@ -49,7 +46,6 @@ export function fixtureDefinition(runtimeId: string, runtimeKind: RuntimeKind = 
   };
 }
 
-/** What `runtime-global-setup.ts` provided: the locked parent of every launcher root. */
 function fixtures(): DesktopRuntimeFixtures {
   const provided = inject("desktopRuntimeFixtures");
   if (provided === undefined) {
@@ -60,28 +56,19 @@ function fixtures(): DesktopRuntimeFixtures {
   return provided;
 }
 
-/**
- * A fresh launcher root inside the run's shared parent, which the global setup locked like the App's real root (once, so
- * no test pays `icacls`); the root inherits that ACL.
- */
+/** Inherits the ACL the global setup locked once, so no test pays `icacls`. */
 export async function makeRoot(label = "desktop-runtime"): Promise<string> {
   return fs.mkdtemp(path.join(fixtures().parent, `${label} 測試-`));
 }
 
-/** A synthetic user SID and the descriptor the App gives its launcher root: owner and full control for that user, SYSTEM and Administrators only. */
 const FIXTURE_USER_SID = "S-1-5-21-1111111111-2222222222-3333333333-1001";
 const FIXTURE_SDDL = `O:${FIXTURE_USER_SID}G:DUD:PAI(A;OICI;FA;;;${FIXTURE_USER_SID})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`;
 
-/**
- * For tests whose subject is not the ACL check: on Windows, a reader that answers every path with the synthetic locked
- * descriptor, so no test (and no setup) starts PowerShell and none depends on the machine's language mode. Undefined
- * elsewhere, where no reader is used. The real reader and the ACL check are tested in runtime-windows-acl.test.ts.
- */
+/** Windows only: answers every path with the synthetic locked descriptor, so no test starts PowerShell. */
 const inheritedAclReader: WindowsAclReader | undefined = IS_WINDOWS
   ? { read: async (paths) => ({ currentUserSid: FIXTURE_USER_SID, sddls: paths.map(() => FIXTURE_SDDL) }) }
   : undefined;
 
-/** `{ aclReader }` on Windows, `{}` elsewhere: spread it into the options of `installRuntime`, `commitCurrent` and `verifyRuntime`. */
 export const fixtureAcl: { readonly aclReader?: WindowsAclReader } =
   inheritedAclReader === undefined ? {} : { aclReader: inheritedAclReader };
 
@@ -93,7 +80,6 @@ export async function writeFiles(directory: string, files: Readonly<Record<strin
   }
 }
 
-/** Copies the fixture files into `runtimes/<id>/` without installing. */
 export async function stageFixture(
   root: string,
   runtimeId: string,
@@ -104,7 +90,6 @@ export async function stageFixture(
   return directory;
 }
 
-/** Stages and installs the fixture runtime; with `commit` also points `current` at it. Windows ACLs come from {@link fixtureAcl}. */
 export async function installFixture(
   root: string,
   runtimeId = "rt-1",
@@ -121,7 +106,6 @@ export function tick(milliseconds = 25): Promise<void> {
   return new Promise((done) => setTimeout(done, milliseconds));
 }
 
-/** Flips one bit of the first byte, keeping the size. */
 export async function flipFirstByte(file: string): Promise<void> {
   const content = await fs.readFile(file);
   content[0] = (content[0] as number) ^ 0x01;

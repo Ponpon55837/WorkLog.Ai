@@ -5,7 +5,6 @@ import type { KnowledgePageRecord } from "@work-intelligence/core";
 import KnowledgePagePanel from "../../../apps/web/src/components/domain/KnowledgePagePanel.vue";
 import { loadCatalog, locale, t } from "../../../apps/web/src/i18n/index.js";
 
-// Fictional fixtures only.
 const openPage = ref<KnowledgePageRecord | null>(null);
 
 // The side panel shell traps focus through `document`; a plain wrapper renders its slots on the server.

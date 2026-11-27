@@ -171,7 +171,6 @@ describe("graceful API shutdown", () => {
         expect(closeDatabase).not.toHaveBeenCalled();
         releaseBackgroundWork();
         await databaseCloseComplete;
-        // The returned promise settles only after the database closed, and every caller shares the same run.
         await shutdown();
         expect(closeDatabase).toHaveBeenCalledTimes(1);
         expect(databaseClosed).toBe(true);

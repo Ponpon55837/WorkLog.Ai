@@ -114,7 +114,6 @@ describe("UsageCache persistence", () => {
 
   it("swallows a failed save and leaves no temporary file", async () => {
     const { log, cacheFile } = freshPaths();
-    // The cache file's parent is a regular file, so creating the directory fails.
     const cache = new UsageCache({ file: join(cacheFile, "inner", "cache.json") });
     await summarizeFiles([log], { cache });
     await expect(cache.save()).resolves.toBeUndefined();

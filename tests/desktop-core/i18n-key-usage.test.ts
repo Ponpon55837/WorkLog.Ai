@@ -2,10 +2,6 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-/**
- * Every message key declared by a desktop-core `*-i18n.ts` file is used by product code outside the i18n files, so a
- * string nobody shows cannot sit in both languages unnoticed.
- */
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const SHELL = path.join(ROOT, "packages/desktop-core/src/shell");
 const PRODUCT_DIRECTORIES = ["packages/desktop-core/src", "apps/desktop/src"];
@@ -30,14 +26,12 @@ const i18nFiles = readdirSync(SHELL)
   .map((name) => path.join(SHELL, name));
 
 const productSources = PRODUCT_DIRECTORIES.flatMap((directory) => productFiles(path.join(ROOT, directory)));
-/** Code that reads messages: everything outside the i18n files, plus the i18n files' own helpers (property reads only). */
 const usage = productSources
   .filter((file) => !i18nFiles.includes(file))
   .map(code)
   .join("\n");
 const helperUsage = i18nFiles.map(code).join("\n");
 
-/** The members of every `interface …Messages` block (nested ones included), by name. */
 function declaredKeys(file: string): string[] {
   const keys = new Set<string>();
   for (const block of readFileSync(file, "utf8").matchAll(/export interface \w+ \{([\s\S]*?)\n\}/g)) {

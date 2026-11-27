@@ -15,11 +15,6 @@ import {
 } from "../../packages/desktop-core/src/agents/observations.js";
 import { createAgentsPage } from "../../apps/desktop/src/main/agents.js";
 
-/**
- * The Agent cards read what the MCP server recorded in `agent-observations.json` (the same config directory the server
- * writes) and compare it with the fingerprint the installed runtime ships. Everything here is synthetic.
- */
-
 const CURRENT = "a".repeat(64);
 const OLD = "b".repeat(64);
 const RUNTIME_ID = "runtime-1";
@@ -91,7 +86,6 @@ beforeEach(() => {
   vi.stubEnv("CODEX_HOME", "");
   vi.stubEnv("CLAUDE_CONFIG_DIR", "");
   vi.stubEnv("WORK_INTELLIGENCE_CONFIG_DIR", configDirectory);
-  // Both Agents registered with the App's launcher, as the App writes it.
   const shim = launcherShimPath(runtimeRoot, process.platform);
   mkdirSync(join(runtimeRoot, "bin"), { recursive: true });
   writeFileSync(shim, "#!/bin/sh\n", { mode: 0o755 });

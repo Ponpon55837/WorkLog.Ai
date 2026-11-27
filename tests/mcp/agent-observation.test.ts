@@ -24,7 +24,6 @@ function temporaryDirectory(): string {
   return directory;
 }
 
-/** A host session over an in-memory transport: initialize, then tools/list, like a real Agent. */
 async function hostSession(
   directory: string,
   clientName: string,
@@ -188,7 +187,6 @@ describe("AgentObservationRecorder", () => {
 
   it("removes its temporary file when the rename fails", async () => {
     const directory = temporaryDirectory();
-    // A directory where the file belongs: the rename onto it fails after the temporary file was written.
     mkdirSync(join(directory, AGENT_OBSERVATIONS_FILE));
     const errors: unknown[] = [];
 
@@ -211,7 +209,6 @@ describe("AgentObservationRecorder", () => {
 });
 
 describe("the built MCP process", () => {
-  /** Sends initialize and tools/list over stdio like a host, and returns what the process wrote to stdout and stderr. */
   async function runSession(
     clientName: string,
     environment: Record<string, string>,

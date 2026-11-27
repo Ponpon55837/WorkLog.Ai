@@ -7,35 +7,7 @@ import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/sto
 import { afterEach, describe, expect, it } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 
-/*
- * What an Agent must read before its first useful call: the server instructions, tools/list, the core skill, the
- * operation index, and the contracts of work_get_context and work_finalize_session. Before the core was split
- * from its on-demand guides (v1.6.22) this path was 63,209 UTF-16 code units; each flow guide is read only when
- * its flow starts. 1.6.32 raised the fixed budget from 41,500 to 42,250: two new operations in the index
- * (work_resolve_outstanding_items, work_request_outstanding_cleanup), linkedSessionIds and appliesTo path matching
- * in work_get_context, and the start-time rules of work_finalize_session add about 2,250 units after the wording
- * they duplicated was removed; the core skill budget is unchanged.
- *
- * 1.6.78 moved wording that the server now enforces or that the finalize receipt now carries (per-id outstanding
- * reasons, timestamp and Knowledge-review hints, unclosed <private> warnings, rejected self-contradicting requests,
- * wrong-dispatcher errors that name the right one) out of the fixed reading, and removed the "→ dispatcher" half of
- * the operation index. Measured before → after: instructions 1,934 → 1,668; tools/list 4,476 → 4,356; core skill
- * 13,918 → 10,517; operation index 4,774 → 3,665; work_get_context contract 4,803 → 3,052; work_finalize_session
- * contract 12,339 → 10,349; fixed total 42,244 → 33,607. The format document (8,083) and the knowledge guide
- * (8,987, the largest) are unchanged, so their limits stay; core + format + largest guide went 30,988 → 27,587.
- * Each lowered limit is the new measured value plus about 10%.
- *
- * 1.6.78 second pass (Issue #440 step 4) cut the finalize contract and schema descriptions (rules the server rejects
- * or the receipt reports are not restated), the core skill (the dispatcher paragraph and the finalize steps that the
- * contracts carry), the context contract and the index header. Measured before → after: core skill 10,517 → 8,871;
- * operation index 3,665 → 3,414; work_get_context contract 3,052 → 2,782; work_finalize_session contract
- * 10,349 → 8,875; fixed total 33,607 → 29,966 (instructions and tools/list unchanged); core + format + largest guide
- * 27,587 → 25,941. The limits above were lowered again to measured plus about 10%.
- *
- * The A/B then showed Agents inspecting an untracked folder before the tracking check in both arms, so the
- * context-first sentence of the instructions names what must wait (git, listing, search, file reads): instructions
- * 1,668 → 1,801, fixed total 29,966 → 30,099. The limits already cover it.
- */
+// Budgets are the measured fixed reading in UTF-16 code units plus about 10%; lower them whenever the contracts or skills shrink.
 const CORE_SKILL_CHARACTER_BUDGET = 9_700;
 const FIXED_READING_CHARACTER_BUDGET = 32_900;
 const FORMAT_RESOURCE_CHARACTER_BUDGET = 8_500;
@@ -53,7 +25,6 @@ const GUIDES = readdirSync(join(SKILL_DIRECTORY, "references"))
   .filter((name) => name.endsWith(".md"))
   .map((name) => name.slice(0, -".md".length))
   .sort();
-/** What each stage reads beyond the fixed reading, reported only: contracts by operation, other resources by URI. */
 const STAGE_READING = {
   startCommon: ["work_get_file_history", "work_recall"],
   finalizeFollowUps: [
@@ -96,10 +67,6 @@ const STAGE_READING = {
   readingRecords: [`${GUIDE_URI_PREFIX}reading-records.md`, "work_get_session", "work_recall"],
 } as const;
 
-/**
- * Rules every session needs, so the core must state them itself rather than point elsewhere. Each phrase is checked
- * with whitespace collapsed; a reworded rule must update this list in the same change.
- */
 const CORE_RULES = [
   "Project recording is explicit opt-in and default-deny.",
   "A project must be `tracked` before any project-scoped source, handoff, Git/worktree, or evidence inspection or write.",
@@ -222,7 +189,6 @@ describe("Agent reading before the first useful call", () => {
   it("states every core rule in the core skill itself", () => {
     const core = collapse(readFileSync(join(SKILL_DIRECTORY, "SKILL.md"), "utf8"));
     for (const rule of CORE_RULES) expect(core, rule).toContain(collapse(rule));
-    // Privacy comes first: the policy section precedes every workflow section.
     expect(core.indexOf("## Privacy and project policy")).toBeLessThan(core.indexOf("## Start of work"));
     expect(core.indexOf("## Privacy and project policy")).toBeLessThan(
       core.indexOf("## Finalize a completed work session"),
@@ -255,7 +221,6 @@ describe("Agent reading before the first useful call", () => {
       const file = readFileSync(join(SKILL_DIRECTORY, "references", `${guide}.md`), "utf8");
       expect(listed.has(uri), uri).toBe(true);
       expect(await readText(client, uri)).toBe(file);
-      // Each guide leads back to the core, whose rules it does not repeat.
       expect(file).toContain("](../SKILL.md)");
     }
   });
@@ -286,7 +251,6 @@ describe("Agent reading before the first useful call", () => {
       }
     }
 
-    // Relative Markdown links in the guides and the format document resolve inside the repository.
     const documents = [
       join(repositoryRoot, "docs/work-record-and-report-format.md"),
       ...GUIDES.map((guide) => join(SKILL_DIRECTORY, "references", `${guide}.md`)),

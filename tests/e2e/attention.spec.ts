@@ -143,7 +143,6 @@ test("opens the exact Knowledge source despite duplicate titles, then restores n
 }) => {
   await page.goto(`/dashboard?attentionProject=${fixture.projectId}&attentionKind=knowledge`);
   const box = page.getByTestId("attention-box");
-  // The source ID, rather than title or row position, determines the destination.
   await box.locator(`a[href*="knowledge=${fixture.knowledgeId}"]`).click();
   const panel = page.getByRole("dialog", { name: tt("knowledge.knowledgeChangeHistory") });
   await expect(panel).toBeVisible();

@@ -52,7 +52,6 @@ function readRecords(directory: string): Array<Record<string, unknown>> {
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
-/** Runs the child while this process holds the write lock for LOCK_HOLD_MS, so the child's BEGIN IMMEDIATE waits. */
 async function runChildBehindLock(timingEnabled: boolean): Promise<ChildRun> {
   const directory = createDirectory();
   const databasePath = join(directory, "timing.sqlite");
@@ -128,7 +127,6 @@ describe("sqlite timing hook", () => {
     });
     expect(JSON.stringify(records)).not.toContain("secret-parameter-value");
 
-    // Wall-clock start and the database's last two path segments line records up across processes.
     const databaseLabel = `${basename(directory)}/timing.sqlite`;
     expect(begin).toMatchObject({ db: databaseLabel, at: expect.any(Number) });
     expect(Math.abs((begin?.at as number) - Date.now())).toBeLessThan(60_000);
@@ -141,7 +139,6 @@ describe("sqlite timing hook", () => {
     for (const transaction of transactions) expect(transaction.ms as number).toBeGreaterThanOrEqual(140);
     expect(records.find((record) => record.kind === "checkpoint")).toMatchObject({ db: databaseLabel });
 
-    // The report names the wait; its holder (this test process) is not instrumented, so it says so.
     const report = sqliteTimingReport(records).join("\n");
     expect(report).toContain("BEGIN IMMEDIATE waits (>= 1 s): 1");
     expect(report).toContain(`db=${databaseLabel}`);
@@ -289,10 +286,8 @@ describe("sqlite timing hook", () => {
       "[sqlite timing report] waits with an inferred holder: 0; not inferred: 1",
     ]);
 
-    // A writing transaction and a writer-blocking checkpoint over the same wait are named; the reader still is not.
     const writer = { ...reader, pid: 7, role: "writer-0", write: true, ms: 800, at: at + 1000 };
     const truncate = { ...passive, mode: "TRUNCATE", pid: 8, role: "checkpointer", ms: 2000, at: at + 3000 };
-    // A checkpoint that failed may never have had the lock, so it is not named either.
     const failedRestart = { ...truncate, mode: "RESTART", pid: 9, failed: true };
     const holderLines = sqliteTimingReport([wait, reader, passive, writer, truncate, failedRestart]).filter((line) =>
       line.includes("holder?"),

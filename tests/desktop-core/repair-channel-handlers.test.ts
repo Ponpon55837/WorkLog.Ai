@@ -2,7 +2,6 @@ import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { REPAIR_CHANNELS } from "../../packages/desktop-core/src/index.js";
 
-/** Every repair channel has exactly one handler in main (the two pushed to the page excepted), and the preload exposes it. */
 const PUSHED_TO_PAGE = new Set(["selectTab", "updateChanged"]);
 const ipc = readFileSync(new URL("../../apps/desktop/src/main/ipc.ts", import.meta.url), "utf8");
 const preload = readFileSync(new URL("../../apps/desktop/src/preload/repair.ts", import.meta.url), "utf8");
@@ -13,7 +12,6 @@ const renderer = readdirSync(rendererDir)
   .map((name) => readFileSync(new URL(name, rendererDir), "utf8"))
   .join("\n");
 
-// The preload's `api` object: method name -> the channel key it forwards to.
 const apiBody = preload.slice(preload.indexOf("const api: RepairApi"));
 const methodChannel = new Map<string, string>();
 for (const chunk of apiBody.split(/\n {2}(?=\w+: )/).slice(1)) {

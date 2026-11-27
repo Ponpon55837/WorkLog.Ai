@@ -7,11 +7,6 @@ import { transferRoot } from "../../apps/server/src/transfer-workspace.js";
 import { BarrierSandbox, freePort, REPOSITORY_ROOT, type Waiter } from "../helpers/old-writer-barrier.js";
 import { writeImportRequest, writeSyntheticProjectExport } from "../helpers/synthetic-project-export.js";
 
-// Fictional data only. The API process (a real desktop child, the way the App runs it) is killed while its background
-// child writes a large import. The background child does not see the parent go until its one import transaction has
-// ended, so the import lands whole (or, had it failed, not at all): never in part. The upload directory the dead API
-// could not remove is left for the start-up sweep, which removes it once it is older than an hour.
-
 const ENTRY = "tests/helpers/desktop-child-entry.ts";
 const RUN_ID = "synthetic-run-id-0123456789abcdef-killapi";
 // The export holds the 2,000 generated Sessions and the one template Session they are made from.
@@ -38,7 +33,6 @@ function counts(databasePath: string): { sessions: number; projects: number; int
   }
 }
 
-/** True while another connection holds the database's write lock; never waits for it and never keeps it. */
 function writeLockHeld(probe: DatabaseSync): boolean {
   try {
     probe.exec("BEGIN IMMEDIATE");
@@ -131,7 +125,6 @@ describe("the API process killed in the middle of an import", () => {
       await child.exited;
       expect(await request).toBe("connection lost");
 
-      // The background child ends its transaction, then sees its parent gone and exits; the lock is released.
       await until(() => !writeLockHeld(probe), "the orphaned import to release the write lock");
     } finally {
       probe.close();
@@ -143,8 +136,7 @@ describe("the API process killed in the middle of an import", () => {
     const none = { sessions: before.sessions, projects: before.projects };
     expect([whole, none]).toContainEqual({ sessions: after.sessions, projects: after.projects });
 
-    // The dead API could not remove its upload. A start more than an hour later (the directories are backdated)
-    // removes it, and the API serves again.
+    // The dead API could not remove its upload; a start more than an hour later (the directories are backdated) does.
     const root = transferRoot(sandbox.databasePath);
     const left = transferDirectories(root);
     expect(left).toHaveLength(1);

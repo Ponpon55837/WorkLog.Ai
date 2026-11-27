@@ -90,7 +90,6 @@ describe("MCP passive read audit", () => {
 
     const recall = await call(client, "work_read", "work_recall", { projectRoot: root, q: "lantern" });
     const detail = await call(client, "work_read", "work_get_session", { sessionId });
-    // The two shapes differ: a Session detail also carries structuredContent, a recall carries text only.
     expect(recall.structuredContent).toBeUndefined();
     expect(detail.structuredContent).toBeDefined();
 
@@ -133,7 +132,6 @@ describe("MCP passive read audit", () => {
       outcome: "session_unchanged",
       session: { id: sessionId, revision: body.session.revision },
     });
-    // structuredContent says everything the text says, plus the flat identity fields.
     expect(unchanged.structuredContent).toEqual({
       ...JSON.parse((unchanged.content as Array<{ text: string }>)[0]!.text),
       sessionId,

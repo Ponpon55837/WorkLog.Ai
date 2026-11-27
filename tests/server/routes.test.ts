@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Router, apiRoutes, type Route } from "../../apps/server/src/routes/index.js";
 
-// The complete REST surface. A route added or removed without updating this list (and docs/rest-api.md) fails here.
 const EXPECTED_ROUTES = [
   "GET /api/usage/projects",
   "POST /api/usage/scan",

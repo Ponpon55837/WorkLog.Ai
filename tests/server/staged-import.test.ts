@@ -35,7 +35,6 @@ function tempRoot(): string {
   return root;
 }
 
-/** A source database with two synthetic projects and one Session each, and its full export as JSON text. */
 function syntheticExport(root: string): string {
   const source = new WorkIntelligenceStore(":memory:");
   stores.push(source);
@@ -187,7 +186,6 @@ describe("a client that leaves while its upload is inspected", () => {
     outgoing.on("error", () => undefined);
     outgoing.end(syntheticExport(root));
     await inspecting;
-    // The whole body is in and the file is being inspected; now the client goes away.
     outgoing.destroy();
     await new Promise((resolve) => setTimeout(resolve, 100));
     release();
@@ -312,7 +310,6 @@ describe("StagedImports", () => {
     const third = staged.reserve();
     expect(existsSync(first.directory)).toBe(false);
     expect(existsSync(second.directory)).toBe(true);
-    // The third is still uploading (in use), and the second is now read by a preview.
     let release!: () => void;
     const running = staged.use(second.id, {}, () => new Promise<void>((resolve) => (release = resolve)));
     expect(() => staged.reserve()).toThrow(STAGED_IMPORT_BUSY_MESSAGE);
@@ -359,7 +356,6 @@ describe("staged import over HTTP", () => {
     expect(imported.status).toBe(200);
     expect(imported.body.changed).toBe(true);
     expect(store.listProjects().map((project) => project.name)).toEqual(["Staged alpha"]);
-    // Imported: the staged file is gone and the id no longer works.
     expect(stagedDirectories(transferRoot)).toEqual([]);
     const again = await post<{ code: string; error: string }>(baseUrl, `/api/import/staged/${id}/preview`, {});
     expect(again).toEqual({

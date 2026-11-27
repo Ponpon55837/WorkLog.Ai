@@ -29,7 +29,6 @@ const SKILL = JSON.stringify({
   method: "resources/read",
   params: { uri: "work-intelligence://agent/work-intelligence/SKILL.md" },
 });
-/** The core skill's on-demand guides, as the bundle must serve them. */
 const SKILL_GUIDES = readdirSync(join(repositoryRoot, ".agents/skills/work-intelligence/references"))
   .filter((name) => name.endsWith(".md"))
   .sort()
@@ -67,7 +66,6 @@ function environmentFor(home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.Pro
   };
 }
 
-/** Runs the copied plugin's MCP server through its launcher and returns the JSON-RPC responses by id. */
 function talkToPlugin(pluginRoot: string, home: string, extra: NodeJS.ProcessEnv = {}) {
   const result = spawnSync(process.execPath, [join(pluginRoot, "scripts/launch.mjs"), "mcp"], {
     input: `${[
@@ -126,7 +124,6 @@ describe("pnpm build:plugin", () => {
     ).toBe(readFileSync(join(repositoryRoot, ".agents/skills/work-intelligence/SKILL.md"), "utf8"));
     for (const guide of SKILL_GUIDES) {
       const canonical = readFileSync(join(repositoryRoot, ".agents/skills/work-intelligence", guide), "utf8");
-      // The plugin's skill folder ships each guide beside SKILL.md for clients that load the skill without MCP.
       expect(readFileSync(join(output, "work-intelligence/skills/work-intelligence", guide), "utf8")).toBe(canonical);
       expect(
         readFileSync(join(output, "work-intelligence/server/.agents/skills/work-intelligence", guide), "utf8"),
@@ -135,7 +132,6 @@ describe("pnpm build:plugin", () => {
     const extension = readFileSync(join(output, `work-intelligence-${version}.mcpb`));
     for (const name of [
       "manifest.json",
-      // The start script that prefers the desktop App's launcher, and the reader it needs.
       "scripts/launch.mjs",
       "scripts/desktop-integration.mjs",
       "server/apps/mcp/dist/index.js",
@@ -214,7 +210,6 @@ describe("pnpm build:plugin", () => {
       // Whatever umask the runner has, nobody but the owner may write what the launcher trusts.
       for (const trusted of [runtimeRoot, dirname(shim), join(home, ".work-intelligence")]) chmodSync(trusted, 0o755);
       chmodSync(join(home, ".work-intelligence/desktop-integration.json"), 0o644);
-      // The launcher is used only when its runtime is ready: the shim reads these files.
       expect(start().stdout).toContain('"serverInfo"');
       const runtime = join(runtimeRoot, "runtimes/r1");
       mkdirSync(runtime, { recursive: true });

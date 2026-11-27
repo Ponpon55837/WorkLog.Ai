@@ -25,7 +25,6 @@ describe("timeline layout", () => {
     // b, c, and d all overlap at 12, so three rows are needed; e reuses the row d frees at 13.
     expect(rows).toBe(3);
     expect(Object.fromEntries(items.map((item) => [item.id, item.row]))).toEqual({ a: 0, b: 1, c: 0, d: 2, e: 2 });
-    // A gap keeps bars that touch apart.
     expect(
       packRows(
         [
@@ -58,7 +57,6 @@ describe("timeline layout", () => {
   it("keeps ordering stable for many bars that end at different times", () => {
     const bars = Array.from({ length: 50 }, (_, index) => ({ start: index, end: index + (index % 7) + 1 }));
     const { items, rows } = packRows(bars);
-    // No two bars in one row overlap.
     const byRow = new Map<number, Array<{ start: number; end: number }>>();
     for (const item of items) byRow.set(item.row, [...(byRow.get(item.row) ?? []), item]);
     for (const row of byRow.values()) {

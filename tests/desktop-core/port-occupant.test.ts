@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isSameDatabaseServer } from "../../packages/desktop-core/src/shell/port-occupant.js";
 
-// Synthetic status bodies and paths only; nothing listens on a real port here.
 const DB = "/synthetic/data/work.sqlite";
 const status = (path: unknown, version: unknown = "1.6.61") => ({ version, database: { path } });
 const probe = (body: unknown, extra: Partial<Parameters<typeof isSameDatabaseServer>[0]> = {}) =>

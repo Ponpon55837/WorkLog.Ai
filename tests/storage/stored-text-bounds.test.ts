@@ -29,8 +29,6 @@ import {
 } from "../../packages/storage/src/list-search-scan.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional data only. Each case builds the largest stored data the write limits allow (or a hand-written row above
-// them) with the most expensive caller input, and checks deterministic counters, never time.
 const ENTRY = "a".repeat(1_000);
 /** 30 entries of 1,000 characters; the last ends with every near-miss word's tail, so each word matches only there. */
 const MAX_APPLIES_TO = JSON.stringify(
@@ -120,7 +118,6 @@ describe("list search terms", () => {
       expect.stringContaining("Search word 2 is longer than 200 characters"),
       expect.stringContaining("3 more were ignored"),
     ]);
-    // Ordinary queries (2-6 short words, paths) are unchanged and warn about nothing.
     expect(parseListSearchTerms('report "time zone" packages/storage/src/search-repository.ts')).toEqual({
       terms: ["report", "time zone", "packages/storage/src/search-repository.ts"],
       warnings: [],
@@ -134,7 +131,6 @@ describe("Knowledge list search", () => {
     for (let index = 0; index < 12; index += 1) recordKnowledge(store, root, `k${index}`);
     db.prepare("UPDATE knowledge SET body = ?, applies_to_json = ?").run("a".repeat(20_000), MAX_APPLIES_TO);
     const scans = probe();
-    // Every word matches only at the end of appliesTo, so SQLite reads every row once per word.
     const result = store.searchKnowledge({ projectRoot: root, q: NEAR_MISS_QUERY });
     expect(result).toMatchObject({ outcome: "knowledge", pageInfo: { total: 12 } });
     expect(result.outcome === "knowledge" && result.warnings).toBeFalsy();
@@ -147,9 +143,7 @@ describe("Knowledge list search", () => {
       bytesCharged: bytes * MAX_LIST_SEARCH_TERMS,
     });
     expect(scan!.charged).toBe((bytes + rows) * MAX_LIST_SEARCH_TERMS);
-    // Every row is within the per-row cap, which is above the largest row the write limits allow.
     expect(bytes / rows).toBeLessThan(KNOWLEDGE_SEARCH_ROW_BYTES);
-    // A row the first word rules out is charged once, not once per word.
     const missing = probe();
     store.searchKnowledge({ projectRoot: root, q: `zzz ${NEAR_MISS_QUERY}` });
     expect(missing.scans[0]).toMatchObject({ rowsCharged: rows, charged: bytes + rows });
@@ -159,7 +153,6 @@ describe("Knowledge list search", () => {
     const { store, root, db } = trackedStore();
     const ids = Array.from({ length: 6 }, (_, index) => recordKnowledge(store, root, `k${index}`));
     db.prepare("UPDATE knowledge SET body = ?").run("needle in a short body");
-    // Two rows hold the word past a long run; the cap is set between the short and the long rows.
     db.prepare("UPDATE knowledge SET body = ? WHERE id IN (?, ?)").run(`${"a".repeat(5_000)} needle`, ids[0]!, ids[1]!);
     const scans = probe(2_000);
     const result = store.searchKnowledge({ projectRoot: root, q: "needle" });
@@ -167,7 +160,6 @@ describe("Knowledge list search", () => {
     expect(scans.scans[0]).toMatchObject({ overBound: 2, rowsCharged: 4 });
     expect(result.items.map((item) => item.id).sort()).toEqual(ids.slice(2).sort());
     expect(result.warnings).toEqual([expect.stringContaining("2 records are longer than")]);
-    // Without the lowered cap every row is searched and nothing is reported: there is no total budget.
     probe();
     expect(store.searchKnowledge({ projectRoot: root, q: "needle" })).toMatchObject({ pageInfo: { total: 6 } });
     expect(store.searchKnowledge({ projectRoot: root, q: "needle" })).not.toHaveProperty("warnings");
@@ -230,12 +222,10 @@ describe("Sessions list search", () => {
          FROM sessions`,
       )
       .get() as { rows: number; bytes: number };
-    // The first near-miss word rules every row out, after being charged for all of its text.
     const [scan] = scans.scans;
     expect(scan).toMatchObject({ overBound: 0, rowsCharged: stored.rows, bytesCharged: stored.bytes });
     expect(scan!.charged).toBe(stored.bytes + stored.rows);
 
-    // A cap below these rows: none is read, each is counted, and the answer says so.
     probe(1_000);
     expect(store.listSessionsPage({ query: "a", trackedOnly: true })).toMatchObject({
       items: [],
@@ -261,10 +251,8 @@ describe("Sessions list search, row checks", () => {
     });
     if (events.outcome !== "finalized") throw new Error("Could not finalize.");
     const scans = probe();
-    // "synthetic" is in both titles; "lease" and "token" only in the second Session's event.
     const result = store.listSessionsPage({ query: "synthetic lease token", trackedOnly: true });
     expect(result).toMatchObject({ items: [{ title: "Synthetic other" }], pageInfo: { total: 1 } });
-    // The first row reaches the events once (for "lease", then fails); the second sums them once for both words.
     expect(scans.scans[0]).toMatchObject({ rowsMeasured: 2, rowsCharged: 2, overBound: 0 });
     const columnsOnly = probe();
     store.listSessionsPage({ query: "synthetic change", trackedOnly: true });
@@ -340,7 +328,6 @@ describe("finalize knowledgeToReview", () => {
       "2026-01-01T00:00:00.000Z",
       "2026-01-01T00:00:00.000Z",
     );
-    // The oldest later Session touches every candidate; the newer ones only contain the fragment.
     finalize(store, root, "touch", ["src/lease.ts"], "2026-02-01T00:00:00.000Z");
     for (let index = 0; index < 60; index += 1) {
       finalize(
@@ -361,7 +348,6 @@ describe("finalize knowledgeToReview", () => {
       project: { name: "Synthetic Bounds", rootPath: root },
     });
     expect(result).toEqual({ hints: [], truncated: false });
-    // One pass over the 61 later Sessions, not one per candidate (40 x 61 rows before).
     expect(scans.scans).toHaveLength(1);
     expect(scans.scans[0]!.rowsCharged).toBe(61);
     expect(ids).toHaveLength(40);
@@ -445,10 +431,8 @@ describe("staleness check", () => {
     expect(store.searchKnowledge({ projectRoot: root })).toMatchObject({
       items: [{ id, possiblyStale: { sessionCount: 1 } }],
     });
-    // The history budget (the first) read every row, well under its ceiling.
     expect(budgets[0]!.exhausted).toBe(false);
     expect(budgets[0]!.units * 10).toBeLessThanOrEqual(STALENESS_HISTORY_UNIT_LIMIT);
-    // A later list above the load bound cannot be read: the record is unchecked, not reported current.
     db.prepare("UPDATE sessions SET changed_files_json = ? WHERE id = 'copy-0'").run(
       JSON.stringify([`src/${"x".repeat(MAX_STORED_CHANGED_FILES_JSON_BYTES)}`]),
     );
@@ -511,7 +495,6 @@ describe("related pending items", () => {
     const cut = rankRelatedPendingWithin(candidates, focus, perCandidate * 3.5);
     expect(cut).toMatchObject({ exhausted: true });
     expect(cut.units).toBeLessThanOrEqual(perCandidate * 3.5);
-    // Ordinary candidates rank exactly as before.
     const ordinary = [
       { ...candidates[0]!, text_key: "fix the lease renewal", changed_files_json: '["src/lease.ts"]' },
       { ...candidates[1]!, text_key: "update docs", changed_files_json: "[]" },

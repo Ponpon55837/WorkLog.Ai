@@ -1,6 +1,5 @@
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-/** Synthetic base versions for storage, API and migration regressions. */
 export function seedReportPresentation(store: WorkIntelligenceStore, root: string, global = false) {
   const project = store.addProject("Fictional report orchard", root);
   store.updateProject(project.id, { status: "tracked" });

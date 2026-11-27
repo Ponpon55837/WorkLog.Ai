@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-/**
- * The desktop-managed window never shows a command (M-15). The web tests run without a DOM, so the guard is structural:
- * the command and its copy button of the Agent hint and of the first-run checklist sit only behind a "not desktop-managed"
- * condition, and the desktop branch has its own command-free sentence in both languages.
- */
-
 const SOURCES = import.meta.glob(
   [
     "../../../apps/web/src/views/SystemStatusView.vue",
@@ -35,7 +29,6 @@ describe("desktop-managed pages show no command", () => {
     const desktopMarkup = statusView.slice(desktopBranch, commandBranch);
     expect(desktopMarkup).toContain("agentsInOtherProjectsNeedDesktop");
     expect(desktopMarkup).not.toMatch(/SETUP_COMMAND|UiCopyButton|copyCommand/);
-    // The command is only ever rendered in the branch that follows.
     expect(statusView.indexOf("<code>{{ SETUP_COMMAND }}</code>")).toBeGreaterThan(commandBranch);
     expect(statusView.indexOf(':text="SETUP_COMMAND"')).toBeGreaterThan(commandBranch);
   });
@@ -73,10 +66,6 @@ describe("desktop-managed pages show no command", () => {
   });
 });
 
-/**
- * Every file under apps/web/src, not only the four above: anything that can show a shell command must be a known spot
- * that the tests above gate on desktop-managed mode. A new spot fails here until it is reviewed and registered.
- */
 const ALL_SOURCES = import.meta.glob(["../../../apps/web/src/**/*.{vue,ts}", "!../../../apps/web/src/**/*.d.ts"], {
   query: "?raw",
   import: "default",
@@ -88,7 +77,6 @@ const ALL_LOCALES = import.meta.glob("../../../apps/web/src/i18n/locales/*.json"
   eager: true,
 }) as Record<string, string>;
 
-/** Files that render a command or its copy button, each gated above (or showing an Agent prompt, not a shell command). */
 const COMMAND_SPOTS = new Set([
   "components/ui/UiCommandBlock.vue",
   "components/ui/UiCopyButton.vue",
@@ -99,7 +87,6 @@ const COMMAND_SPOTS = new Set([
   "views/SystemStatusView.vue",
   "views/UiShowcaseView.vue",
 ]);
-/** Locale keys that hold a shell command, each reached only through a desktop-managed branch above. */
 const COMMAND_KEYS = new Set([
   "projects.pnpmDbRestoreExportFile",
   "systemStatus.localServiceDatabaseBackupMaintenance",

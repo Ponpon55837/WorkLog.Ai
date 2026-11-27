@@ -7,8 +7,6 @@ import type { FinalizeSessionInput } from "../../packages/core/src/index.js";
 import { ftsTermExpression } from "../../packages/storage/src/search-text.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only. Each oracle below is the implementation a read path had before it was made cheaper; the
-// current code must return exactly the same output for the same database.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 const FIXED_NOW = new Date("2026-06-01T08:00:00.000Z");
@@ -95,10 +93,6 @@ function finalize(
   return result.session.id;
 }
 
-/**
- * Two tracked projects and one paused project. Sessions mix the fixture words so single-term, multi-term, zero-hit,
- * prefix, CJK, synonym, and raw-handoff matches all occur, and several Sessions share one completion time.
- */
 function seedCorpus(): { store: WorkIntelligenceStore; databasePath: string; roots: string[] } {
   const directory = tempDir();
   const databasePath = join(directory, "corpus.sqlite");
@@ -111,7 +105,6 @@ function seedCorpus(): { store: WorkIntelligenceStore; databasePath: string; roo
     const root = roots[index % 2]!;
     const first = WORDS[index % WORDS.length]!;
     const second = WORDS[(index * 3 + 1) % WORDS.length]!;
-    // Every fourth Session repeats the previous completion time, so ties are ranked by the later keys.
     if (index % 4 !== 0) vi.setSystemTime(new Date(Date.UTC(2026, 2, 1 + index, 9)));
     finalize(store, root, `corpus-${index}`, {
       title: `${first} ${second} ${index % 5 === 0 ? CJK[index % CJK.length] : "maintenance"}`,
@@ -146,7 +139,6 @@ function seedCorpus(): { store: WorkIntelligenceStore; databasePath: string; roo
   return { store, databasePath, roots };
 }
 
-/** The candidate read before per-term counts: one MATCH per term returning every rowid, then the OR query. */
 function originalScoreTerms(
   this: SearchIndexInternals,
   terms: string[],
@@ -290,7 +282,6 @@ describe("batched search index sync", () => {
     const { store, databasePath } = seedCorpus();
     store.recall({ q: "kiln", limit: 1 });
     const db = searchIndexOf(store).db;
-    // A bulk change: every document dirty, some of them edited, one voided Session that must lose its rows.
     db.exec(`
       UPDATE sessions SET title = title || ' beacon' WHERE rowid % 3 = 0;
       UPDATE sessions SET voided_at = '2026-05-01T00:00:00.000Z' WHERE rowid = 5;
@@ -305,7 +296,6 @@ describe("batched search index sync", () => {
     openStore(databasePath).search("kiln");
     const original = openStore(originalPath);
     const index = searchIndexOf(original);
-    // The removal before batching: each dirty document's FTS rows, chunks, and paths, one document at a time.
     index.removeDirtyDocuments = function (this: SearchIndexInternals, statements: unknown) {
       const dirty = this.db.prepare("SELECT doc_type, doc_id FROM search_dirty").all() as Array<{
         doc_type: string;
@@ -353,7 +343,6 @@ describe("Session list text query in one scan", () => {
       { query: "routing", voided: "include" as const, from: "2026-03-05", to: "2026-03-25", page: 1, pageSize: 4 },
     ];
     const results = cases.map((options) => store.listSessionsPage(options));
-    // The original two reads: COUNT for the total, then the page with LIMIT/OFFSET over the same filter.
     sessions.listTextQueryPage = function (
       this: {
         buildPageInfo: (

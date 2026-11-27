@@ -6,7 +6,6 @@ import type { GraphEdge, GraphNode } from "../../packages/core/src/index.js";
 import { coChangedEdges, shortestPath } from "../../packages/storage/src/graph-derivation.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 

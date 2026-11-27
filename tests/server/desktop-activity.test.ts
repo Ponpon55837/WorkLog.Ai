@@ -6,7 +6,6 @@ import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { BackupWorkerClient } from "../../apps/server/src/backup-worker-client.js";
 import { createApiHandler } from "../../apps/server/src/server.js";
 
-// What the desktop child reports as the backend's long jobs (the port change refuses while any runs). Synthetic data only.
 const roots: string[] = [];
 
 afterEach(() => {

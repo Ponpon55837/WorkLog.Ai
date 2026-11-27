@@ -49,7 +49,6 @@ function recordText(platform: NodeJS.Platform, change: Record<string, unknown> =
   });
 }
 
-/** A Windows record change that moves the runtime root together with the shim path derived from it. */
 function windowsRoot(runtimeRoot: string): Record<string, unknown> {
   return { runtimeRoot, launcherPath: launcherShimPath(runtimeRoot, "win32") };
 }
@@ -204,7 +203,6 @@ describe("where the record lives", () => {
     expect(integrationRecordPath({ env, homedir: home })).toBe(
       path.join(directory, "config", "desktop-integration.json"),
     );
-    // The plugin script resolves the same directory.
     for (const environment of [{}, env]) {
       expect(configDirectory(environment, home)).toBe(integrationConfigDirectory({ env: environment, homedir: home }));
     }

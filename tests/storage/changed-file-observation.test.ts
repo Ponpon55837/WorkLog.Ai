@@ -6,7 +6,6 @@ import type { FinalizeSessionInput } from "../../packages/core/src/index.js";
 import type { GitObservedChanges } from "../../packages/storage/src/git-change-observation.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 

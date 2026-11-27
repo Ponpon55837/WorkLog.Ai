@@ -1,4 +1,3 @@
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { copyFileSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,13 +12,6 @@ import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrati
 vi.mock("electron", () => ({ app: {}, dialog: { showMessageBox: vi.fn() } }));
 
 const { createApproveMigration } = await import("../../apps/desktop/src/main/approve-migration.js");
-
-/**
- * 「先備份再更新資料庫」 in main, on the committed schema-34 upgrade sample while the App is at a newer schema: one press runs a
- * fresh read-only preview, starts with the update allowed and identity pinned, and the start updates the copy and writes
- * the pre-migration backup, named after the first pending migration. A storage that refuses an update is refused before any preview or start. The backend child
- * is stood in for by the real store (the same migration and backup the child runs). Synthetic fixture only.
- */
 
 const FIXTURE_SCHEMA_VERSION = 34;
 const FIXTURE = resolve(import.meta.dirname, `../fixtures/upgrade/schema-${FIXTURE_SCHEMA_VERSION}.sqlite`);
@@ -60,7 +52,6 @@ function harness(options: { risk?: StorageRisk; known?: boolean; operation?: boo
     state: { databasePath: () => box.databasePath, locale: "en" } as never,
     supervisor: {
       running: undefined,
-      // The child's read-only preflight: the version on disk against the version this App ships.
       preview: async (path: string) => {
         events.push("preview");
         const version = schemaVersion(path);
@@ -88,7 +79,6 @@ function harness(options: { risk?: StorageRisk; known?: boolean; operation?: boo
     backend: {
       recovery: { cancel: () => events.push("cancel-retry") },
       presenter: () => ({ present: (code: string) => events.push(`present:${code}`) }),
-      // What the backend child does with the request: refuse an unapproved update, else back up and migrate.
       start: async (kind: string, override: { databasePath: string; allowSchemaMigration: boolean }) => {
         starts.push({ kind, override });
         if (schemaVersion(override.databasePath) < LATEST_SCHEMA_VERSION && !override.allowSchemaMigration) {

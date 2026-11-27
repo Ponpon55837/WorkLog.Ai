@@ -31,11 +31,7 @@ function temporaryDirectory(): string {
   return directory;
 }
 
-/**
- * A synthetic MCP server: answers initialize, tools/list, resources/list, `whoami` (its build, pid and the
- * initialize it received), `slow` (answers after a delay), `hang` (never answers) and `crash` (exits without
- * answering). With `slowLists`, tools/list and resources/list answer after 1.5 s.
- */
+/** A synthetic MCP server; with `slowLists`, tools/list and resources/list answer after 1.5 s. */
 function fakeServer(
   build: string,
   tools: string[],
@@ -125,7 +121,6 @@ function harness(
     send: (message: Record<string, unknown>) => input.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`),
     response: (id: unknown) => waitFor((message) => message.id === id),
     waitFor,
-    /** Writes a new build to disk the way `pnpm build` does, then exposes its id. */
     publish: (
       build: string | undefined,
       nextTools = tools,
@@ -165,7 +160,6 @@ describe("McpSupervisor", () => {
     expect(after).toMatchObject({ build: "B", initialize: { clientInfo: { name: "codex" } }, initialized: true });
     expect(after.pid).not.toBe(before.pid);
     expect(test.supervisor.runningBuildId()).toBe("B");
-    // The replayed initialize is answered privately; the Agent sees exactly one initialize response.
     expect(test.messages.filter((message) => (message.result as { serverInfo?: unknown })?.serverInfo)).toHaveLength(1);
     await test.waitFor((message) => message.method === "notifications/tools/list_changed");
   });
@@ -218,7 +212,6 @@ describe("McpSupervisor", () => {
     expect((await test.response(3)).result).toMatchObject({ build: "A" });
     expect(test.supervisor.runningBuildId()).toBe("A");
 
-    // A later, working build is still picked up.
     test.publish("D");
     test.send({ id: 4, method: "whoami" });
     expect((await test.response(4)).result).toMatchObject({ build: "D", initialized: true });
@@ -242,7 +235,6 @@ describe("McpSupervisor", () => {
     test.publish("B", ["work_read", "work_write"], { slowLists: true });
     test.send({ id: 2, method: "whoami" });
     expect((await test.response(2)).result).toMatchObject({ build: "B" });
-    // The new server answers the launcher's tools/list and resources/list after the 1 s wait gave up.
     await new Promise((resolve) => setTimeout(resolve, 1_800));
     expect(test.messages.filter((message) => typeof message.id === "string")).toEqual([]);
   });
@@ -268,7 +260,6 @@ describe("McpSupervisor", () => {
     test.send({ id: 3, method: "whoami" });
     expect((await test.response(3)).result).toMatchObject({ build: "A" });
 
-    // Waiting for the drain again would take another 2 s; the old build answers right away instead.
     const started = Date.now();
     test.send({ id: 4, method: "whoami" });
     expect((await test.response(4)).result).toMatchObject({ build: "A" });

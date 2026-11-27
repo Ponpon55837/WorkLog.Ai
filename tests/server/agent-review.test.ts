@@ -87,7 +87,6 @@ function finalizeDecisions(store: WorkIntelligenceStore, root: string, key: stri
   return (store.getSessionDetail(result.session.id)?.decisions ?? []).map((decision) => decision.id);
 }
 
-/** Records Knowledge naming a file, then a later Session that changed it, so the Knowledge is possibly stale. */
 function createStaleKnowledge(store: WorkIntelligenceStore, root: string, key: string): string {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-10-01T08:00:00.000Z"));

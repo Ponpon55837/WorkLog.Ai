@@ -1,4 +1,3 @@
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,11 +12,6 @@ import {
   type BackendInfo,
   type DesktopSettingsV1,
 } from "../../packages/desktop-core/src/index.js";
-
-/**
- * The fallback to the last working combination: the port is the one thing that is rolled back, only after a verified start,
- * never by changing what the user chose, and a fallback that fails too ends in repair with the original error. Synthetic data.
- */
 
 const IDENTITY = {
   realPath: "/synthetic/data/work.sqlite",
@@ -176,7 +170,6 @@ describe("the backend controller falls back to the last working port", () => {
       usedPort: GOOD,
       sameDatabase: true,
     });
-    // The user's choice is never rewritten; only the record of what runs moves.
     expect(onDisk().desired.port).toBe(WANTED);
     expect(onDisk().active).toMatchObject({ port: GOOD });
   });
@@ -201,11 +194,9 @@ describe("the backend controller falls back to the last working port", () => {
   it("does not start a second server on one database when the port is held by another Work Intelligence server", async () => {
     const { controller, state, ports } = setup({ sameDatabaseServer: true });
     expect(await controller.start("restart")).toEqual({ ok: false, code: "PORT_OCCUPIED_BY_OTHER" });
-    // Only the wanted port was tried, and the repair flow gets the original failure with no fallback note.
     expect(ports).toEqual([WANTED]);
     expect(state.owner).toBe("NEEDS_REPAIR");
     expect(state.startupFallback).toBeNull();
-    // The same holds for the starts the user asked for (a database change or a takeover).
     for (const kind of ["change-db", "takeover"] as const) {
       const asked = setup({ sameDatabaseServer: true });
       expect(await asked.controller.start(kind)).toEqual({ ok: false, code: "PORT_OCCUPIED_BY_OTHER" });
@@ -237,7 +228,6 @@ describe("the backend controller falls back to the last working port", () => {
     await controller.start("restart");
     expect(state.startupFallback).not.toBeNull();
     expect(await controller.startOnPort({ port: GOOD, from: WANTED })).toEqual({ ok: true });
-    // A start on the port the settings now name is the normal one: no fallback is reported.
     expect(state.startupFallback).toBeNull();
   });
 });

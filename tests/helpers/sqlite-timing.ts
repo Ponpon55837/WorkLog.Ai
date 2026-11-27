@@ -1,19 +1,4 @@
-/**
- * Test-only SQLite timing instrumentation (evidence for the Windows storage stall, no behavior change).
- *
- * Active only when WI_SQLITE_TIMING=1 (any other value, including the empty string, is off and costs one env check).
- * It swaps node:sqlite's `DatabaseSync` for a timing subclass and wraps the hot prototype methods, so every storage
- * module, stress worker and test that opens a database is measured without being edited. Records go to an in-memory
- * buffer and are appended as JSONL to perf-results/sqlite-timing-<label>-<pid>.jsonl (label: WI_SQLITE_TIMING_LABEL,
- * default "tests"; directory override: WI_SQLITE_TIMING_DIR) every few seconds, at exit and from the vitest setup file.
- *
- * Recorded: every call over 1000 ms (with a stack), every BEGIN IMMEDIATE (histogram plus records over 100 ms), every
- * open (constructor time and the gap to the first statement), every wal_checkpoint pragma (mode, time, busy/log/
- * checkpointed), every transaction held 100 ms or more (with whether it took the write lock) and, from the vitest setup
- * file, tests over 10 s. SQL text is cut to 120 characters; bound parameter
- * values are never read. This module must never be imported from production code (check-production-bundle.mjs fails on
- * the "WI_SQLITE_TIMING" marker).
- */
+/** Test-only SQLite timing hook, active only with WI_SQLITE_TIMING=1. Never import it from production code: check-production-bundle.mjs fails on the "WI_SQLITE_TIMING" marker. */
 import { appendFileSync, mkdirSync, writeSync } from "node:fs";
 import { createRequire, registerHooks } from "node:module";
 import { dirname, resolve } from "node:path";
@@ -27,9 +12,7 @@ export interface SqliteTimingRecord {
 }
 
 export interface SqliteTimingOptions {
-  /** Directory for the JSONL file; defaults to WI_SQLITE_TIMING_DIR or <repository>/perf-results. */
   directory?: string;
-  /** File label; defaults to WI_SQLITE_TIMING_LABEL or "tests". */
   label?: string;
 }
 
@@ -47,18 +30,12 @@ type AnyFunction = (...args: unknown[]) => unknown;
 type SqliteModule = typeof import("node:sqlite");
 
 interface OpenInfo {
-  /** performance.now() at the end of the constructor; 0 once the first statement was seen. */
   openedAt: number;
   record: SqliteTimingRecord;
-  /** The database's last two path segments: names the file across processes without the temp root. */
   db: string;
-  /** performance.now() when this connection's BEGIN IMMEDIATE returned; 0 outside a transaction. */
   transactionStart: number;
   transactionTest: string | null;
-  /**
-   * Whether the open transaction took the write lock: BEGIN IMMEDIATE or EXCLUSIVE, or a deferred one that wrote. In WAL
-   * mode a read transaction never blocks another connection's BEGIN IMMEDIATE, so only these can be a wait's holder.
-   */
+  /** Whether the open transaction took the write lock; in WAL mode a read transaction never blocks BEGIN IMMEDIATE. */
   transactionWrites: boolean;
 }
 
@@ -86,7 +63,6 @@ interface TimingState {
   restore: () => void;
   timer: NodeJS.Timeout | undefined;
   summaryPrinted: boolean;
-  /** Whether ESM imports of node:sqlite were redirected to the timing subclass (needs module.registerHooks). */
   esmHook: boolean;
 }
 
@@ -95,7 +71,6 @@ const BEGIN_RECORD_MS = 100;
 const SLOW_TEST_MS = 10_000;
 const FLUSH_INTERVAL_MS = 5000;
 const SQL_PREFIX_LENGTH = 120;
-/** Upper bounds of the BEGIN IMMEDIATE histogram buckets; the last bucket is open ended. */
 const BUCKET_LIMITS_MS = [1, 10, 100, 1000, 5000];
 const BUCKET_NAMES = ["<1", "<10", "<100", "<1000", "<5000", ">=5000"];
 const MAX_OPEN_RECORDS = 50_000;
@@ -106,11 +81,6 @@ const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../.."
 const BEGIN_IMMEDIATE_PATTERN = /^\s*begin\s+immediate\b/i;
 const BEGIN_PATTERN = /^\s*begin\b/i;
 const BEGIN_EXCLUSIVE_PATTERN = /^\s*begin\s+exclusive\b/i;
-/**
- * A statement that takes the write lock in a deferred transaction: a write keyword at the start of any statement in the
- * text (after leading comments), or a CTE whose closing parenthesis is followed by INSERT/REPLACE INTO, UPDATE or
- * DELETE FROM (so `WITH ... SELECT replace(...)` is a read). Writing PRAGMAs are not recognized.
- */
 const WRITE_PATTERN =
   /(?:^|;)(?:\s|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*(?:insert|update|delete|replace|create|drop|alter|reindex|analyze)\b/i;
 const CTE_WRITE_PATTERN =
@@ -131,26 +101,20 @@ function sqlPrefix(sql: unknown): string {
   return typeof sql === "string" ? sql.slice(0, SQL_PREFIX_LENGTH) : "";
 }
 
-/** Exported for tests: whether a statement's SQL takes the write lock inside a deferred transaction. */
 export function isWriteSql(sql: unknown): boolean {
   return typeof sql === "string" && (WRITE_PATTERN.test(sql) || CTE_WRITE_PATTERN.test(sql));
 }
 
-/** Exported for tests: whether an error is SQLITE_BUSY or SQLITE_LOCKED (extended codes included). */
 export function isBusyError(error: unknown): boolean {
   const code = (error as { errcode?: unknown } | null | undefined)?.errcode;
   return typeof code === "number" && BUSY_CODES.has(code & 0xff);
 }
 
-/** The connection's open transaction while it has not taken the write lock yet; undefined otherwise (the common case). */
 function deferredReader(open: OpenInfo | undefined): OpenInfo | undefined {
   return open !== undefined && open.transactionStart !== 0 && !open.transactionWrites ? open : undefined;
 }
 
-/**
- * Marks a deferred transaction as a writer once a statement in it changed rows (`changes` from run()) or is write SQL.
- * A write that failed for another reason than busy (a constraint, say) still took the lock, so it counts too.
- */
+/** A write that failed for a reason other than busy (a constraint, say) still took the lock, so it counts too. */
 function noteWrite(open: OpenInfo, sql: unknown, changes: unknown, error: unknown): void {
   if (error !== undefined && isBusyError(error)) return;
   if ((typeof changes === "number" || typeof changes === "bigint") && changes > 0) open.transactionWrites = true;
@@ -161,10 +125,7 @@ function stackOfCaller(): string {
   return (new Error().stack ?? "").split("\n").slice(4, 12).join("\n");
 }
 
-/**
- * Wall-clock milliseconds of a moment `agoMs` before now, to the microsecond: lines records up across processes. A
- * whole-millisecond `at` made two moments 0.2 ms apart look like they overlapped, so no precision is thrown away.
- */
+// Microsecond precision: a whole-millisecond `at` made two moments 0.2 ms apart look like they overlapped.
 function wallClockAgo(agoMs: number): number {
   return Math.round((performance.timeOrigin + performance.now() - agoMs) * 1000) / 1000;
 }
@@ -253,10 +214,6 @@ function recordCheckpoint(
   );
 }
 
-/**
- * A transaction held 100 ms or more. `write` says whether it took the write lock; only such a transaction can be the
- * holder of another connection's BEGIN IMMEDIATE wait.
- */
 function recordTransaction(state: TimingState, open: OpenInfo, ms: number, sql: unknown): void {
   if (ms < BEGIN_RECORD_MS) return;
   state.records.push(
@@ -272,7 +229,6 @@ function recordTransaction(state: TimingState, open: OpenInfo, ms: number, sql: 
   );
 }
 
-/** First statement on a fresh connection: stores the open-to-first-statement gap. */
 function markFirstStatement(open: OpenInfo, now: number): void {
   const gap = Math.round((now - open.openedAt) * 10) / 10;
   open.openedAt = 0;
@@ -304,11 +260,7 @@ function trackOpen(state: TimingState, db: object, path: unknown, options: unkno
   };
 }
 
-/**
- * Classifies an exec() SQL string: 1 = BEGIN IMMEDIATE, 2 = wal_checkpoint pragma, 3 = COMMIT, END or ROLLBACK (not
- * ROLLBACK TO a savepoint), 4 = another BEGIN (its write lock comes later, so only the transaction is timed), 0 =
- * anything else.
- */
+// 1 = BEGIN IMMEDIATE, 2 = wal_checkpoint pragma, 3 = COMMIT/END/ROLLBACK, 4 = another BEGIN, 0 = anything else.
 function classifyExec(sql: unknown): number {
   if (typeof sql !== "string") return 0;
   const first = sql.charCodeAt(0);
@@ -350,7 +302,6 @@ function histogramRecord(state: TimingState): SqliteTimingRecord {
   });
 }
 
-/** Appends the buffered records to the JSONL file (plus the cumulative histogram when it changed). */
 export function flushSqliteTiming(): void {
   const state = getState();
   if (!state) return;
@@ -363,7 +314,6 @@ export function flushSqliteTiming(): void {
   writeRecords(state, pending);
 }
 
-/** One-line summary of everything this process measured so far. */
 export function sqliteTimingSummary(): SqliteTimingSummary | undefined {
   const state = getState();
   if (!state) return undefined;
@@ -386,7 +336,6 @@ export function sqliteTimingSummary(): SqliteTimingSummary | undefined {
   };
 }
 
-/** Records one finished test when it took longer than 10 s. */
 export function recordTestDuration(name: string, durationMs: number): void {
   const state = getState();
   if (!state || durationMs < SLOW_TEST_MS) return;
@@ -394,7 +343,6 @@ export function recordTestDuration(name: string, durationMs: number): void {
   state.records.push(baseRecord(state, "test-duration", { name, ms: Math.round(durationMs), op: "test", sql: "" }));
 }
 
-/** Lets the vitest setup file name the current test on slow-call records. */
 export function setSqliteTimingTestNameProvider(
   provider: () => string | undefined,
   fileProvider: () => string | undefined = () => undefined,
@@ -409,7 +357,6 @@ export function isSqliteTimingInstalled(): boolean {
   return getState() !== undefined;
 }
 
-/** Flushes, prints the summary line once (to stdout, synchronously) and stops the flush timer. */
 export function finishSqliteTiming(print: boolean): SqliteTimingSummary | undefined {
   flushSqliteTiming();
   const state = getState();
@@ -425,7 +372,6 @@ export function finishSqliteTiming(print: boolean): SqliteTimingSummary | undefi
   return summary;
 }
 
-/** Removes the hooks again (tests only); the real DatabaseSync is back afterwards. */
 export function uninstallSqliteTiming(): void {
   const state = getState();
   if (!state) return;
@@ -437,11 +383,7 @@ export function uninstallSqliteTiming(): void {
 
 const SHIM_SETTER_KEY = Symbol.for("work-intelligence.sqliteTiming.setDatabaseSync");
 
-/**
- * Builds the shim module that replaces `node:sqlite` for ESM importers: every export of the builtin, except that
- * `DatabaseSync` is a live binding the uninstall path can switch back. Returns undefined when module.registerHooks does
- * not exist (older Node lines); the prototype wrappers still work then, but opens are no longer timed.
- */
+// Undefined when module.registerHooks does not exist (older Node lines); opens are then no longer timed.
 function registerEsmHook(sqlite: SqliteModule, timed: unknown): { restore: (original: unknown) => void } | undefined {
   if (typeof registerHooks !== "function") return undefined;
   const names = Object.keys(sqlite).filter((name) => name !== "DatabaseSync" && name !== "default");
@@ -522,13 +464,11 @@ export function installSqliteTiming(options: SqliteTimingOptions = {}): void {
   const originalExec = databaseProto.exec as AnyFunction;
   const originalPrepare = databaseProto.prepare as AnyFunction;
 
-  // The connection each prepared statement belongs to, so a write through it marks that connection's transaction.
   const statementOpen = new WeakMap<object, OpenInfo>();
 
   const watchCheckpointStatement = (statement: Record<string, AnyFunction>, sql: string, db: string | null): void => {
     for (const method of ["get", "all", "run"] as const) {
       const inner = statement[method] as AnyFunction;
-      // Own property on this one statement only; every other statement pays nothing for this.
       statement[method] = function (this: unknown) {
         const start = now();
         let failed = true;
@@ -638,7 +578,6 @@ export function installSqliteTiming(options: SqliteTimingOptions = {}): void {
     };
     const originalNext = iterator.next;
     const statement = this;
-    // Time to the first row only: the statement is stepped on the first next(), then the original next is restored.
     iterator.next = function (this: unknown) {
       iterator.next = originalNext;
       const stepStart = now();
@@ -671,11 +610,8 @@ export function installSqliteTiming(options: SqliteTimingOptions = {}): void {
     }
   }
   const originalExport = sqlite.DatabaseSync;
-  // The CommonJS exports object (require, process.getBuiltinModule) sees the subclass directly.
+  // module.syncBuiltinESMExports() does not cover node:sqlite (it only syncs builtins requirable without the "node:" scheme), so a resolve hook points ESM imports at a shim that re-exports the builtin with the subclass.
   (sqlite as { DatabaseSync: unknown }).DatabaseSync = TimedDatabaseSync;
-  // `module.syncBuiltinESMExports()` does NOT cover node:sqlite (it only syncs builtins that can be required without the
-  // "node:" scheme), so `import { DatabaseSync } from "node:sqlite"` would keep the original class. A synchronous resolve
-  // hook points ESM imports of "node:sqlite" at a generated shim module that re-exports the builtin with the subclass.
   const hook = registerEsmHook(sqlite, TimedDatabaseSync);
   state.restore = (): void => {
     for (const [target, name, original] of originals.reverse()) target[name] = original;

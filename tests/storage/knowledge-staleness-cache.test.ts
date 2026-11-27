@@ -9,7 +9,6 @@ import type { KnowledgeService } from "../../packages/storage/src/knowledge-serv
 import { setStalenessUnitLimits } from "../../packages/storage/src/later-change-index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only. The possiblyStale result is remembered per Knowledge while the data revision is unchanged.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -81,7 +80,6 @@ describe("remembered Knowledge staleness", () => {
 
     const touching = finalize(store, "touching", { changedFiles: ["src/tree/a.ts"] });
     expect(staleOf(store, knowledge.id)?.possiblyStale).toMatchObject({ sessionId: touching.session.id });
-    // Warm again: the stale result is served and stays the same.
     expect(staleOf(store, knowledge.id)?.possiblyStale).toMatchObject({ sessionId: touching.session.id });
   });
 
@@ -96,7 +94,6 @@ describe("remembered Knowledge staleness", () => {
     store.updateKnowledge({ projectRoot: root, knowledgeId: knowledge.id, confirm: true });
     expect(staleOf(store, knowledge.id)?.possiblyStale).toBeUndefined();
 
-    // And through a finalize that applied it, after another touching Session.
     finalize(store, "touching-again", { changedFiles: ["src/tree/b.ts"] });
     expect(staleOf(store, knowledge.id)?.possiblyStale).toBeDefined();
     finalize(store, "applied", { changedFiles: [], appliedKnowledgeIds: [knowledge.id] });
@@ -111,7 +108,6 @@ describe("remembered Knowledge staleness", () => {
     expect(staleOf(other, knowledge.id)?.possiblyStale).toBeUndefined();
 
     finalize(other, "other-writes", { changedFiles: ["src/tree/a.ts"] });
-    // The first connection had a warm cache for the earlier revision.
     expect(staleOf(store, knowledge.id)?.possiblyStale).toBeDefined();
     expect(staleOf(other, knowledge.id)?.possiblyStale).toBeDefined();
   });
@@ -123,21 +119,18 @@ describe("remembered Knowledge staleness", () => {
     const budgets: AppliesToBudget[] = [];
     setAppliesToBudgetProbe(budgets);
 
-    // Complete: the second read creates no budgets, so it was served from the cache.
     staleOf(store, knowledge.id);
     const afterFirst = budgets.length;
     expect(afterFirst).toBeGreaterThan(0);
     staleOf(store, knowledge.id);
     expect(budgets.length).toBe(afterFirst);
 
-    // A history ceiling too small to read the later Session leaves the record unchecked; every read recomputes.
     setStalenessUnitLimits({ history: 1 });
     expect(staleOf(store, knowledge.id)?.stalenessUnchecked).toBe(true);
     const unchecked = budgets.length;
     expect(staleOf(store, knowledge.id)?.stalenessUnchecked).toBe(true);
     expect(budgets.length).toBeGreaterThan(unchecked);
 
-    // The unchecked answer was not kept under the ordinary limits either.
     setStalenessUnitLimits(undefined);
     expect(staleOf(store, knowledge.id)?.possiblyStale).toBeDefined();
     expect(staleOf(store, knowledge.id)?.stalenessUnchecked).toBeUndefined();
@@ -151,7 +144,6 @@ describe("remembered Knowledge staleness", () => {
     const records = Array.from({ length: 600 }, (_, index) => record(`bulk-${index}`, [`src/tree-${index}/**`]));
     const service = (store as unknown as { knowledgeService: KnowledgeService }).knowledgeService;
     const cache = (service as unknown as { stalenessResults: { values: Map<string, unknown> } }).stalenessResults;
-    // One batch above the cap is not remembered; batches below it are, and evict by restarting at the cap.
     service.withKnowledgeTrustMany(records);
     expect(cache.values.size).toBeLessThanOrEqual(512);
     for (let start = 0; start < 600; start += 100) service.withKnowledgeTrustMany(records.slice(start, start + 100));

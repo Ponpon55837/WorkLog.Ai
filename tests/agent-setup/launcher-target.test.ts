@@ -56,7 +56,6 @@ describe.each([
     for (const event of ["Stop", "UserPromptSubmit", "PreToolUse", "PostToolUse", "SessionStart"]) {
       expect(commandsOf(fixture.paths.codexHooks, event)).toEqual([hookCommand(shim, "codex-finalize-reminder")]);
     }
-    // The command round-trips through the same splitter the inspector uses.
     expect(commandWords(hookCommand(shim, "claude-finalize-reminder"))).toEqual([shim, "claude-finalize-reminder"]);
     expect(readFileSync(fixture.paths.codexSkill, "utf8")).toBe(readFileSync(fixture.paths.skillSource, "utf8"));
   });
@@ -163,7 +162,6 @@ describe("launcher target safety", () => {
   it("refuses a launcher plan beside hand-written checkout registrations instead of adding a second one", () => {
     const fixture = createFixture();
     expect(applyAgentSetupPlan(createAgentSetupPlan(fixture.options)).applied).toBe(true);
-    // Drop the ownership record so the checkout entries count as hand-written.
     writeFileSync(fixture.paths.manifest, JSON.stringify({ version: 2, components: [] }));
     const plan = createAgentSetupPlan(launcherOptions(fixture, "linux", POSIX_SHIM));
     expect(plan.conflicts.length).toBeGreaterThan(0);

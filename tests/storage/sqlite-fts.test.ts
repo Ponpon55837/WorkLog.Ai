@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { runFtsWrite } from "../../packages/storage/src/sqlite-fts.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// All projects, Sessions, and index tokens below are fictional fixtures.
 const MAX_SAFE_ROWID = "9007199254740991";
 const FILLER_ROWS = 20_000;
 const FILLER_ROWID_START = 1_000_000;
@@ -65,7 +64,6 @@ describe("FTS5 tombstone rowids", () => {
       }
       expect(store.recall({ q: "grafted", projectRoot: root, limit: 30 })).toMatchObject({ outcome: "recall" });
 
-      // A migration or redaction marks every indexed document dirty; the next sync rebuilds them all at once.
       const raw = new DatabaseSync(databasePath);
       raw.exec("UPDATE sessions SET summary = replace(summary, 'Grafted', 'Budded')");
       raw.exec("INSERT OR IGNORE INTO search_dirty (doc_type, doc_id) SELECT 'session', id FROM sessions");

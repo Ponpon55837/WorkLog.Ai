@@ -2,7 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 import { textIn } from "./helpers/i18n.js";
 import { USAGE_PROJECTS, usageScanFixture } from "./helpers/usage-fixture.js";
 
-/** Serves synthetic usage data so the page does not read any real Agent log. */
 async function mockUsage(page: Page, scan: "ok" | "error"): Promise<void> {
   await page.route("**/api/usage/projects", (route) => route.fulfill({ json: USAGE_PROJECTS }));
   await page.route("**/api/usage/scan", (route) =>
@@ -39,7 +38,6 @@ for (const width of [1440, 375]) {
     await expect(page.getByTestId("usage-models").getByRole("row")).toHaveCount(4);
     await expect(page.getByTestId("usage-sessions").getByRole("row")).toHaveCount(3);
 
-    // The page never scrolls sideways, even with the wide tables, and only <main> scrolls vertically.
     const overflow = await page.evaluate(() => ({
       x: document.documentElement.scrollWidth - window.innerWidth,
       y: document.documentElement.scrollHeight - window.innerHeight,
@@ -94,7 +92,6 @@ test("the range and the scan button stay on screen however many projects are tra
   await expect(controls.getByRole("button", { name: textIn("zh-TW", "usage.scan") })).toBeInViewport({ ratio: 1 });
   await expect(controls.getByRole("radiogroup", { name: textIn("zh-TW", "usage.range") })).toBeInViewport({ ratio: 1 });
 
-  // The last project is reached by scrolling the list, not the page.
   await controls.getByTestId("usage-project").last().scrollIntoViewIfNeeded();
   await expect(controls.getByRole("checkbox", { name: "Fictional Field 30" })).toBeInViewport();
   await expect(controls.getByRole("button", { name: textIn("zh-TW", "usage.scan") })).toBeInViewport({ ratio: 1 });

@@ -112,12 +112,10 @@ describe("resolveProjectSources", () => {
     expect(both[0]?.problem).toBe("claude-dir-missing");
     const codexOnly = await resolveProjectSources(project, { claudeProjectsDir: claudeDir, codexSessionsDir: missing });
     expect(codexOnly[0]?.problem).toBe("codex-dir-missing");
-    // A file where a directory is expected is not readable as one.
     const asFile = join(base, "a-file");
     writeFileSync(asFile, "x");
     const odd = await resolveProjectSources(project, { claudeProjectsDir: asFile, codexSessionsDir: asFile });
     expect(odd[0]?.problem).toBe("claude-dir-missing");
-    // A found source hides the missing-directory problem.
     const found = await resolveProjectSources([{ id: "p1", name: "Mine", root }], {
       claudeProjectsDir: claudeDir,
       codexSessionsDir: missing,

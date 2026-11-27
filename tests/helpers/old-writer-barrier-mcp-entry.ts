@@ -3,10 +3,7 @@ import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/sto
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 import { McpStoreAccess } from "../../apps/mcp/src/store-access.js";
 
-// The MCP server exactly as apps/mcp/src/index.ts wires it for a standalone bundle: real tool definitions, real
-// store access, real stdio transport, and no on-disk build to compare with. A repository checkout has a second,
-// earlier restart check (build identity); with no dist/ under tsx that check would answer first and hide the
-// per-write schema gate this experiment is about.
+// No dist/ under tsx, so skip the build-identity restart check; the per-write schema gate is what this experiment exercises.
 const databasePath = process.env.WORK_INTELLIGENCE_DB ?? "";
 const storeAccess = new McpStoreAccess(() => new WorkIntelligenceStore(databasePath), {
   onFailure: (failure) =>

@@ -11,7 +11,6 @@ import {
   type HostObservation,
 } from "../../packages/shared/src/agent-observations.js";
 
-// Synthetic files only.
 const A = "a".repeat(64);
 const B = "b".repeat(64);
 let root = "";
@@ -188,7 +187,6 @@ describe("lease state in an observation", () => {
       diagnoseMcpLease(seen({ ...writable, directoryWritable: false, failure: "directory_unavailable" }), SCOPE, 0)
         .cause,
     ).toBe("directory_unwritable");
-    // An unwritable directory is named before a scope difference: it is the more specific reason.
     expect(diagnoseMcpLease(seen({ ...writable, directoryWritable: false }), OTHER, 0).cause).toBe(
       "directory_unwritable",
     );

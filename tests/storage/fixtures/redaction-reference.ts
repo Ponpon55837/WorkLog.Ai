@@ -6,7 +6,6 @@ const REFERENCE_LINES = [
   "DB_PASSWORD=hunter2hunter2 Authorization: Bearer abcdEFGH12345 ?api_key=abcdEFGH12345 ",
 ].join("\n");
 
-/** Ordinary prose with a few secrets, repeated to exactly `length` characters. */
 export function redactionReferenceText(length: number): string {
   return REFERENCE_LINES.repeat(Math.ceil(length / REFERENCE_LINES.length)).slice(0, length);
 }

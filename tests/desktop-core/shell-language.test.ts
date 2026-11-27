@@ -1,4 +1,3 @@
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +18,6 @@ import {
 } from "../../packages/desktop-core/src/index.js";
 import { SHELL_LANGUAGE_PREFERENCES, desktopFactsSchema } from "../../packages/schema/src/index.js";
 
-// The tray and the menu are drawn through Electron; these stand-ins keep what they were given.
 const electron = vi.hoisted(() => ({
   menus: [] as Array<Array<{ label?: string; type?: string }>>,
   applicationMenu: [] as unknown[],
@@ -48,16 +46,8 @@ const { loadSettings } = await import("../../apps/desktop/src/main/settings.js")
 const { createShellTray } = await import("../../apps/desktop/src/main/tray.js");
 const { applyAppMenu } = await import("../../apps/desktop/src/main/app-menu.js");
 
-/**
- * The App's language choice (跟隨系統 / 繁體中文 / English): the one resolver, its own file next to the settings (never
- * the settings file, so an older App never asks for a repair after a downgrade), a file that cannot be used reading as
- * 跟隨系統, and the shell redrawing in the new language at once, with the Dashboard told the same language.
- * Synthetic paths only.
- */
-
 const temporary: string[] = [];
 
-/** A version-1 settings file as every App writes it. */
 function olderSettings(): DesktopSettingsV1 {
   return {
     configVersion: 1,
@@ -211,7 +201,6 @@ describe("starting with the language file", () => {
       system: "zh-TW",
       preferences: "\u0000garbage",
     });
-    // The start as main runs it: the settings and the language file are read side by side.
     const paths = { settingsFile: join(directory, "desktop-settings.json"), preferencesFile } as never;
     const [load] = await Promise.all([loadSettings(state, paths, (line: string) => logs.push(line)), language.load()]);
     expect(load).toBe("ok");

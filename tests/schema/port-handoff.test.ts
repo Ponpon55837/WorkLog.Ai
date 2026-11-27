@@ -10,7 +10,6 @@ import {
   sanitizeHandoffRoute,
 } from "../../packages/schema/src/index.js";
 
-// Synthetic values only.
 function toBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);

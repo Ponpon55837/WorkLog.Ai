@@ -104,7 +104,6 @@ describe("runtime build marker", () => {
     expect(replaced.status).toBe(1);
     expect(readFileSync(markerPath, "utf8")).toBe(other);
 
-    // Inside a root build the package build uses the root marker and never removes it.
     const rootMarker = JSON.stringify({
       pid: process.pid,
       startedAt: "2026-01-01T00:00:00.000Z",

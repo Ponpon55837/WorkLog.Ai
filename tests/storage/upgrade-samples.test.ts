@@ -8,7 +8,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 
-// Committed upgrade samples (tests/fixtures/upgrade) written by real older releases; fictional data only.
 type TableFingerprint = { columns: string[]; rows: number; hash: string };
 type Fingerprint = Record<string, TableFingerprint>;
 type FixtureEntry = {
@@ -148,7 +147,6 @@ describe("upgrading committed samples", () => {
         store.close();
       }
 
-      // Exactly one pre-migration backup, and it still holds the old content.
       const backups = backupFiles(location.backupDirectory);
       expect(backups).toHaveLength(1);
       expect(backups[0]).toMatch(new RegExp(`-pre-migration-v${fixture.schemaVersion + 1}-.*\\.sqlite$`));
@@ -165,7 +163,6 @@ describe("upgrading committed samples", () => {
         fts.close();
       }
 
-      // Same tables and row counts; columns that existed before keep their values. No table is excluded: even the derived search_* tables are unchanged by an upgrade plus a search.
       const oldColumns = new Map(Object.entries(fixture.fingerprint).map(([table, value]) => [table, value.columns]));
       const after = fingerprintDatabase(location.databasePath, { columnsByTable: oldColumns });
       for (const [table, before] of Object.entries(fixture.fingerprint)) {
@@ -226,7 +223,6 @@ describe("upgrading committed samples", () => {
         });
       }
 
-      // A second open migrates nothing and writes no backup.
       const migrations = migrationRows(location.databasePath);
       expect(migrations.at(-1)).toMatchObject({ version: LATEST_SCHEMA_VERSION });
       openStore(location).close();
@@ -237,7 +233,6 @@ describe("upgrading committed samples", () => {
 
   it("opens a sample at the latest schema as-is, with no migration and no backup", () => {
     const fixture = fixtures.find((candidate) => candidate.schemaVersion === LATEST_SCHEMA_VERSION);
-    // No sample of the latest schema yet (it is only sampled once a release ships it): nothing to open as-is.
     if (!fixture) return;
     const location = copyFixture(fixture);
     mkdirSync(location.backupDirectory, { recursive: true });

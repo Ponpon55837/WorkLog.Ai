@@ -1,4 +1,3 @@
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,11 +11,6 @@ import {
   type BackendInfo,
   type DesktopSettingsV1,
 } from "../../packages/desktop-core/src/index.js";
-
-/**
- * The backend controller's part of a port change: the settings change only after the backend is verified, in one atomic
- * write that also records `active` and `lastKnownGood`; a failed start leaves the file as it was. Synthetic data only.
- */
 
 const IDENTITY = {
   realPath: "/synthetic/data/work.sqlite",
@@ -168,12 +162,10 @@ describe("a port change in the backend controller", () => {
       ok: false,
       code: "DB_STORAGE_NETWORK",
     });
-    // The repair page's retry goes through the recovery: it stays refused, and nothing was started.
     expect(await stopped.controller.recovery.retryNow()).toEqual({ ok: false, code: "DB_STORAGE_NETWORK" });
     expect(stopped.requests).toEqual([]);
     expect(stopped.state.owner).toBe("NEEDS_REPAIR");
     expect(stopped.state.backend).toBe("stopped");
-    // A running backend is left alone and keeps its owner.
     const serving = setup({ refused: true });
     expect(await serving.controller.start("restart")).toEqual({ ok: false, code: "DB_STORAGE_NETWORK" });
     expect(serving.requests).toEqual([]);
@@ -189,7 +181,6 @@ describe("a port change in the backend controller", () => {
     expect(serving.running()?.port).toBe(OLD);
     expect(serving.state.owner).toBe("MANAGED");
     expect(serving.state.backend).toBe("running");
-    // With nothing running there is nothing to protect: repair is the honest state.
     const idle = setup({ prepareFails: true, stopped: true });
     expect(await idle.controller.start("restart")).toEqual({ ok: false, code: "RUNTIME_INSTALL_FAILED" });
     expect(idle.state.owner).toBe("NEEDS_REPAIR");
@@ -215,7 +206,6 @@ describe("a port change in the backend controller", () => {
   });
 });
 
-/** A controller whose settings file sits inside a missing directory, so the atomic write throws. */
 function setupBrokenWrite(root: string) {
   const made = setup();
   const settingsFile = join(root, "missing", "deeper", "settings.json");

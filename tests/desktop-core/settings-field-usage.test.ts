@@ -3,14 +3,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { desktopSettingsV1Schema } from "../../packages/desktop-core/src/settings/schema.js";
 
-/**
- * Every leaf of the desktop settings file has at least one non-test reader and one non-test writer, so a field that is
- * saved but never used (or used but never saved) fails here instead of shipping as a dead promise to the user.
- */
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const PRODUCT_DIRECTORIES = ["packages/desktop-core/src", "apps/desktop/src"];
 
-/** Fields allowed to lack a reader or a writer, each with the reason and the release that closes the gap. */
 const NO_READER = new Map<string, string>([
   [
     "active.runtimeVersion",
@@ -30,7 +25,6 @@ interface ZodNode {
 function leaves(node: ZodNode, prefix: string): string[] {
   const { def } = node;
   if (def.type === "optional" || def.type === "nullable") return leaves(def.innerType as ZodNode, prefix);
-  // The database identity is one shared record: its members are covered by the identity's own tests.
   if (def.type !== "object" || !def.shape || prefix.endsWith("databaseIdentity")) return [prefix];
   return Object.entries(def.shape).flatMap(([key, child]) => leaves(child, prefix ? `${prefix}.${key}` : key));
 }

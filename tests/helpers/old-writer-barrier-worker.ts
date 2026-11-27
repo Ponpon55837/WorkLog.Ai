@@ -1,15 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 
-// Child-process entry for tests/server/old-writer-barrier.test.ts. Every role talks to the test over the IPC channel
-// with explicit messages, so the test never waits on a timer. Fictional data only.
 type WorkerRole = "store-writer" | "lock-holder" | "migrator";
 type WorkerMessage = { type: string; [key: string]: unknown };
 
 interface DatabaseState {
   /** PRAGMA schema_version: moves on every DDL statement. */
   pragmaSchemaVersion: number;
-  /** The highest row in schema_migrations: what the write gate compares. */
   highestMigration: number;
 }
 
@@ -39,7 +36,6 @@ function readState(db: DatabaseSync): DatabaseState {
   return { pragmaSchemaVersion: pragma.schema_version, highestMigration: highest.version };
 }
 
-/** An old release's long-lived process: opens the store at its own schema, idles, and writes only when told to. */
 async function runStoreWriter(databasePath: string, projectRoot: string): Promise<void> {
   const store = new WorkIntelligenceStore(databasePath);
   send({ type: "ready" });
@@ -68,7 +64,6 @@ async function runStoreWriter(databasePath: string, projectRoot: string): Promis
   }
 }
 
-/** A long task that already holds the write lock (raw connection: it stands for an uncommitted transaction). */
 async function runLockHolder(databasePath: string): Promise<void> {
   const db = new DatabaseSync(databasePath);
   db.exec("PRAGMA busy_timeout = 0");
@@ -81,7 +76,6 @@ async function runLockHolder(databasePath: string): Promise<void> {
   send({ type: "committed" });
 }
 
-/** The "new version": snapshot first (VACUUM INTO), then a real DDL change plus a schema_migrations row. */
 function runMigrator(databasePath: string, snapshotPath: string, nextVersion: number, busyTimeoutMs: number): void {
   const db = new DatabaseSync(databasePath);
   try {

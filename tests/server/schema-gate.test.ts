@@ -8,7 +8,6 @@ import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrati
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { createApiHandler } from "../../apps/server/src/server.js";
 
-// Fictional fixtures only. A raw connection stands in for a newer release that migrated the shared database.
 const SERVER_RESTART_MESSAGE = "資料庫 schema 已更新，請重新啟動 Work Intelligence server。";
 const cleanups: Array<() => void> = [];
 

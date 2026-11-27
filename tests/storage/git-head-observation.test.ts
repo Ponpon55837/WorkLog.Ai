@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readGitHeadWithGit } from "../../packages/storage/src/git-change-observation.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 

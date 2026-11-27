@@ -6,7 +6,6 @@ import type { FinalizeSessionInput } from "../../packages/core/src/index.js";
 import { splitSearchTerms } from "../../packages/storage/src/list-search-scan.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 

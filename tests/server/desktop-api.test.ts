@@ -13,7 +13,6 @@ import {
   OPEN_PORT_SETTINGS_MIN_INTERVAL_MS,
 } from "../../apps/server/src/desktop-services.js";
 
-// Fictional values only; the status never touches a real service manager or Agent settings.
 const LEGACY = {
   running: "running",
 } as const;
@@ -252,11 +251,9 @@ describe("system status agents in desktop mode", () => {
           agents: { claudeCode: { hook: string } };
           desktop: Record<string, unknown>;
         };
-        // The shim path stays inside the backend.
         expect(status.desktop).not.toHaveProperty("launcherShimPath");
         return status.agents.claudeCode.hook;
       };
-      // Another shim than the App's own is stale; without the App's shim any existing shim is accepted.
       expect(await claudeHook({ launcherShimPath: appShim })).toBe("stale");
       expect(await claudeHook({ launcherShimPath: otherShim })).toBe("installed");
       expect(await claudeHook({})).toBe("installed");

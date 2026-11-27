@@ -5,7 +5,6 @@ import type { AgentReviewedKnowledge, ProjectRecord } from "@work-intelligence/c
 import AgentKnowledgeReviewBox from "../../../apps/web/src/components/domain/AgentKnowledgeReviewBox.vue";
 import { loadCatalog, locale, t } from "../../../apps/web/src/i18n/index.js";
 
-// Fictional fixtures only.
 const reviewedKnowledge = ref<AgentReviewedKnowledge[]>([]);
 const reviewedKnowledgeLoaded = ref(true);
 const reviewedKnowledgeError = ref("");

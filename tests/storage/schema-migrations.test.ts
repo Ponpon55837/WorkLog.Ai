@@ -94,7 +94,6 @@ function expectedMigration31RevisionTriggers(): Array<{ name: string; sql: strin
   );
 }
 
-/** Focused legacy fixtures omit unrelated tables and leave migrations 31 and 33 to their full-schema tests. */
 function applySchemaMigrations(db: DatabaseSync): void {
   for (const [table, version] of [
     ["report_synthesis_requests", 8],
@@ -504,7 +503,6 @@ describe("custom report synthesis migration", () => {
         markApplied.run(version, `legacy-${version}`, "2026-09-27T00:00:00.000Z");
       }
 
-      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
       if (
         db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
         !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
@@ -615,7 +613,6 @@ describe("outstanding item migration", () => {
       );
       undoMigrationsAfter(db, 21);
 
-      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
       if (
         db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
         !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
@@ -703,7 +700,6 @@ describe("outstanding cleanup review migration", () => {
         );
       `);
 
-      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
       if (
         db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
         !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
@@ -742,7 +738,6 @@ describe("outstanding cleanup review migration", () => {
       );
       expect(db.prepare("SELECT name FROM pragma_table_info('sessions') WHERE name LIKE 'agent_%'").all()).toEqual([]);
 
-      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
       if (
         db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
         !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
@@ -771,7 +766,6 @@ describe("outstanding cleanup review migration", () => {
       undoMigrationsAfter(db, 24);
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'agent_read_audit%'").all()).toEqual([]);
 
-      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
       if (
         db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
         !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
@@ -803,7 +797,6 @@ describe("outstanding cleanup review migration", () => {
           SELECT RAISE(ABORT, 'outstanding item events are append-only');
         END`);
 
-      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
       if (
         db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
         !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
@@ -986,7 +979,6 @@ describe("agent read audit timing migration", () => {
         (id, created_at, tool, outcome, returned_count, session_ids_json, knowledge_ids_json,
          omitted_session_count, omitted_knowledge_count, duration_ms, error_code)
         VALUES ('new-read', '2026-11-02T00:00:00.000Z', 'work_search', 'error', 0, '[]', '[]', 0, 0, 12, 'database_busy')`);
-      // The audit revision triggers from migration 31 still fire on the altered table; project data stays unchanged.
       expect(db.prepare("SELECT data_revision, audit_revision FROM change_revisions").get()).toEqual({
         data_revision: before.data_revision,
         audit_revision: before.audit_revision + 1,
@@ -1025,7 +1017,6 @@ describe("candidate overlap and Session lookup migration", () => {
           sql: "CREATE INDEX idx_sessions_live_project ON sessions(project_id) WHERE voided_at IS NULL",
         },
       ]);
-      // Additive DDL fires no project-data trigger.
       expect(db.prepare("SELECT data_revision, audit_revision FROM change_revisions").get()).toEqual(revisions);
       const plan = (sql: string) =>
         (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as Array<{ detail: string }>)
@@ -1068,7 +1059,6 @@ describe("knowledge page Session coverage migration", () => {
           dflt_value: null,
         });
       }
-      // Existing pages keep NULL, so their coverage stays sourced_through.
       expect(
         db
           .prepare(

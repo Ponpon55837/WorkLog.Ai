@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { toAgentReport, toAgentReportContext } from "../../packages/storage/src/report-agent-view.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only. Storage tests run with TZ=UTC.
+// Storage tests run with TZ=UTC.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -144,11 +144,9 @@ describe("Agent report projection", () => {
     expect(first).not.toHaveProperty("reportBlockOnSessionPage");
     expect(first.report).toMatchObject({ totals: { sessions: 12 }, periodSummary: expect.any(String) });
     expect(first.projection.omittedFields).not.toContain("report.block");
-    // Long Session-id lists keep their first ids and a count; the Session pages list every source.
     const [project] = (first.report as { projects: Array<{ sourceSessionIds: string[] }> }).projects;
     expect(project).toMatchObject({ sessionCount: 12, sourceSessionIdsOmittedCount: 4 });
     expect(project!.sourceSessionIds).toEqual(report.projects[0]!.sourceSessionIds.slice(0, 8));
-    // Evidence names its Session by id only: the preview of that Session is on the same page.
     const firstIds = new Set(first.sessions.map((session) => session.id));
     expect(first.report.evidence.length).toBeGreaterThanOrEqual(5);
     for (const item of first.report.evidence) {
@@ -166,12 +164,10 @@ describe("Agent report projection", () => {
     expect(second.coverage.sessionPageInfo).toMatchObject({ page: 2, hasNext: true });
     expect(JSON.stringify(second).length).toBeLessThan(JSON.stringify(first).length);
 
-    // A retry of a later page is the same; reading page 1 again (for example after a restart) returns the block.
     expect(page(2).report).toEqual(second.report);
     expect(page(3).sessions).toHaveLength(2);
     expect(page(1).report).toEqual(first.report);
 
-    // A period that fits one page is complete on that page.
     const single = page(1, 20);
     expect(single).not.toHaveProperty("reportBlockOnSessionPage");
     expect(single.sessions).toHaveLength(12);

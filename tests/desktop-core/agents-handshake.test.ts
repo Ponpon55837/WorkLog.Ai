@@ -27,7 +27,6 @@ function temporaryDirectory(): string {
   return directory;
 }
 
-/** Runs `code` as a Node script, the stand-in for an MCP server that misbehaves in one specific way. */
 function fakeServer(code: string): { command: string; args: string[] } {
   return { command: process.execPath, args: ["-e", code] };
 }
@@ -194,7 +193,6 @@ rl.on("line", (line) => {
     expect(result).toMatchObject({ ok: true, toolNames: ["a", "b"], serverInfo: { name: "fake", version: "9" } });
   });
 
-  /** Runs a fake server that records its pid, answers initialize, and then runs `afterInitialize`. */
   async function probeMisbehavingServer(afterInitialize: string): Promise<{ result: unknown; pid: number }> {
     const pidFile = join(temporaryDirectory(), "pid");
     const server = fakeServer(`require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
@@ -359,7 +357,6 @@ describe("planMcpSpawn", () => {
 describe("probeMcpHandshake on Windows (injected spawn)", () => {
   const environment = { SystemRoot: "C:\\Windows" };
 
-  /** A child that never answers; `exited` makes it look as if it already ended. */
   function silentChild(options: { exited?: boolean } = {}): ChildProcess {
     const child = new EventEmitter() as EventEmitter & Record<string, unknown>;
     child.pid = 4321;
@@ -376,7 +373,6 @@ describe("probeMcpHandshake on Windows (injected spawn)", () => {
     return child as unknown as ChildProcess;
   }
 
-  /** Runs a probe that times out; `taskkillExit` is what the injected taskkill exits with (undefined: it fails to start). */
   async function timeOut(options: { exited?: boolean; taskkillExit?: number }) {
     const child = silentChild({ exited: options.exited });
     const spawned: Array<{ file: string; args: readonly string[] }> = [];
@@ -395,7 +391,6 @@ describe("probeMcpHandshake on Windows (injected spawn)", () => {
           queueMicrotask(() => {
             if (options.taskkillExit === undefined) killer.emit("error", new Error("spawn taskkill ENOENT"));
             else killer.emit("exit", options.taskkillExit);
-            // The launcher tree is gone once taskkill succeeded.
             if (options.taskkillExit === 0) child.emit("close", 1, null);
           });
           return killer as unknown as ChildProcess;

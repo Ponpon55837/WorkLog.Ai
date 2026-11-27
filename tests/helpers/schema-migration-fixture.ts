@@ -18,7 +18,6 @@ export function undoSchemaMigration(db: DatabaseSync, version: number): void {
     return;
   }
   if (version === 38) {
-    // Back to the schema-36 CHECKs; the rows schema 37 cannot hold go with them.
     const triggers = ["insert", "update", "delete"]
       .map(
         (operation) => `CREATE TRIGGER trg_data_revision_agent_review_request_items_${operation}
@@ -68,12 +67,11 @@ export function undoSchemaMigration(db: DatabaseSync, version: number): void {
   db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(version);
 }
 
-/** Rewinds a fixture to a pre-migration schema while leaving foreign-key enforcement unchanged. */
 export function undoMigrationsAfter(db: DatabaseSync, version: number): void {
   const applied = db
     .prepare("SELECT version FROM schema_migrations WHERE version > ? ORDER BY version DESC")
     .all(version) as Array<{ version: number }>;
-  // Every DROP is its own commit (and fsync) outside a transaction; one transaction makes the rewind a single commit.
+  // Each DROP commits and fsyncs on its own outside a transaction; one transaction makes the rewind a single commit.
   const ownsTransaction = !db.isTransaction;
   if (ownsTransaction) db.exec("BEGIN");
   try {

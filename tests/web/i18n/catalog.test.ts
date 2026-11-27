@@ -11,7 +11,6 @@ import {
 } from "../../../apps/web/src/i18n/index.js";
 import { verificationStatus } from "../../../apps/web/src/utils/status.js";
 
-// Every web source file except the catalogs themselves, read as text.
 const SOURCES = import.meta.glob(["../../../apps/web/src/**/*.{ts,vue}", "!../../../apps/web/src/i18n/**"], {
   query: "?raw",
   import: "default",
@@ -19,10 +18,8 @@ const SOURCES = import.meta.glob(["../../../apps/web/src/**/*.{ts,vue}", "!../..
 }) as Record<string, string>;
 const CJK = /[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]/;
 const KEY = /^[a-z][A-Za-z]*(\.[A-Za-z0-9]+)+$/;
-/** Chinese literals that are data, not interface text: they are compared against stored records as written. */
 const DATA_MARKERS = new Set(["資料不足"]);
 
-/** Every quoted string, comments excluded; template attribute values are scanned as code. */
 function collectStrings(code: string, found: string[]): void {
   let index = 0;
   while (index < code.length) {
@@ -103,7 +100,6 @@ describe("message catalogs", () => {
     const used = new Set(strings.filter((text) => KEY.test(text)));
     expect(Object.keys(zhTW).filter((key) => !used.has(key))).toEqual([]);
   });
-
   // A key missing from the catalogs is a type error: t() only accepts MessageKey, so vue-tsc catches it.
 });
 

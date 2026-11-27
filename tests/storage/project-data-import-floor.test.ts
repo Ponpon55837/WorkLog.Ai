@@ -15,7 +15,6 @@ import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrati
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
 
-// Synthetic exports written by the schema-31 (v1.6.8) and schema-32 (v1.6.21) builds through their own store API.
 const FIXTURES = [
   { schemaVersion: 31, file: "project-data-export-schema-31.json", root: "/tmp/wi-fixture-31" },
   { schemaVersion: 32, file: "project-data-export-schema-32.json", root: "/tmp/wi-fixture-32" },
@@ -37,7 +36,6 @@ function columnsOf(db: DatabaseSync): Map<string, Set<string>> {
   return columns;
 }
 
-/** Tables an older export lacks count as empty, as they import. */
 function counts(tables: Partial<ProjectDataExport["tables"]>): Record<string, number> {
   return Object.fromEntries(PROJECT_DATA_TABLES.map((table) => [table, tables[table]?.length ?? 0]));
 }
@@ -62,7 +60,6 @@ describe("portable import of older exports", () => {
       const missing: string[] = [];
       for (const table of PROJECT_DATA_TABLES) {
         const exported = projectDataExportTableColumns[table] as readonly string[];
-        // Every live column travels in the portable format, so a new column cannot be left out by accident.
         expect({ table, columns: [...(latest.get(table) ?? [])].sort() }).toEqual({
           table,
           columns: [...exported].sort(),
@@ -73,7 +70,6 @@ describe("portable import of older exports", () => {
           }
         }
         if (!floor.has(table)) {
-          // A table the floor schema lacked must parse as empty when an older export omits it.
           const bundle = loadFixture(FIXTURES[0].file) as unknown as { tables: Record<string, unknown> };
           delete bundle.tables[table];
           expect({ table, parsed: projectDataExportSchema.safeParse(bundle).success }).toEqual({ table, parsed: true });
@@ -96,7 +92,6 @@ describe("portable import of older exports", () => {
         tempDirs.push(directory);
         const store = new WorkIntelligenceStore(join(directory, "target.sqlite"));
         stores.push(store);
-        // Paths move under this machine's temp directory so the roots are native on every platform.
         const input = { bundle, remap: [{ from: root, to: join(directory, "projects") }], strategy };
 
         const preview = store.previewProjectDataImport(input);

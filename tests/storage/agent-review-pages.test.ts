@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentReviewRequest, SubmitAgentReviewVerdictsResult } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only. Time is faked so every write has its own later timestamp.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 

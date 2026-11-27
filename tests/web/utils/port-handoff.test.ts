@@ -7,7 +7,6 @@ import {
   type PortHandoffHost,
 } from "../../../apps/web/src/utils/port-handoff.js";
 
-// Synthetic values only.
 function createHost(hash: string, initial: Record<string, string> = {}) {
   const store = new Map<string, string>(Object.entries(initial));
   const replaceUrl = vi.fn();

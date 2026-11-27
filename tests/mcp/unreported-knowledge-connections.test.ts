@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 
-// Fictional fixtures only.
 const cleanups: Array<() => Promise<void> | void> = [];
 
 afterEach(async () => {

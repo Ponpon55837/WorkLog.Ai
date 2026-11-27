@@ -7,8 +7,6 @@ import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrati
 import { isDatabaseSchemaChangedError } from "../../packages/storage/src/schema-write-gate.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only. The guard: once another process migrated the database, no public read may fail or write
-// a row (lazy index sync, stale-request recovery), and every write must be refused without changing anything.
 const stores: WorkIntelligenceStore[] = [];
 const connections: DatabaseSync[] = [];
 const tempDirs: string[] = [];
@@ -100,7 +98,6 @@ describe("schema write gate across the public API", () => {
     ];
     for (const write of writes) {
       const failure = failureOf(write);
-      // A write whose target does not exist may answer before it needs the lock; none may change a row.
       if (failure !== undefined) expect(isDatabaseSchemaChangedError(failure)).toBe(true);
     }
     expect(changes()).toBe(before);

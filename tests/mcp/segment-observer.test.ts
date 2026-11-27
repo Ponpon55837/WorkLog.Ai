@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SegmentObserver, segmentObserverKey } from "../../apps/mcp/src/segment-observer.js";
 
-// Fictional paths only.
 function clock(start: string) {
   let current = Date.parse(start);
   return {

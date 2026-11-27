@@ -27,7 +27,6 @@ afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-/** A package folder with every shipped file and the given versions. */
 function fakePackage(versions: { package?: string; libexec?: string } = {}): {
   packageRoot: string;
   libexecRoot: string;

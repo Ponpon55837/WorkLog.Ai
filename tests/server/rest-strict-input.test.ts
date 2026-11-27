@@ -10,7 +10,6 @@ import { apiRoutes } from "../../apps/server/src/routes/index.js";
 const PROBE_FIELD = "unexpectedProbeField";
 const ROUTES_DIRECTORY = fileURLToPath(new URL("../../apps/server/src/routes/", import.meta.url));
 
-/** Mutating routes that take no JSON body at all, so there is no field to mistype; each says why. */
 const ROUTES_WITHOUT_BODY: Readonly<Record<string, string>> = {
   "POST /api/backups": "creates a backup; the request carries no options",
   "POST /api/system/pick-folder": "opens the native folder picker; the request carries no options",
@@ -22,7 +21,6 @@ const ROUTES_WITHOUT_BODY: Readonly<Record<string, string>> = {
   "DELETE /api/sessions/:sessionId/links/:relatedSessionId": "unlinks the two named Sessions; nothing else is sent",
 };
 
-/** Project data import and export validate whole bundles with schemas of their own and answer in their own shape. */
 const TRANSFER_ROUTES = new Set([
   "POST /api/export",
   "POST /api/import",
@@ -30,7 +28,6 @@ const TRANSFER_ROUTES = new Set([
   "POST /api/import/staged",
 ]);
 
-/** Query objects that reach a schema whole; other GET routes read only the parameters they name. */
 const QUERY_ROUTES = [
   "/api/attention",
   "/api/sessions/probe-id/related",
@@ -80,7 +77,6 @@ describe("strict REST input", () => {
         body: JSON.stringify({ [PROBE_FIELD]: 1 }),
       });
       const body = (await response.json()) as { code?: string };
-      // A route may answer its own validation code (for example a deletion confirmation); the key must be named.
       if (response.status !== 400 || !JSON.stringify(body).includes(PROBE_FIELD)) {
         lenient.push(`${key} → ${response.status} ${body.code ?? ""}`);
       }
@@ -138,7 +134,6 @@ describe("strict REST input", () => {
   });
 
   it("parses every route input through the strict REST parser", () => {
-    // Import validates its bundle with a schema that is strict itself (its unknown-key message is bounded the same way).
     const allowed = new Set(["projectDataImportInputSchema", "databaseBackupFileNameSchema"]);
     const direct = readdirSync(ROUTES_DIRECTORY)
       .filter((file) => file.endsWith(".ts"))

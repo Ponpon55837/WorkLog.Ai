@@ -99,7 +99,6 @@ describe("Codex finalize reminder hook", () => {
         deps,
       );
 
-    // The first prompt of a segment tells the Agent the start before it saves; a follow-up stays silent.
     expect(prompt()).toBe(
       JSON.stringify({
         hookSpecificOutput: {
@@ -110,7 +109,7 @@ describe("Codex finalize reminder hook", () => {
       }),
     );
     clock = new Date("2026-09-27T01:20:00.000Z");
-    expect(prompt()).toBeNull(); // A follow-up in the same segment keeps the first time.
+    expect(prompt()).toBeNull();
     responseForCodexHook(postToolEvent("apply_patch"), deps);
     expect(responseForCodexHook(stopEvent(), deps)).toBe(
       JSON.stringify({ decision: "block", reason: reminderWithStart("2026-09-27T01:00:00.000Z") }),
@@ -141,7 +140,6 @@ describe("Codex finalize reminder hook", () => {
         deps,
       );
 
-    // No recorded start yet: nothing to offer, so nothing is paused.
     expect(preTool(finalizeTool, {})).toBeNull();
     responseForCodexHook(prompt, deps);
     expect(preTool("mcp__other__tool", {})).toBeNull();
@@ -342,7 +340,6 @@ describe("Codex finalize reminder hook", () => {
     });
     expect(compacted()).toBe(expected);
     expect(compactedSessionReminder("2026-09-27T01:00:00.000Z")).toContain("2026-09-27T01:00:00.000Z");
-    // The Stop reminder having fired does not silence the next compaction, and vice versa.
     expect(responseForCodexHook(stopEvent(), deps)).not.toBeNull();
     expect(compacted()).toBe(expected);
     expect(responseForCodexHook(sessionStartEvent("startup"), deps)).toBeNull();

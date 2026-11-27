@@ -6,16 +6,6 @@ import {
 } from "../../packages/storage/src/index.js";
 import { LATEST_SCHEMA_VERSION, schemaMigrationSql } from "../../packages/storage/src/schema-migrations.js";
 
-// Child-process entry for tests/storage/migration-interruption.test.ts. The tests send SIGKILL; nothing here
-// is production code, and the production modules are used unchanged:
-//   open-store          opens the database through the real store (backup, then migration), then reports `done`.
-//   hold-migration      runs the real initializer on a handle wrapped so that, once the newest migration's SQL has
-//                       run INSIDE the write transaction, the process announces `mid` and blocks.
-//   hold-backup         the same wrapper, held right after `VACUUM INTO` wrote the pre-migration backup's private
-//                       staging copy, before the backup is published.
-//   hold-restore        runs the real restoreDatabase; its `initializeStaging` callback runs the real initializer on
-//                       the staging copy and then blocks, i.e. before the staging file replaces the live database.
-// Arguments: role databasePath backupDirectory [restoreSource].
 const MAX_HOLD_MS = 120_000;
 
 type Hold = (inTransaction: boolean) => never;
@@ -31,7 +21,6 @@ function finish(): void {
   process.send?.({ type: "done" }, () => process.exit(0));
 }
 
-/** Sends `mid`, then blocks the whole thread (no event loop, no timers) until the test kills the process. */
 const hold: Hold = (inTransaction) => {
   process.send?.({ type: "mid", inTransaction });
   const started = Date.now();

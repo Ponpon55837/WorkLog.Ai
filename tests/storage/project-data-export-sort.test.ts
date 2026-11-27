@@ -8,7 +8,6 @@ function row(id: string, mark: string, createdAt?: string): ProjectDataRow {
   return { id, mark, ...(createdAt === undefined ? {} : { created_at: createdAt }) } as unknown as ProjectDataRow;
 }
 
-/** The pre-change behavior: always sort, with the same comparator. */
 function alwaysSorted(table: ProjectDataTable, rows: ProjectDataRow[]): ProjectDataRow[] {
   return [...rows].sort((left, right) => {
     if (table === "outstanding_item_events") {
@@ -86,7 +85,6 @@ describe("sortExportRows", () => {
       const actual = expectSameAsAlwaysSort("sessions", rows);
       expect(actual).toHaveLength(rows.length);
     }
-    // Equal keys already in order stay in their original order, byte-different or not.
     const equalRows = [row(nfd, "first"), row(nfc, "second"), row(nfd, "third")];
     expect(sortExportRows("sessions", equalRows).map((entry) => entry.mark)).toEqual(["first", "second", "third"]);
   });
@@ -107,7 +105,6 @@ describe("sortExportRows", () => {
     expect(sortExportRows("outstanding_item_events", [...ordered]).map((entry) => entry.mark)).toEqual(
       ordered.map((entry) => entry.mark),
     );
-    // Rows sorted by id alone are not in created_at order, so the table-specific comparator must still sort them.
     const byIdOnly = [row("a", "0", later), row("b", "1", at)];
     expect(sortExportRows("outstanding_item_events", byIdOnly).map((entry) => entry.mark)).toEqual(["1", "0"]);
   });

@@ -1,62 +1,30 @@
-/**
- * Vitest setup file shared by every suite (registered as `setupFiles` in each vitest config).
- *
- * Why: tests must never read or write the developer's real home, Codex/Claude configuration, the real
- * `~/.work-intelligence` data, or talk to the real server port 3210. Code under test falls back to those
- * locations whenever an environment variable is not injected, and child processes inherit `process.env`,
- * so the safest guard is to repoint the whole environment before any test module is imported.
- *
- * What it does, per test file (each file gets its own worker context):
- *  1. Records the real home (from the passwd entry, which HOME/USERPROFILE do not influence).
- *  2. Creates a fresh temp root and points every variable the code reads at directories inside it:
- *       HOME, USERPROFILE                    os.homedir() and every `~` default (Node honors them)
- *       APPDATA, LOCALAPPDATA                Windows user service and Claude Desktop locations
- *       XDG_CONFIG_HOME/_DATA_HOME/_STATE_HOME  Linux user service files and Claude Desktop locations
- *       CODEX_HOME, CLAUDE_CONFIG_DIR        Agent configuration directories (agent-setup, doctor, plugin)
- *       WORK_INTELLIGENCE_CONFIG_DIR         standalone data directory (database-location configDirectory)
- *  3. Removes WORK_INTELLIGENCE_DB / _HOME / _BACKUP_DIR inherited from the developer shell, and pins
- *     WORK_INTELLIGENCE_PORT to an unused sentinel so a test that forgets to inject a port can never reach 3210.
- *  4. Makes any in-process `listen`/`connect` on port 3210 throw (child processes are covered by the static
- *     check in tests/shared/test-isolation.test.ts and by the sentinel port above).
- *  5. After the file: asserts os.homedir() is still the fake home (a test that deletes HOME would make Node fall
- *     back to the real passwd home), compares cheap stat snapshots of the real sensitive paths and, in strict
- *     mode, fails on any change; finally removes the temp root.
- *
- * Strict snapshot mode is on when CI is set or WORK_INTELLIGENCE_ISOLATION_STRICT=1 (off with =0). Locally a real
- * Codex/Claude session or the real Work Intelligence server legitimately rewrites those paths while tests run, so
- * the snapshot comparison would give false alarms there.
- */
+/** Vitest setup shared by every suite: repoints HOME, config dirs and ports into a temp root so no test touches real user data or port 3210.
+ * Strict snapshot comparison runs only in CI or with WORK_INTELLIGENCE_ISOLATION_STRICT=1; locally a real Agent session may rewrite those paths. */
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import { join } from "node:path";
 import { afterAll } from "vitest";
 
-/** The server's default port; tests must never listen on or connect to it. */
 export const FORBIDDEN_PORT = 3210;
 /** A port nothing is expected to listen on; stands in for WORK_INTELLIGENCE_PORT when a test sets none. */
 export const SENTINEL_PORT = "65533";
 
-/** The isolated locations created for the current test file. */
 export interface IsolatedEnvironment {
-  /** The developer's real home directory (never touched; only stat-ed). */
   readonly realHome: string;
-  /** Temp directory that holds everything below. */
   readonly root: string;
-  /** Value of HOME and USERPROFILE. */
   readonly home: string;
 }
 
+// From the passwd entry, which HOME/USERPROFILE do not influence.
 const REAL_HOME = os.userInfo().homedir;
 const REAL_APPDATA = process.env.APPDATA;
 
 const root = realpathSync(mkdtempSync(join(os.tmpdir(), "wi-test-isolation-")));
 const home = join(root, "home");
 
-/** Describes where this test file's environment points; exported so the guard test can assert on it. */
 export const isolatedEnvironment: IsolatedEnvironment = { realHome: REAL_HOME, root, home };
 
-/** Real-home paths whose contents a test must never change (stat-only comparison). */
 function sensitivePaths(): string[] {
   const paths = [
     join(REAL_HOME, ".work-intelligence"),
@@ -72,7 +40,6 @@ function sensitivePaths(): string[] {
   return paths;
 }
 
-/** One-level fingerprint: mtime and size of the path plus the name, size and mtime of each file entry. */
 function fingerprint(path: string): string {
   if (!existsSync(path)) {
     return "absent";
@@ -101,7 +68,6 @@ function snapshotRealHome(): Map<string, string> {
   return new Map(sensitivePaths().map((path) => [path, fingerprint(path)]));
 }
 
-/** Environment values the code reads, all inside the temp root. */
 function isolatedValues(): Record<string, string> {
   return {
     HOME: home,
@@ -118,7 +84,6 @@ function isolatedValues(): Record<string, string> {
   };
 }
 
-/** Port requested by the first argument of `connect`/`listen` (number, numeric string, options object or array). */
 function requestedPort(args: unknown[]): number | undefined {
   const first = args[0];
   if (Array.isArray(first)) {
@@ -136,7 +101,6 @@ function requestedPort(args: unknown[]): number | undefined {
 
 const PATCHED = Symbol.for("work-intelligence.test-isolation.port-guard");
 
-/** Makes in-process sockets and servers refuse port 3210 with an explicit error. */
 function guardForbiddenPort(): void {
   const targets: Array<{ prototype: Record<string, unknown>; method: "connect" | "listen" }> = [
     { prototype: net.Socket.prototype as unknown as Record<string, unknown>, method: "connect" },

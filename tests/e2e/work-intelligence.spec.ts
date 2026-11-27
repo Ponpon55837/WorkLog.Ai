@@ -17,7 +17,6 @@ type ProjectRecord = { id: string };
 type SessionRecord = { id: string };
 type ApiResult<T> = T & { outcome?: string; reason?: string };
 
-/** Acts as an Agent on the server's database (MCP-only writes have no REST route). */
 function withAgentStore<T>(task: (store: WorkIntelligenceStore) => T): T {
   const databasePath = process.env.WORK_INTELLIGENCE_E2E_DB;
   if (!databasePath) {
@@ -33,7 +32,6 @@ function withAgentStore<T>(task: (store: WorkIntelligenceStore) => T): T {
 
 type KnowledgePageSave = Parameters<WorkIntelligenceStore["saveKnowledgePage"]>[0];
 
-/** Saves the way an Agent does: read the page context, then save with its reviewToken, so the Sessions shown count as covered. */
 function saveKnowledgePageAfterReading(store: WorkIntelligenceStore, input: KnowledgePageSave) {
   const context = store.getKnowledgePageContext({ projectRoot: input.projectRoot, slug: input.slug });
   if (context.outcome !== "knowledge_page_context") throw new Error("Expected the Knowledge page context.");
@@ -400,7 +398,6 @@ test.describe("Work Intelligence browser regression", () => {
       expect(extraKnowledge.outcome).toBe("knowledge_recorded");
     }
 
-    // The report page opens on all tracked projects, which only shows all-project syntheses.
     const synthesisRequest = await postJson<{ request: { id: string } }>(request, "/api/reports/synthesis-requests", {
       period: "week",
       date: reportDate,
@@ -556,7 +553,6 @@ test.describe("Work Intelligence browser regression", () => {
     await page.getByRole("button", { name: tt("common.status") }).click();
     await page.getByRole("menuitemradio", { name: tt("common.pending"), exact: true }).click();
 
-    // The undo action belongs to the batch, not the page currently rendered in the list.
     await page.getByLabel(tt("outstanding.openItemsPerPage")).selectOption("10");
     await page.getByRole("button", { name: tt("ui.nextPage"), exact: true }).click();
     await expect.poll(() => new URL(page.url()).searchParams.get("itemPage")).toBe("2");
@@ -913,7 +909,6 @@ test.describe("Work Intelligence browser regression", () => {
 
     withAgentStore((store) => store.setSessionVoid({ sessionId: reviewSourceId, voided: false }));
     await page.reload();
-    // Selected sources now survive reload through the URL; close the restored panel before reopening it.
     await expect(page.getByRole("dialog", { name: tt("common.knowledgePages") })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog", { name: tt("common.knowledgePages") })).toBeHidden();
@@ -1203,7 +1198,6 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(history.getByTestId("report-synthesis-version")).toHaveCount(2);
     await expect(history).toContainText("Browser regression report");
 
-    // The overview's deterministic part changes shape with the period.
     const breakdown = page.getByTestId("report-breakdown");
     await expect(breakdown).toContainText(tt("reports.byDay"));
     await expect(breakdown).toContainText(tt("reports.projectShare"));
@@ -1220,7 +1214,6 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(synthesis.getByRole("button", { name: tt("reports.cancelThisCleanup") })).toBeVisible();
     await expect(synthesis.getByRole("button", { name: tt("common.copyAgentInstruction") })).toBeVisible();
 
-    // An Agent finishing the request shows up on the open page without a manual refresh.
     const pendingResponse = await request.get(
       `/api/reports/synthesis-requests?period=week&date=${reportDate}&scopeType=all&status=pending`,
     );
@@ -1296,7 +1289,6 @@ test.describe("Work Intelligence browser regression", () => {
         .getByRole("radiogroup", { name: tt("reports.chooseReportPeriod") })
         .getByRole("radio", { name: tt("reports.custom") })
         .click();
-      // Switching to a custom range starts from the last 14 days without a transient invalid query.
       await expect(page).toHaveURL(
         /period=custom.*from=\d{4}-\d{2}-\d{2}.*to=\d{4}-\d{2}-\d{2}|period=custom.*to=.*from=/,
       );
@@ -1485,7 +1477,6 @@ test.describe("Work Intelligence browser regression", () => {
 
     await page.goto("/system-status");
     await expect(page.getByRole("heading", { name: tt("nav.systemStatus") }).first()).toBeVisible();
-    // In-app navigation (RouterLink → router.push), so back/forward go through the router's history mode.
     await page
       .getByRole("link", { name: tt("common.workHistory") })
       .first()
@@ -1847,7 +1838,6 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(panel.getByRole("heading", { name: "Edited fixture title" })).toBeVisible();
     await expect(panel).toContainText("Edited summary from the Web UI.");
     await expect(panel).toContainText("Edited outcome two.");
-    // Untouched sections are patched around, not cleared.
     await expect(panel).toContainText("Original scope.");
 
     await expect(panel).toContainText(tt("session.verificationChangeHistory"));
@@ -2044,7 +2034,6 @@ test.describe("Work Intelligence browser regression", () => {
   }) => {
     await page.goto("/graph/timeline");
     const timeline = page.getByTestId("graph-timeline");
-    // The 30-day range opens as one column per day; clicking a day zooms in to single Sessions.
     await timeline
       .getByTestId("timeline-day")
       .filter({ hasText: /^Browser Regression Fixture，/ })
@@ -2196,7 +2185,6 @@ test.describe("Work Intelligence browser regression", () => {
     await inspect(maliciousLabel).click();
     await expect(details).toContainText("REST routes and policy");
     await expect(details).toContainText("apps/server/src/server.ts");
-    // Focusing direct relations from a group includes neighbors outside that group.
     await details.getByRole("button", { name: tt("session.architectureLocalView") }).click();
     await expect(canvas.locator(".architecture__node")).toHaveCount(3);
     await expect(inspect("Web UI")).toBeVisible();
@@ -2248,7 +2236,6 @@ test.describe("Work Intelligence browser regression", () => {
     await expand.click();
     await page.reload();
     await expect(reader).toBeVisible();
-    // A resizable reader must adapt to its own width even on a wide desktop viewport.
     await page.setViewportSize({ width: 1440, height: 1000 });
     const resize = reader.getByRole("separator", { name: tt("ui.resize", { label: tt("session.diagramReader") }) });
     await resize.press("Home");
@@ -2292,7 +2279,6 @@ test.describe("Work Intelligence browser regression", () => {
         await page.screenshot({ path: test.info().outputPath(`architecture-${width}-${theme}-${locale}.png`) });
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
-    // Future envelopes must stay readable as escaped source rather than going through either renderer.
     await page.route(`**/api/sessions/${diagramSessionId}`, async (route) => {
       const fetched = await route.fetch();
       const body = await fetched.json();
@@ -2613,7 +2599,6 @@ test.describe("Work Intelligence browser regression", () => {
     expect(bundle.scope).toEqual({ type: "project", projectId });
     expect(bundle.tables.projects).toHaveLength(1);
 
-    // A Session whose project is not in the file is listed under conflicts instead of disappearing from the counts.
     const withOrphan = JSON.parse(exported.toString("utf8")) as {
       tables: { sessions: Array<Record<string, unknown>> };
     };
@@ -2654,8 +2639,6 @@ test.describe("Work Intelligence browser regression", () => {
     const confirmation = page.getByRole("dialog", { name: tt("projects.confirmProjectDataImport") });
     await expect(confirmation).toContainText(ttPattern("projects.recordsWillBeAddedAnd"));
     await confirmation.getByRole("button", { name: tt("projects.import"), exact: true }).click();
-    // Every record of the file is already here, so the import changes nothing and says so; it writes a pre-import
-    // snapshot only when it is about to change rows (storage and REST tests cover that case).
     await expect(page.getByText(tt("projects.importFinishedNothingChanged"))).toBeVisible();
     await expect(backups).not.toContainText(tt("labels.beforeProjectDataImport"));
     for (const width of [1440, 960, 375]) {
@@ -2934,14 +2917,12 @@ test.describe("Work Intelligence browser regression", () => {
       expect(submitted.outcome).toBe("knowledge_candidates_submitted");
     });
 
-    // The page re-checks the open request and shows the result without a reload.
     await expect(
       page.getByText(ttPattern("knowledge.theAgentSubmittedKnowledgeCandidatesForPleaseReview")),
     ).toBeVisible({ timeout: 15_000 });
     const candidate = candidates.getByTestId("knowledge-candidate").filter({ hasText: "E2E candidate" });
     await candidate.getByRole("button", { name: tt("knowledge.accept"), exact: true }).click();
     await expect(page.getByText(tt("knowledge.addedToKnowledge"))).toBeVisible();
-    // Accepted Knowledge lives on the Knowledge tab.
     await page.getByRole("tab", { name: /^Knowledge/ }).click();
     await expect(
       page.getByTestId("knowledge-row").filter({ hasText: "E2E candidate: the browser suite needs its own database" }),
@@ -2972,7 +2953,6 @@ test.describe("Work Intelligence browser regression", () => {
     const row = page.getByTestId("knowledge-row").filter({ hasText: title });
     await expect(row).toContainText(tt("status.possiblyStale"));
 
-    // The list keeps the first screen; the review request sits beside it and Agent verdicts replace it on demand.
     await expect(page.getByRole("heading", { name: ttPattern("knowledge.activeKnowledge") })).toBeInViewport();
     await expect(page.getByTestId("agent-review-request")).toBeInViewport();
     await expect(page.getByTestId("agent-knowledge-review")).toHaveCount(0);
@@ -2995,17 +2975,14 @@ test.describe("Work Intelligence browser regression", () => {
       changedFiles: ["README.md"],
       verification: { status: "passed" },
     });
-    // Simulate a legacy record: verification was never supplied.
     const db = new DatabaseSync(process.env.WORK_INTELLIGENCE_E2E_DB!);
     db.prepare("UPDATE sessions SET verification_json = NULL WHERE id = ?").run(finalized.session.id);
     db.close();
 
     await page.goto("/projects/backfill");
-    // Scanning creates the Agent request when gaps exist.
     await page.getByRole("button", { name: tt("projects.scanMetadataGaps") }).click();
     await expect(page.getByRole("button", { name: tt("projects.cancelBackfill") })).toBeVisible();
 
-    // Act as the Agent: read the request's context and write back every confirmed gap.
     const requests = await request.get("/api/backfill/metadata-requests");
     const pending = ((await requests.json()) as { requests: Array<{ id: string; status: string }> }).requests.find(
       (item) => item.status === "pending" || item.status === "processing",
@@ -3182,7 +3159,6 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(advisory).toHaveAttribute("role", "note");
     await expect(advisory).toContainText(tt("knowledge.overlapAdvisory"));
     await expect(advisory).toContainText(tt("labels.overlapDuplicateKnowledge"));
-    // Advisory only: the decisions stay available.
     await expect(candidate.getByRole("button", { name: tt("knowledge.accept"), exact: true })).toBeEnabled();
     await advisory.getByRole("link", { name: knowledgeTitle }).click();
     await expect(page).toHaveURL(new RegExp(`knowledge=${knowledgeId}`));
@@ -3620,8 +3596,6 @@ test.describe("Work Intelligence browser regression", () => {
       await expectNoHorizontalOverflow(page);
 
       await page.goto("/dashboard");
-      // grow-to-viewport: the list reaches the viewport bottom and scrolls inside only when its rows do not
-      // fit there, so it either scrolls internally or ends inside the viewport; it never stretches the page.
       const recentWork = page.getByRole("list", { name: tt("dashboard.recentlyCompletedWorkList") });
       await expect(recentWork).toBeVisible();
       await expect(recentWork).toHaveCSS("overflow-y", "auto");
@@ -3765,7 +3739,6 @@ test.describe("Work Intelligence browser regression", () => {
 });
 
 test("list pages show only the error state when their data fails to load", async ({ page }) => {
-  // A failed first load is not "no records": the empty states must not claim the lists are empty.
   await page.route(
     (url) => ["/api/sessions", "/api/knowledge", "/api/projects", "/api/dashboard"].includes(url.pathname),
     (route) => route.fulfill({ status: 500, json: { error: "Internal server error.", code: "internal_error" } }),
@@ -3778,7 +3751,6 @@ test("list pages show only the error state when their data fails to load", async
   await expect(page.getByText(tt("knowledge.couldNotLoadKnowledge"))).toBeVisible();
   await expect(page.getByText(tt("knowledge.noConfirmedKnowledgeYet"))).toHaveCount(0);
 
-  // Projects and the dashboard report a failed load in the shell banner.
   await page.goto("/projects");
   await expect(page.getByText(tt("common.couldNotLoadWorkIntelligence"))).toBeVisible();
   await expect(page.getByText(tt("projects.noProjectsYet"))).toHaveCount(0);

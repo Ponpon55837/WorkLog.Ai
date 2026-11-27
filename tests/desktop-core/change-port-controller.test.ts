@@ -1,13 +1,7 @@
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { describe, expect, it } from "vitest";
 import { createChangePort, type ChangePortOptions } from "../../apps/desktop/src/main/change-port.js";
 import { PortHandoffStore, PORT_HANDOFF_TTL_MS } from "../../packages/desktop-core/src/index.js";
-
-/**
- * The main-process controller behind 「變更連接埠」, with a fake supervisor, backend and OS: what is refused and why, what
- * is stopped (nothing, until the user confirmed), the rollback, and the single-use snapshot. All values are synthetic.
- */
 
 const OLD = 43_100;
 const NEW = 43_200;
@@ -17,11 +11,9 @@ interface Setup {
   readonly running?: boolean;
   readonly operation?: boolean;
   readonly activity?: "idle" | "busy" | "unknown" | "busy-after-dialog" | "preview";
-  /** The kind the backend reports while it is busy (default import). */
   readonly busyKind?: "import" | "backup" | "export" | "restore";
   readonly probe?: { free: true } | { free: false; code: string };
   readonly dialog?: boolean;
-  /** The start on the new port is refused before anything is stopped (the old backend keeps serving). */
   readonly refusedBeforeStopping?: boolean;
   readonly start?: Array<{ ok: true } | { ok: false; busy?: false; code: string } | { ok: false; busy: true }>;
   readonly restart?: { ok: true } | { ok: false; busy?: false; code: string } | { ok: false; busy: true } | "throws";
@@ -66,7 +58,6 @@ function setup(options: Setup = {}) {
         events.push("start-new");
         starts.push(change);
         const outcome = startOutcomes.shift() ?? { ok: true as const };
-        // A real managed start stops the old backend first; only a refusal before that leaves it serving.
         if (outcome.ok) running = { port: (change as { port: number }).port };
         else if (!options.refusedBeforeStopping) running = undefined;
         return outcome;
@@ -126,7 +117,6 @@ describe("the port change controller", () => {
       port: NEW,
       discardedImportPreview: true,
     });
-    // The confirmation says so before the click, not only afterwards (L-06).
     expect(events).toEqual([`confirm ${OLD}->${NEW} with a staged import`, "start-new", "touch"]);
     expect(opened).toHaveLength(1);
   });

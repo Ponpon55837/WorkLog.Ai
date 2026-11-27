@@ -13,7 +13,6 @@ import {
   type ReminderDeps,
 } from "../../apps/mcp/src/finalize-reminder.js";
 
-// Fictional transcript lines in Claude Code's format.
 const tool = (name: string) =>
   JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name }] } });
 const toolWithInput = (name: string, input: Record<string, unknown>) =>
@@ -133,7 +132,6 @@ describe("finalize reminder hook", () => {
     const summary = summarizeTranscript(d.readTranscript(""));
     expect(summary.lastFinalize).toBeGreaterThan(-1);
     expect(summary.segmentStartedAt).toBe("2026-09-27T02:00:00.000Z");
-    // Nothing edited since the save: no reminder.
     expect(reminderFor(input, d)).toBeNull();
   });
 
@@ -263,7 +261,6 @@ describe("finalize reminder hook", () => {
     expect(output).not.toContain("decision");
     expect(d.marked).toEqual([]);
     expect(responseForClaudeHook(hookEvent("PreCompact", { trigger: "manual" }), d)).toBe(output);
-    // The Stop reminder still fires once after compaction notes were written.
     expect(responseForClaudeHook(hookEvent("Stop"), d)).toContain('"decision":"block"');
   });
 
@@ -381,7 +378,6 @@ describe("finalize reminder hook", () => {
       ),
     ).not.toContain("changedFileChanges");
 
-    // A call that already carries startedAt is never paused for missing statuses.
     expect(pre({ startedAt: "2026-09-27T00:50:00.000Z", changedFiles: ["src/a.ts"] }, deps(transcript))).toBeNull();
     expect(lacksChangeStatuses({ changedFiles: ["a"] })).toBe(true);
     expect(lacksChangeStatuses({})).toBe(false);
@@ -400,7 +396,6 @@ describe("finalize reminder hook", () => {
       },
     });
 
-    // Anything that is not an unqualified finalize passes through untouched.
     expect(pre("Edit", {}, d)).toBeNull();
     expect(pre(FINALIZE, { startedAt: "2026-09-27T00:50:00.000Z" }, d)).toBeNull();
     expect(pre(FINALIZE, { completedAt: "2026-09-27T01:50:00.000Z" }, d)).toBeNull();
@@ -411,7 +406,6 @@ describe("finalize reminder hook", () => {
     expect(d.marked).toEqual([]);
 
     expect(pre(FINALIZE_DISPATCHER, { operation: "work_finalize_session", arguments: {} }, d)).toBe(expected);
-    // The retry always passes, even when it still omits the time.
     expect(pre(FINALIZE, {}, d)).toBeNull();
     expect(d.marked).toEqual(["pre:s1:-1"]);
 
@@ -488,7 +482,6 @@ describe("finalize reminder hook", () => {
     expect(mixed.editedFiles).toEqual(["src/queen.ts", "src/drone.ts"]);
     expect(mixed.lastEdit).toBe(3);
 
-    // An id-less edit keeps the old behavior, and a failed edit before a save never reopens the segment.
     const idless = summarizeTranscript(toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") }));
     expect(idless.lastEdit).toBe(1);
     const afterSave = summarizeTranscript(

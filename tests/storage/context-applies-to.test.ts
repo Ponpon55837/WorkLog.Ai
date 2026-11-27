@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -67,7 +66,6 @@ describe("work_get_context with Knowledge linked only through appliesTo", () => 
     const relevant = context.relevant?.knowledge.find((item) => item.id === stale.id);
     expect(relevant).toMatchObject({ type: "knowledge", title: "Queen cell spacing rule", possiblyStale: true });
     expect(relevant?.excerpt).toContain("Queen cell spacing rule");
-    // Offered once: not repeated in recentKnowledge or as an omission pointer.
     expect(context.recentKnowledge.some((item) => item.id === stale.id)).toBe(false);
     const omittedIds = (context.omitted ?? []).flatMap((omission) => [
       ...(omission.ids ?? []),

@@ -11,12 +11,6 @@ import {
   type StorageRisk,
 } from "../../packages/desktop-core/src/index.js";
 
-/**
- * The App's own database after an upgrade (schema N-1, App N): the status says it needs an update, the page offers one
- * button that backs up and updates it, and a storage that refuses the update offers the copy to a local folder instead.
- * Synthetic paths only.
- */
-
 const base: RepairStateInputs = {
   platform: "linux",
   homeDirectory: "/synthetic/home",

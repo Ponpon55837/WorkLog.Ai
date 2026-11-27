@@ -14,7 +14,6 @@ import type {
 } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only. Time is faked so every write has its own later timestamp.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -136,7 +135,6 @@ function verdict(
   return { itemKind: "knowledge", itemId, verdict: kind, reason: `Fictional reason to ${kind}.`, ...extra };
 }
 
-/** One Knowledge a later focused Session touched, so it is possibly stale. */
 function staleKnowledge(fixture: ReturnType<typeof setup>, key: string): string {
   const id = fixture.record(key, [`src/${key}/**`]);
   fixture.finalize(`touch-${key}`, [`src/${key}/file.ts`]);

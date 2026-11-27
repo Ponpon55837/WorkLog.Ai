@@ -14,8 +14,6 @@ import {
 import { REAL_COLLECTION_DEPS } from "../../packages/desktop-core/src/runtime/runtime-gc.js";
 import { IS_WINDOWS, installFixture, makeRoot } from "./runtime-helpers.js";
 
-// Synthetic runtime ids and lease names only. A fake clock drives both the wall time and the monotonic time.
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 const START = Date.parse("2030-01-01T00:00:00Z");
 
@@ -32,12 +30,10 @@ afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-/** A clock that only moves when the test (or a fake sleep) moves it. */
 class FakeClock {
   wall = START;
   monotonic = 0;
   readonly sleeps: number[] = [];
-  /** Runs inside each fake sleep, to play what other processes do while the collector waits. */
   onSleep: () => Promise<void> = async () => undefined;
 
   readonly deps: Partial<RuntimeCollectionDeps> = {
@@ -67,13 +63,11 @@ async function readState(): Promise<{ version: number; retiredAt: Record<string,
   };
 }
 
-/** Writes the record as if `names` had been seen retired `age` ms before the fake clock's now. */
 async function seedRetired(clock: FakeClock, names: readonly string[], age: number): Promise<void> {
   const retiredAt = Object.fromEntries(names.map((name) => [name, new Date(clock.wall - age).toISOString()]));
   await fs.writeFile(statePath(), JSON.stringify({ version: 1, retiredAt, kept: ["prev-1"] }));
 }
 
-/** A lease file of `runtimeId` whose modification time is `ageMs` before the fake clock's now. */
 async function writeLease(clock: FakeClock, runtimeId: string, name: string, ageMs: number): Promise<string> {
   const directory = leaseDirectoryFor(root, runtimeId);
   await fs.mkdir(directory, { recursive: true });
@@ -115,7 +109,6 @@ describe("collectOldRuntimes: retirement", () => {
       failed: [],
     });
     expect(await runtimeNames()).toEqual(["cur-1", "old-1", "prev-1"]);
-    // Their old entries are forgotten: a runtime that is current or kept again starts its grace period over when retired.
     expect((await readState()).retiredAt).toEqual({ "old-1": new Date(START).toISOString() });
   });
 
@@ -131,7 +124,6 @@ describe("collectOldRuntimes: retirement", () => {
   it("keeps the runtime the last install named even when the record on disk is an older one (L-13)", async () => {
     const clock = new FakeClock();
     await collect(clock);
-    // The install's record could not be saved: what is on disk still names an earlier fallback and lists prev-1 as long retired.
     await fs.writeFile(
       statePath(),
       JSON.stringify({
@@ -342,7 +334,6 @@ describe("collectOldRuntimes: lease folders", () => {
   );
 });
 
-/** Moves the runtime directory `runtimeId` aside the way a collection or an install does; returns the quarantine's name. */
 async function quarantine(runtimeId: string, suffix = "ab12cd34"): Promise<string> {
   const name = `.quarantine-${runtimeId}-${suffix}`;
   await fs.rename(path.join(root, "runtimes", runtimeId), path.join(root, "runtimes", name));
@@ -417,7 +408,6 @@ describe("collectOldRuntimes: quarantined directories need the same proof", () =
     });
     const [leftover] = (await runtimeNames()).filter((name) => name.startsWith(".quarantine-old-1-"));
     expect(leftover).toBeDefined();
-    // The next collection does not delete it on its name: the new lease is fresh, and with the name free it is put back.
     expect(await collect(clock, { deps: { rename: failingBack } })).toMatchObject({ removed: [], failed: [] });
     expect(await runtimeNames()).toContain(leftover);
     expect(await collect(clock)).toEqual({
@@ -426,7 +416,6 @@ describe("collectOldRuntimes: quarantined directories need the same proof", () =
       failed: [],
     });
     expect(await runtimeNames()).toEqual(["cur-1", "old-1", "prev-1"]);
-    // While it was quarantined its retirement entry was forgotten; seed it again as if the period had passed.
     await seedRetired(clock, ["old-1"], 8 * DAY_MS);
     clock.advance(10 * 60_000);
     expect(await collect(clock)).toEqual({ removed: ["old-1"], deferred: [], failed: [] });
@@ -486,7 +475,6 @@ describe("collectOldRuntimes: quarantined directories need the same proof", () =
 describe("collectOldRuntimes: no known kept list", () => {
   it("records nothing and retires nothing when the record is missing and the caller names no previous runtime", async () => {
     const clock = new FakeClock();
-    // The first start of this version with an unchanged runtime id: no install named a previous runtime.
     const first = await collectOldRuntimes(root, { keep: [], deps: clock.deps });
     expect(first.removed).toEqual([]);
     expect(first.deferred).toEqual(

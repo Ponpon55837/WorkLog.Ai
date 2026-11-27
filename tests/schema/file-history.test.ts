@@ -6,7 +6,6 @@ import {
   isRepositoryRelativePath,
 } from "../../packages/schema/src/index.js";
 
-// Fictional values only.
 const root = "/fictional/lighthouse";
 
 describe("file history query", () => {

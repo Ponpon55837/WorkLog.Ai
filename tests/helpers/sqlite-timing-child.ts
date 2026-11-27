@@ -1,5 +1,4 @@
-// Child process for tests/storage/sqlite-timing.test.ts: waits for a write lock held by the test process, so the timing
-// hook sees a slow BEGIN IMMEDIATE, then runs a few more transactions, each held 150 ms so every one is recorded. Prints what it observed as one JSON line.
+// Child of tests/storage/sqlite-timing.test.ts: waits on a write lock held by the test so the hook sees a slow BEGIN IMMEDIATE, then runs transactions.
 // The hook must be registered before node:sqlite is resolved, so neither may be a static import here.
 if (process.env.WI_SQLITE_TIMING === "1") await import("./sqlite-timing.js");
 const { DatabaseSync } = await import("node:sqlite");
@@ -25,12 +24,11 @@ db.exec("BEGIN");
 db.prepare("SELECT COUNT(*) AS changes FROM items").get();
 Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
 db.exec("COMMIT");
-// A deferred transaction whose INSERT fails on a constraint: the statement still took the write lock, so write is true.
 db.exec("BEGIN");
 try {
   db.prepare("INSERT INTO items (id, name) VALUES (1, 'duplicate')").run();
 } catch {
-  // Expected: the primary key 1 exists.
+  // Expected: the duplicate key fails, but the statement already took the write lock.
 }
 Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
 db.exec("ROLLBACK");

@@ -74,7 +74,6 @@ describe("data revision cache", () => {
     finalizeWithoutVerification(second, roots[0]!, "two");
     expect(needsBackfill(first)).toBe(2);
 
-    // A raw write fires the same revision triggers as the store's own writes.
     openRaw(databasePath).exec(`UPDATE sessions SET verification_json = '{"status":"passed"}'`);
     expect(needsBackfill(first)).toBe(0);
   });

@@ -13,7 +13,6 @@ import { normalizePath } from "../../packages/storage/src/search-text.js";
 import type { WeightedPathKnowledge } from "../../packages/storage/src/search-repository.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 interface SearchInternals {
   syncIndex: () => void;
   knowledgeForWeightedPaths: (
@@ -78,7 +77,6 @@ describe("SearchRepository.knowledgeForWeightedPaths", () => {
 
     // heavy: 3 + 2 = 5; wide: 3 + 2 + 1 = 6 (each file counted once with its best entry); light: 1.
     expect(result.map((item) => item.id)).toEqual([wide.id, heavy.id, light.id]);
-    // matchedPath is the heaviest file the Knowledge covers, not the stored pattern.
     expect(result[1]).toMatchObject({ title: "Warp thread gauge", matchedPath: "src/warp/a.ts" });
     expect(result[0]?.matchedPath).toBe("src/warp/a.ts");
     expect(result[2]?.matchedPath).toBe("src/weft/c.ts");
@@ -246,7 +244,6 @@ describe("SearchRepository.knowledgeForWeightedPaths", () => {
       1 + Math.floor(random() * 5),
     ]);
 
-    // Reference: every (entry, file) pair through appliesToStrength, in the implementation's file order.
     const contexts = [{ name: project.name, rootPath: project.rootPath }];
     const spelling = new Map<string, string>();
     const merged = new Map<string, number>();

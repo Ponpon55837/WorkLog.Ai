@@ -115,7 +115,7 @@ describe("the banner for an operation a crash interrupted", () => {
         expect(banner.nextStep.length).toBeGreaterThan(0);
         expect(banner.openTabLabel.length).toBeGreaterThan(0);
         expect(`${banner.message} ${banner.nextStep} ${banner.openTabLabel}`).not.toMatch(FORBIDDEN);
-        expect(banner.message).not.toMatch(/\{[a-z]+\}/); // every placeholder was filled
+        expect(banner.message).not.toMatch(/\{[a-z]+\}/);
       }
     }
   });

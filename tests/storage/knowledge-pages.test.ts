@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgePageSection } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -31,7 +30,6 @@ function setup(databasePath = ":memory:") {
   store.updateProject(other.id, { status: "tracked" });
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(Date.UTC(2030, 0, 1));
-  // Each write happens one minute after the previous one so "newer than" comparisons are strict.
   const tick = () => vi.setSystemTime(Date.now() + 60_000);
   const finalize = (key: string, rootPath = projectRoot) => {
     tick();
@@ -54,7 +52,6 @@ function setup(databasePath = ":memory:") {
   return { store, root, projectRoot, otherRoot, project, finalize, tick, sections };
 }
 
-/** Narrows a default (non-focused) read for assertions. */
 function fullContext(result: ReturnType<WorkIntelligenceStore["getKnowledgePageContext"]>) {
   if (result.outcome !== "knowledge_page_context" || "focused" in result || "reviewOnly" in result) {
     throw new Error(`Expected a default knowledge page context, received ${JSON.stringify(result).slice(0, 120)}`);
@@ -113,7 +110,6 @@ describe("Knowledge pages", () => {
       suggestedSlug: "pitfalls",
       ...listed,
     });
-    // Another project's page id is never resolved or revealed.
     expect(lookup(foreign.page.id)).toEqual({
       outcome: "not_found",
       slug: foreign.page.id,
@@ -123,7 +119,6 @@ describe("Knowledge pages", () => {
     });
     expect(lookup("pitfall")).toMatchObject({ reasonCode: "slug_near_match", suggestedSlug: "pitfalls", ...listed });
     expect(lookup("hive-logs")).toMatchObject({ reasonCode: "slug_near_match", suggestedSlug: "hive-log" });
-    // A typo of a default page that was never requested points to the request tool.
     expect(lookup("architectur")).toMatchObject({
       reasonCode: "slug_near_match",
       suggestedSlug: "architecture",
@@ -258,7 +253,6 @@ describe("Knowledge pages", () => {
 
     const context = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
     expect(context.mode).toBe("full");
-    // Newest first, without gaps, until the Session budget is spent; the rest are flagged, never cut silently.
     expect(context.sessions.length).toBeGreaterThan(8);
     expect(context.sessions.length).toBeLessThan(60);
     expect(context.truncated).toBe(true);
@@ -667,7 +661,6 @@ describe("Knowledge pages", () => {
       return result;
     };
 
-    // The work that saved both pages is recorded right after the saves.
     const maintaining = finalizeMaintaining("maintained-update-pages", ["architecture", "pitfalls", "missing"]);
     expect(maintaining.knowledgePagesAcknowledged).toEqual(["architecture", "pitfalls"]);
     const unrelated = finalize("maintained-unrelated-pr");
@@ -678,7 +671,6 @@ describe("Knowledge pages", () => {
       expect(page.needsReview).toBeFalsy();
     }
 
-    // A later maintaining Session does not hide the unrelated one before it.
     const late = finalizeMaintaining("maintained-late", ["architecture"]);
     expect(late.knowledgePagesAcknowledged).toBeUndefined();
     const context = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
@@ -835,16 +827,12 @@ describe("Knowledge pages", () => {
         if (!("focused" in result)) throw new Error("Expected a focused read");
         return result.sections.map((section) => section.heading);
       };
-      // Three sections share "ledger"; only the one with most of the terms is returned.
       expect(names({ query: "ledger rotation window schedule" })).toEqual(["Rotation"]);
-      // Chinese bigrams: several sections share one bigram, only the one with most bigrams remains.
       expect(names({ query: "簽章輪替排程" })).toEqual(["輪替"]);
       // A short Latin term matches whole tokens only: "ts" is a token of Rights' content; "gh" is inside "rights".
       expect(names({ query: "ts" })).toEqual(["Rights"]);
       expect(names({ query: "gh" })).toEqual([]);
-      // A 4+ character Latin term also matches as a token prefix.
       expect(names({ query: "rotat" })).toEqual(["Rotation"]);
-      // Headings are always included, in addition to the best query matches.
       expect(names({ query: "ledger rotation window schedule", headings: ["intro"] })).toEqual(["Intro", "Rotation"]);
     });
 
@@ -878,7 +866,6 @@ describe("Knowledge pages", () => {
   });
 
   describe("review token: coverage and version checks", () => {
-    /** A written page saved with the token of its first full read, citing one Session. */
     function tokenPage() {
       const context = setup();
       const { store, projectRoot, finalize, tick, sections } = context;
@@ -991,7 +978,6 @@ describe("Knowledge pages", () => {
         }),
       ).toEqual({ outcome: "version_conflict", reason: expect.any(String), baseVersion: 1, currentVersion: 2 });
       expect(pageOf(store, projectRoot)).toMatchObject({ version: 2, sections: [{ content: "Left wins." }, {}] });
-      // A retry of the save that succeeded is still a duplicate, not a conflict.
       expect(
         store.saveKnowledgePage({
           projectRoot,
@@ -1024,7 +1010,6 @@ describe("Knowledge pages", () => {
         }),
       ).toMatchObject({ outcome: "version_conflict", baseVersion: 1, currentVersion: 2 });
       expect(pageOf(store, projectRoot).sections[0]?.content).toBe("Web edit.");
-      // Without baseVersion a Web edit is saved as before.
       expect(store.updateKnowledgePage({ pageId: page.id, sections: sections(first, "Unchecked.") })).toMatchObject({
         outcome: "knowledge_page_updated",
         page: { version: 3 },
@@ -1124,7 +1109,6 @@ describe("Knowledge pages", () => {
       covered_through_completed_at: string | null;
       covered_through_session_id: string | null;
     };
-    /** True when any section-shaped object in the value carries a stored baseline (a page's own sourcedThrough is public). */
     const hasSectionBaseline = (value: unknown): boolean => {
       if (typeof value !== "object" || value === null) return false;
       if ("heading" in value && "sourcedThrough" in value) return true;
@@ -1132,7 +1116,6 @@ describe("Knowledge pages", () => {
     };
     type SectionChange = { upsertSections?: KnowledgePageSection[]; removeHeadings?: string[] };
 
-    /** An architecture page at version 1: Hive layout and Feeding cite `a`, Winter care cites `b`. */
     function sectionPage() {
       const context = setup();
       const { store, projectRoot, finalize, tick } = context;

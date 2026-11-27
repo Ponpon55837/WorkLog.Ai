@@ -259,7 +259,6 @@ describe("agent read audit", () => {
       sessionIds: [],
       knowledgeIds: ["knowledge-graft", "knowledge-prune"],
     });
-    // Without a top-level project, a record must name its own project to count.
     expect(extractAgentReadRecords({ ...scoped, project: undefined }).knowledgeIds).toEqual([]);
   });
 

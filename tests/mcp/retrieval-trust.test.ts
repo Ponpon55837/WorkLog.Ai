@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 
-// Fictional fixtures only.
 const cleanups: Array<() => Promise<void> | void> = [];
 
 afterEach(async () => {
@@ -89,7 +88,6 @@ describe("MCP retrieval trust fields", () => {
     if (storeHit.outcome !== "recall") throw new Error("Expected recall.");
     const full = storeHit.hits[0]?.matchedIn ?? [];
     expect(full.length).toBeGreaterThan(4);
-    // Strongest first, at most four, and path (appended last) is dropped only when it falls past the cap.
     expect(scoped.hits[0]?.matchedIn).toEqual(full.slice(0, 4));
     expect(unscoped.hits[0]?.matchedIn).toEqual(full.slice(0, 4));
     expect(scoped.hits[0]?.matchedIn.length).toBeLessThanOrEqual(4);

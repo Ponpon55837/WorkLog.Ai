@@ -40,7 +40,6 @@ function touch(path: string): string {
   return path;
 }
 
-/** The hand-written registration of the report (synthetic paths), with the other tables a real config carries. */
 function codexConfig(root: string, database: string, extra = ""): string {
   return `# prefs
 model = "fixture-model"
@@ -109,8 +108,6 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
       args: ["mcp"],
       enabled: true,
     });
-    // The variable is dropped (an explicit one would pin the entry when the App changes its database), and the env
-    // table that held only it goes too.
     expect(after).not.toContain("WORK_INTELLIGENCE_DB");
     expect(after).not.toContain("[mcp_servers.work-intelligence.env]");
     expect(parsed.mcp_servers["other-tool"]).toEqual({
@@ -430,7 +427,6 @@ function posixQuote(value: string): string {
   return PLATFORM === "win32" ? `"${value}"` : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/** A fixture whose platform matches the host, because its checkout and home are real host paths. */
 function hostFixture(): SetupFixture {
   const fixture = createFixture();
   fixture.options = { ...fixture.options, platform: PLATFORM };
@@ -453,7 +449,6 @@ describe("an old checkout hook beside the App's own hook", () => {
     return `/usr/local/bin/node "${root}/apps/mcp/dist/codex-finalize-reminder.js"`;
   }
 
-  /** The reported shape: both hooks in three events, groups with timeout/statusMessage/matcher, and a third-party hook. */
   function seedHooks(fixture: SetupFixture, oldHook: string): string {
     const root = fixture.options.repositoryRoot;
     const launcherHook = { type: "command", command: commandForLauncherHook(hostShim(), ACTION, PLATFORM) };
@@ -508,7 +503,6 @@ describe("an old checkout hook beside the App's own hook", () => {
     expect(after.split(THIRD_PARTY).length - 1).toBe(2);
     expect(after.split(ACTION).length - 1).toBeGreaterThanOrEqual(3);
     const hooks = readJson(fixture.paths.codexHooks).hooks as Record<string, Array<Record<string, unknown>>>;
-    // The group that held only the old hook is gone; the one that also held the third-party hook keeps it.
     expect(hooks.Stop).toHaveLength(2);
     expect(hooks.Stop?.[1]).toMatchObject({ timeout: 3, hooks: [{ command: THIRD_PARTY }] });
     expect(inspectAgentRegistrations(launcher(fixture, { target: hostTarget(fixture) })).duplicates).toEqual([]);

@@ -95,7 +95,6 @@ describe("inspectAgentRegistrations", () => {
       "claude-code:hook:manual",
       "claude-code:mcp:desktop-managed",
     ]);
-    // A shim that is gone is not the App's registration any more.
     expect(summary(inspectAgentRegistrations({ ...fixture.options, isFile: () => false }))).toContain(
       "claude-code:mcp:manual",
     );

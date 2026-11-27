@@ -10,7 +10,6 @@ import {
   type SystemSettingsShell,
 } from "../../packages/desktop-core/src/index.js";
 
-/** A fake `shell` that records every call; `openPath` answers `pathAnswer` ("" is success), `openExternal` may throw. */
 function fakeShell(options: { pathAnswer?: string; externalFails?: boolean } = {}) {
   const calls: { method: "openPath" | "openExternal"; value: string }[] = [];
   const shell: SystemSettingsShell = {
@@ -37,7 +36,6 @@ describe("the OS place for turning the old login service off by hand", () => {
     expect(taskSchedulerPath({ SystemRoot: "D:\\WINNT" })).toBe("D:\\WINNT\\System32\\taskschd.msc");
     expect(taskSchedulerPath({ SYSTEMROOT: "E:\\Win" })).toBe("E:\\Win\\System32\\taskschd.msc");
     expect(taskSchedulerPath({})).toBe("C:\\Windows\\System32\\taskschd.msc");
-    // A relative or hostile value is not trusted as a root.
     expect(taskSchedulerPath({ SystemRoot: "..\\evil" })).toBe("C:\\Windows\\System32\\taskschd.msc");
   });
 

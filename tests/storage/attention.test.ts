@@ -362,7 +362,6 @@ describe("attention source fingerprints", () => {
     expect(baseline.count).toBe(2);
     expect(firstItem(store, project.id, "outstanding").sourceRevision).toBe(baseline.sourceRevision);
 
-    // Update: same count and same latest Session time, only the item's updated_at moves forward.
     execSql(
       databasePath,
       `UPDATE outstanding_items SET updated_at = '2030-01-01T00:00:00.000Z' WHERE source_session_id = '${first.id}'`,
@@ -372,19 +371,16 @@ describe("attention source fingerprints", () => {
     expect(updated.updatedAt).toBe(baseline.updatedAt);
     expect(updated.sourceRevision).not.toBe(baseline.sourceRevision);
 
-    // Add.
     const third = finalize("third", { openItems: ["Fictional third issue"] });
     const added = firstItem(store, project.id, "outstanding");
     expect(added.count).toBe(3);
     expect(added.sourceRevision).not.toBe(updated.sourceRevision);
 
-    // Delete.
     execSql(databasePath, `DELETE FROM outstanding_items WHERE source_session_id = '${second.id}'`);
     const deleted = firstItem(store, project.id, "outstanding");
     expect(deleted.count).toBe(2);
     expect(deleted.sourceRevision).not.toBe(added.sourceRevision);
 
-    // Void the source Session of a remaining item.
     store.setSessionVoid({ sessionId: third.id, voided: true, reason: "Fictional void" });
     const voided = firstItem(store, project.id, "outstanding");
     expect(voided.count).toBe(1);
@@ -398,7 +394,6 @@ describe("attention source fingerprints", () => {
     const baseline = firstItem(store, project.id, "knowledge_page");
     expect(firstItem(store, project.id, "knowledge_page").sourceRevision).toBe(baseline.sourceRevision);
 
-    // Update: only the Session's updated_at moves.
     execSql(databasePath, `UPDATE sessions SET updated_at = '2030-01-01T00:00:00.000Z' WHERE id = '${first.id}'`);
     const updated = firstItem(store, project.id, "knowledge_page");
     expect(updated.sourceRevision).not.toBe(baseline.sourceRevision);

@@ -297,11 +297,9 @@ describe("Work Intelligence MCP server", () => {
       changedFilesMode: "merge",
       verification: { status: "passed" },
     });
-    // The update answers with a receipt: the verification status, not the Session body.
     expect(updated).toMatchObject({
       outcome: "updated",
       session: { id: finalized.session.id, verificationStatus: "passed", changedFilesCount: 1 },
-      // merge kept the finalized path, so the stored list differs from the [] sent and is returned.
       changedFiles: ["src/a.ts"],
     });
     expect(updated).not.toHaveProperty("session.summary");
@@ -327,7 +325,6 @@ describe("Work Intelligence MCP server", () => {
     });
     const [alpha, beta, gamma, delta] = ids as [string, string, string, string];
     const startedAt = new Date(Date.now() - 60_000).toISOString();
-    // Only the full search hands the bodies over; the compact one lists titles and is not a read of the Knowledge.
     await callJson(client, "work_search_knowledge", { projectRoot: root, q: "synthetic rule", view: "compact" });
     expect(store.listAgentReads().items[0]).toMatchObject({ tool: "work_search_knowledge", knowledgeIds: [] });
     await callJson(client, "work_search_knowledge", { projectRoot: root, q: "synthetic rule" });
@@ -391,7 +388,6 @@ describe("Work Intelligence MCP server", () => {
       suggestedCall?: { tool: string; arguments: { sessionId: string } };
     };
 
-    // A save with no earlier call has nothing observed: no start, and a follow-up that asks for evidence.
     const first = await callJson<Receipt>(
       client,
       "work_finalize_session",
@@ -399,13 +395,11 @@ describe("Work Intelligence MCP server", () => {
     );
     expect(first.session.startedAt).toBeUndefined();
     expect(first.startedAtFollowUp).toContain("Never estimate");
-    // The payload also lists changedFiles without statuses, so one call serves both follow-ups.
     expect(first.suggestedCall).toEqual({
       tool: "work_update_session_metadata",
       arguments: { sessionId: first.session.id, changedFilesMode: "merge" },
     });
 
-    // The next call starts a new segment; another project's call does not interfere.
     const before = Date.now();
     await callReadOperation(client, "work_get_context", { projectRoot: root, task: "Fictional task" });
     await callReadOperation(client, "work_get_context", { projectRoot: otherRoot, task: "Fictional other task" });
@@ -422,7 +416,6 @@ describe("Work Intelligence MCP server", () => {
       ?.events.find((event) => event.details?.field === "startedAt");
     expect(note?.details).toMatchObject({ source: "server_observed", tool: "work_get_context" });
 
-    // A skipped or conflicting save keeps the observation; a successful one resets it.
     await callReadOperation(client, "work_get_context", { projectRoot: root, task: "Fictional task" });
     const conflict = await callJson<{ outcome: string }>(client, "work_finalize_session", {
       ...finalizePayload(root, "observed-2", "Second"),
@@ -442,7 +435,6 @@ describe("Work Intelligence MCP server", () => {
     );
     expect(fourth.session.startedAt).toBeUndefined();
 
-    // The other project's segment is untouched by the saves above, and a reported or backfilled time wins.
     const reported = "2020-01-01T00:00:00.000Z";
     const withReported = await callJson<Receipt>(client, "work_finalize_session", {
       ...finalizePayload(otherRoot, "observed-5", "Reported"),
@@ -458,7 +450,6 @@ describe("Work Intelligence MCP server", () => {
     );
     expect(otherNext.session.startedAtSource).toBe("server_observed");
 
-    // Correcting only the start does not need the changed files again, and keeps them.
     const startedAt = new Date(Date.now() - 3_600_000).toISOString();
     const corrected = await callJson(client, "work_update_session_metadata", {
       sessionId: fourth.session.id,
@@ -539,7 +530,6 @@ describe("Work Intelligence MCP server", () => {
       store.getSessionDetail(receipt.session.id)?.events.find((event) => event.details?.field === "startedAt")?.details
         ?.tool;
 
-    // work_read: a work_get_context call with projectRoot is recorded; the dispatcher finalize uses then resets it.
     await callDispatcher("work_read", "work_get_context", { projectRoot: root, task: "Fictional task" });
     const read = await finalizeViaDispatcher(root, "dispatch-read-1", "Read");
     expect(read.session.startedAtSource).toBe("server_observed");
@@ -551,13 +541,11 @@ describe("Work Intelligence MCP server", () => {
     expect(afterReset.session.startedAtSource).toBeUndefined();
     expect(afterReset.startedAtFollowUp).toContain("Never estimate");
 
-    // work_write_additive: work_request_metadata_backfill takes projectRoot (the outcome does not matter).
     await callDispatcher("work_write_additive", "work_request_metadata_backfill", { projectRoot: root });
     const additive = await finalizeViaDispatcher(root, "dispatch-additive-1", "Additive");
     expect(additive.session.startedAtSource).toBe("server_observed");
     expect(observedTool(additive)).toBe("work_request_metadata_backfill");
 
-    // work_write_overwrite: work_update_knowledge takes projectRoot; an unknown id still counts as a call.
     await callDispatcher("work_write_overwrite", "work_update_knowledge", {
       projectRoot: root,
       knowledgeId: "fictional-missing-knowledge",
@@ -567,7 +555,6 @@ describe("Work Intelligence MCP server", () => {
     expect(overwrite.session.startedAtSource).toBe("server_observed");
     expect(observedTool(overwrite)).toBe("work_update_knowledge");
 
-    // Mixed calls share one observation: the first call wins whichever dispatcher carried it.
     await callDispatcher("work_write_additive", "work_request_metadata_backfill", { projectRoot: root });
     await callDispatcher("work_read", "work_get_context", { projectRoot: root, task: "Fictional later task" });
     await callDispatcher("work_write_overwrite", "work_update_knowledge", {
@@ -633,7 +620,6 @@ describe("Work Intelligence MCP server", () => {
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
     cleanups.push(() => client.close());
 
-    // Both are stored on the Session; the finalize receipt echoes neither.
     type Finalized = { session: { id: string; agentClient?: string; agentModel?: string } };
     const withModel = await callJson<Finalized>(client, "work_finalize_session", {
       ...finalizePayload(root, "agent-source-1", "With model"),
@@ -865,7 +851,6 @@ describe("Work Intelligence MCP server", () => {
       expect(operationIds).toHaveLength(expected.operationCount);
       expect(new Set(operationIds).size).toBe(expected.operationCount);
     }
-    // Contracts are attached only to the tools that write the governed data.
     const catalog = await getToolContractCatalog(client);
     const withReportContract = [...catalog.sections.entries()]
       .filter(([, section]) => section.includes("Report synthesis contract v4"))
@@ -1096,7 +1081,6 @@ describe("Work Intelligence MCP server", () => {
       },
     });
 
-    // An estimated local time written with Z lands in the future: the Agent gets the server time and what to do.
     const future = new Date(Date.now() + 8 * 3_600_000).toISOString();
     const rejected = await callMcpOperation(client, "work_finalize_session", {
       ...finalizePayload(root, "mcp-future-001", "Future"),
@@ -1604,7 +1588,6 @@ describe("Work Intelligence MCP server", () => {
       openWorldHint: false,
     });
     expect(listed).toMatchObject({ outcome: "outstanding_items", pageInfo: { total: 1 } });
-    // A projectRoot page names its project once instead of on every row.
     expect(listed.project).toEqual({ id: project.id, name: "Outstanding item project" });
     expect(listed.items[0]).not.toHaveProperty("projectId");
     expect(listed.items[0]).not.toHaveProperty("projectName");
@@ -2173,7 +2156,6 @@ describe("Work Intelligence MCP server", () => {
       previousTitle: "Misleading title",
       session: { id: sessionId },
     });
-    // The stored title is what was sent, so the receipt does not repeat it.
     expect(renamed).not.toHaveProperty("title");
     expect(renamed).not.toHaveProperty("session.title");
     expect(store.getSessionDetail(sessionId)?.session.title).toBe("Accurate title");
@@ -2728,7 +2710,6 @@ describe("Work Intelligence MCP server", () => {
     const raw = await callMcpOperation(client, "work_save_knowledge_page", update);
     const [content] = raw.content as Array<{ type: string; text: string }>;
     const receipt = JSON.parse(content?.text ?? "null") as Record<string, unknown>;
-    // The save response carries text only today; if a structuredContent is ever added it must say the same thing.
     if (raw.structuredContent !== undefined) expect(raw.structuredContent).toEqual(receipt);
     expect(receipt).toMatchObject({
       outcome: "knowledge_page_saved",
@@ -2783,7 +2764,6 @@ describe("Work Intelligence MCP server", () => {
       ...target,
       query: "build",
     });
-    // The page keeps its own sourcedThrough time; the per-section baseline stays internal to storage.
     for (const body of [fullAfter, focusedAfter]) {
       const sections = [...(body.page.sections ?? []), ...(body.sections ?? [])];
       expect(sections.length).toBeGreaterThan(0);
@@ -3118,7 +3098,6 @@ describe("Work Intelligence MCP server", () => {
     expect(
       [...catalog.sections.keys()].some((operation) => /diagram/.test(operation) && /void|delete/.test(operation)),
     ).toBe(false);
-    // Agents attach diagrams on their own only for flow, architecture, or multi-step changes; the diagrams guide says when.
     expect(catalog.sections.get("work_finalize_session")).toContain("diagrams guide");
     const guide = (
       (await client.readResource({ uri: "work-intelligence://agent/work-intelligence/references/diagrams.md" }))

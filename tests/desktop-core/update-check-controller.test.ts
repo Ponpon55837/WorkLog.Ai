@@ -1,14 +1,8 @@
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { updateApiOriginOverride, updateTarget } from "../../apps/desktop/src/main/config.js";
 import { createUpdateController } from "../../apps/desktop/src/main/update-check.js";
 import type { UpdateFetch, UpdateResponse } from "../../packages/desktop-core/src/index.js";
-
-/**
- * The update check's main-process side: the test-only fake server override (a test build that is not packaged, and
- * nothing else), and the controller that joins concurrent checks and opens only links it kept. Synthetic data only.
- */
 
 const ORIGIN_VARIABLE = "WORK_INTELLIGENCE_DESKTOP_TEST_UPDATE_API_ORIGIN";
 const PLATFORM_VARIABLE = "WORK_INTELLIGENCE_DESKTOP_TEST_UPDATE_PLATFORM";
@@ -65,7 +59,6 @@ function setup(fetch: UpdateFetch, openResult: () => Promise<boolean> = async ()
   return { controller, opened, shown, logs, changes };
 }
 
-/** A fetch that answers only when `release()` is called, so a test can look at the running state. */
 function gated() {
   let release: () => void = () => undefined;
   const gate = new Promise<void>((resolve) => {
@@ -147,7 +140,6 @@ describe("the update controller", () => {
     controller.requestFromTray();
     expect(shown).toEqual(["shown"]);
     expect(fetch).toHaveBeenCalledTimes(1);
-    // The page reads this at once, however it was opened: the state is main's, not a flag waiting for a page.
     expect(controller.section()).toEqual({ currentVersion: "1.6.52", checking: true, result: null });
     release();
     await vi.waitFor(() => expect(controller.section().checking).toBe(false));
@@ -161,7 +153,6 @@ describe("the update controller", () => {
     controller.requestFromTray();
     await vi.waitFor(() => expect(controller.section().checking).toBe(false));
     expect(fetch).toHaveBeenCalledTimes(1);
-    // The window closes and opens again, hours later, any number of times: the answer is shown, nothing is requested.
     for (let read = 0; read < 5; read += 1) expect(controller.section().result).toMatchObject({ kind: "newer" });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(fetch).toHaveBeenCalledTimes(1);

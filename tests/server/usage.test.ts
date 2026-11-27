@@ -105,7 +105,6 @@ interface MonorepoFixture {
   ids: { assistant: string; devtools: string; devdocs: string };
 }
 
-/** Three tracked subfolders of one monorepo; every session was opened at the monorepo root. */
 function createMonorepoFixture(): MonorepoFixture {
   const home = realpathSync(mkdtempSync(join(tmpdir(), "usage-mono-")));
   roots.push(home);
@@ -543,7 +542,6 @@ describe("UsageWorkerClient", () => {
     const third = client.scan(input, controller.signal);
     controller.abort();
     await expect(third).rejects.toBeInstanceOf(UsageScanAbortedError);
-    // The third scan replaced the second one.
     await expect(second).rejects.toBeInstanceOf(UsageScanAbortedError);
   }, 30_000);
 });

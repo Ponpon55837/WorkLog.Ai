@@ -55,7 +55,6 @@ describe("diagnostics preview store", () => {
     const { store } = setup();
     const id = store.put(REPAIR_WINDOW, "text");
     expect(store.claim(OTHER_WINDOW, id)).toBeUndefined();
-    // The refused attempt did not use it up.
     expect(store.claim(REPAIR_WINDOW, id)).toBeDefined();
   });
 
@@ -73,7 +72,6 @@ describe("diagnostics preview store", () => {
     const { store } = setup();
     const id = store.put(REPAIR_WINDOW, "text");
     const claim = store.claim(REPAIR_WINDOW, id);
-    // While the dialog is open the preview is taken.
     expect(store.claim(REPAIR_WINDOW, id)).toBeUndefined();
     claim?.release();
     expect(store.claim(REPAIR_WINDOW, id)).toBeDefined();

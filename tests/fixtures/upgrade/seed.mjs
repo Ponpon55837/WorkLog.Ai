@@ -118,7 +118,6 @@ try {
     store.updateOutstandingItemStatus(items.items[0].id, "completed");
   }
 
-  // Exercise the search index so the FTS tables are populated, then check the token is findable.
   const hits = store.search(TOKEN);
   if (!Array.isArray(hits) || hits.length === 0) throw new Error("Seeded token is not searchable.");
   const summary = store.getDashboardSummary();

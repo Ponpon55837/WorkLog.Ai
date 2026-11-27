@@ -117,7 +117,6 @@ describe("buildActiveBlocks", () => {
     expect(blocks[0]!.start).toBe(t + 7 * HOUR);
     expect(blocks[0]!.tokens).toMatchObject({ input: 12, output: 12, cacheRead: 2000 });
     expect(blocks[0]!.primary).toBe(24);
-    // An event 5 hours after the block start closes it even when the previous usage was recent.
     const split = buildActiveBlocks(
       [event("codex", t, 1, 1), event("codex", t + 4.5 * HOUR, 1, 1), event("codex", t + 5 * HOUR, 7, 0)],
       t + 5.5 * HOUR,
@@ -151,11 +150,9 @@ describe("Claude Code models, days and blocks", () => {
   it("credits each message's delta to its model and to local days; primary excludes cache", async () => {
     const file = write("claude.jsonl", [
       assistant(1, "m1", "claude-sonnet-4-5", { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 900 }),
-      // A streamed repeat of m1 with a larger output; the model stays.
       assistant(2, "m1", "claude-sonnet-4-5", { input_tokens: 10, output_tokens: 8, cache_read_input_tokens: 900 }),
       assistant(3, "m2", "<synthetic>", { input_tokens: 2, output_tokens: 1, cache_creation_input_tokens: 70 }),
       assistant(4, "m3", `/Users/someone/${CANARY}`, { input_tokens: 1, output_tokens: 1 }),
-      // No model on the first line of m4, the second line names it: the later model is used from then on.
       assistant(5, "m4", undefined, { input_tokens: 3, output_tokens: 0 }),
       assistant(6, "m4", "claude-opus-4-1", { input_tokens: 3, output_tokens: 4 }),
     ]);
@@ -173,7 +170,6 @@ describe("Claude Code models, days and blocks", () => {
     expect(report.total.models[0]!.model).toBe("claude-sonnet-4-5");
     expect(report.total.tokens).toMatchObject({ input: 16, output: 14, cacheRead: 900, cacheCreation: 70 });
     expect(report.sessions[0]!.models).toHaveLength(3);
-    // A model that is a path never reaches the report or the Agent text.
     expect(JSON.stringify(report)).not.toContain(CANARY);
     expect(formatForAgent(report)).not.toContain(CANARY);
     expect(report.total.daily).toEqual([
@@ -201,7 +197,6 @@ describe("Claude Code models, days and blocks", () => {
     expect(sonnet).toMatchObject({ tokens: { input: 4, output: 9 }, responses: 1 });
     expect(second.total.models.find((entry) => entry.model === "gpt-5.1-codex")).toMatchObject({ responses: 1 });
     expect(second.total.models.some((entry) => entry.model === "")).toBe(false);
-    // A cold read gives the same numbers.
     const cold = await summarizeFiles([file], { now: T0 + 60_000 });
     expect(cold.total.models).toEqual(second.total.models);
   });
@@ -224,7 +219,6 @@ describe("Claude Code models, days and blocks", () => {
       [dateOf(day1), 3],
       [dateOf(day2), 4],
     ]);
-    // `d` still counts in the total and the model, but in no day.
     expect(report.total.tokens.input).toBe(15);
     expect(report.total.models[0]!.tokens.input).toBe(15);
     const ranged = await summarizeFiles([file], { since: new Date(day2 - 1000).toISOString(), now: day2 + 1000 });

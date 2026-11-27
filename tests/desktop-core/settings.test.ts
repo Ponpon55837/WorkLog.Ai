@@ -43,7 +43,6 @@ function deps(overrides: Partial<SettingsWriteDeps> = {}): SettingsWriteDeps {
   return { ...createNodeSettingsWriteDeps(), randomSuffix: () => `t${counter++}`, ...overrides };
 }
 
-/** Wrap the real deps so one step fails. */
 function failing(step: SettingsWriteStep | "close" | "dir-open", code = "EIO"): SettingsWriteDeps {
   const real = deps();
   const boom = (): Error => Object.assign(new Error(`injected ${step}`), { code });

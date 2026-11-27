@@ -65,7 +65,6 @@ describe("maintainDatabase", () => {
     const pending = stuck.supervisor.maintainDatabase({ mode: "check", databasePath: DB });
     await vi.advanceTimersByTimeAsync(1000);
     expect(await pending).toMatchObject({ outcome: "failed", code: "CHILD_START_TIMEOUT" });
-    // The compaction keeps no timer: past the same time it is still waiting.
     const working = makeHarness({ scripts: [{ maintain: false }], timeouts: { quickCheckMs: 50 } });
     let settled = false;
     void working.supervisor.maintainDatabase({ mode: "maintain", databasePath: DB }).then(() => (settled = true));
@@ -100,7 +99,6 @@ describe("restoreDatabase remap", () => {
   });
 });
 
-/** Makes the fake child answer `maintenance-hint-query` with `reply(requestId)` messages. */
 function answerHint(harness: Harness, reply: (requestId: unknown) => Record<string, unknown>[]): void {
   const child = harness.children[0];
   if (!child) throw new Error("no child");

@@ -52,7 +52,6 @@ function exportedBundle(): ProjectDataExport {
   return source.exportProjectData({ type: "all" });
 }
 
-/** A request body whose first Session has `title` set to the raw JSON text `raw`, and `change` applied first. */
 function requestWithTitle(
   bundle: ProjectDataExport,
   raw: string,
@@ -79,7 +78,6 @@ function summarize(validated: ValidatedProjectDataImport): Outcome {
   }
 }
 
-/** The whole-document path of the old import: JSON.parse, then validate. */
 function wholeDocument(text: string, envelope: ProjectDataImportEnvelope): Outcome {
   let value: unknown;
   try {
@@ -107,12 +105,10 @@ function streamed(bytes: Uint8Array, envelope: ProjectDataImportEnvelope): Outco
   }
 }
 
-/** The text with `pad` spaces in front, so everything in it moves `pad` bytes towards the end of the first chunk. */
 function shifted(text: string, pad: number): Buffer {
   return Buffer.concat([Buffer.alloc(pad, 0x20), Buffer.from(text)]);
 }
 
-/** Reads `text` whole, and once per shift that puts the 1 MiB chunk boundary on each byte of `marker`. */
 function expectSameAtEveryBoundary(
   text: string,
   marker: string,
@@ -188,7 +184,6 @@ describe("streaming import reader, chunk boundaries", () => {
   });
 });
 
-/** The reader fed `chunkBytes` at a time; 1 puts a chunk boundary on every offset of the input at once. */
 function streamedInChunks(
   input: string | Uint8Array,
   envelope: ProjectDataImportEnvelope,
@@ -202,7 +197,6 @@ function streamedInChunks(
   }
 }
 
-/** The same outcome as the whole-document path with a chunk boundary at every offset, and with a few other sizes. */
 function expectSameAtEveryOffset(text: string, envelope: ProjectDataImportEnvelope = "request"): Outcome {
   const expected = wholeDocument(text, envelope);
   for (const chunkBytes of [1, 2, 3, 5, 7, 64]) {
@@ -220,8 +214,6 @@ describe("streaming import reader, every split of a small envelope", () => {
     const bare = JSON.stringify(bundle);
     expect(expectSameAtEveryOffset(bare, "bundle").ok).toBe(true);
     expect(expectSameAtEveryOffset(JSON.stringify({ bundle }), "request").ok).toBe(true);
-    // Numbers, null, true and false outside the rows, each before a comma, a brace and a bracket; the schema answers
-    // for the ones it refuses, and must answer the same.
     const { formatVersion, ...rest } = bundle;
     const values = ["1", "27", "-1.5e3", "0", "null", "true", "false"];
     for (const value of values) {
@@ -263,7 +255,6 @@ describe("streaming import reader, every split of a small envelope", () => {
       const expected = expectSameAtEveryOffset(text);
       expect(expected).toMatchObject({ ok: true, redactions: 0 });
     }
-    // The kept table is the secret one here: its three tokens are counted once.
     expect(wholeDocument(repeatedTable, "request")).toMatchObject({ ok: true });
     for (const text of [replacedTable, replacedByScalar]) {
       expect(streamedInChunks(text, "request", 64)).toEqual(wholeDocument(text, "request"));
@@ -424,7 +415,6 @@ describe("streaming import reader, values", () => {
     const titleTwice = requestWithTitle(bundle, '"first","title":"second"');
     expect(streamed(Buffer.from(titleTwice), "request")).toEqual(wholeDocument(titleTwice, "request"));
     expect(wholeDocument(titleTwice, "request").ok).toBe(true);
-    // A bad first table and a good second one: the second replaces the first.
     const tables = JSON.stringify(bundle.tables);
     const twice = JSON.stringify({ bundle: { ...bundle, tables: "@@" } }).replace(
       '"@@"',

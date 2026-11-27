@@ -15,8 +15,7 @@ const SESSION_COUNT = 56;
 const SUMMARY_BYTES = MIB;
 const projectName = `Large Import Fixture ${process.pid}`;
 
-// The import adds a project; the suite's shared database must not see it (deleting it afterwards would leave a
-// project deletion audit that other specs do not expect), so this spec runs its own API server on its own database.
+// Runs its own API server and database: the import adds a project, and deleting it afterwards would leave a deletion audit other specs do not expect.
 let server: ChildProcess | undefined;
 let serverRoot = "";
 let baseUrl = "";
@@ -41,7 +40,7 @@ async function waitForHealth(url: string, child: ChildProcess): Promise<void> {
     try {
       if ((await fetch(`${url}/api/health`)).ok) return;
     } catch {
-      // Not listening yet.
+      // Not listening yet; keep polling until the deadline.
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -84,7 +83,6 @@ test.afterAll(async () => {
   rmSync(serverRoot, { recursive: true, force: true });
 });
 
-/** Builds a synthetic project export (one project, many Sessions with long synthetic summaries) as JSON text. */
 function writeLargeExport(directory: string, projectRoot: string): string {
   const fixture = new WorkIntelligenceStore(":memory:");
   try {

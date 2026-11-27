@@ -7,7 +7,6 @@ import {
 } from "../../packages/desktop-core/dist/index.js";
 import { runAgentOperation } from "../../apps/desktop/src/main/agent-operation.js";
 
-/** An Agent apply is an `apply-agent` operation of the coordinator (H-01): journaled while it runs, closed after. */
 function harness() {
   const journal = new OperationJournal(new InMemoryOperationJournalStore());
   return { journal, coordinator: new OperationCoordinator(journal) };

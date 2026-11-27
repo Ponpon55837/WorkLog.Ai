@@ -69,7 +69,6 @@ describe("MCP projected Session wire contract", () => {
     expect(parsed.projection).toMatchObject({ version: 1, view: "completion" });
     expect(parsed.session.verification.status).toBe("in_progress");
     expect(parsed.session.workSummary.nextSteps).toEqual(["Physical device checks"]);
-    // A client that gives the model only one of the two parts must still get the body.
     expect(result).not.toHaveProperty("structuredContent");
     const onlyFiles = await call({ select: ["session.changedFiles"] });
     expect(onlyFiles).not.toHaveProperty("structuredContent");
@@ -82,7 +81,6 @@ describe("MCP projected Session wire contract", () => {
     const { call } = await setup();
     const result = await call({ view: "handoff" });
     expect(result.isError).toBeFalsy();
-    // Each part the server sends has to carry the body on its own: text always, structuredContent when present.
     const parts: unknown[] = result.content.flatMap((c) => (c.type === "text" ? [JSON.parse(c.text)] : []));
     if (result.structuredContent) parts.push(result.structuredContent);
     expect(parts.length).toBeGreaterThan(0);

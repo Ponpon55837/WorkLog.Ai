@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FinalizeSessionInput } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const CLIENT = "fictional-agent";
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];

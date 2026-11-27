@@ -21,7 +21,6 @@ function initializeThen(damage?: (database: DatabaseSync) => void): (database: D
   };
 }
 
-/** A snapshot with one project and one Session, and a different live database to be replaced. */
 function scenario() {
   const root = mkdtempSync(join(tmpdir(), "work-intelligence-restore-verify-"));
   tempDirs.push(root);
@@ -110,7 +109,6 @@ describe("restoreDatabase verification of the migrated staging copy", () => {
     expect(caught).toMatchObject({ code: "RESTORE_VERIFY_FAILED" });
     expect(fingerprintDatabase(databasePath)).toEqual(before);
     for (const suffix of ["", "-wal", "-shm"]) expect(existsSync(`${databasePath}.restoring${suffix}`)).toBe(false);
-    // The only new artefact is the safety backup of the untouched live database.
     expect(readdirSync(backupDirectory)).toHaveLength(1);
   });
 });

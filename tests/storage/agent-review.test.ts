@@ -11,7 +11,6 @@ import type {
 import { replaceSessionDecisions } from "../../packages/storage/src/session-decision-service.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 const BASE_TIME = "2026-10-01T09:00:00.000Z";

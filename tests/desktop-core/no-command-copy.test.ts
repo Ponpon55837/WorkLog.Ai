@@ -11,25 +11,16 @@ import {
   type ShellLocale,
 } from "../../packages/desktop-core/src/index.js";
 
-/**
- * The desktop App never asks the user to type a command (M-15). Every user-visible string of the App is scanned: the
- * i18n dictionaries (both languages) and every string or template literal in the renderer sources.
- */
-
 const WEB_LOCALES = ["zh-TW", "en-US"] as const;
 const WEB_LOCALE_ROOT = fileURLToPath(new URL("../../apps/web/src/i18n/locales", import.meta.url));
 const RENDERER_ROOT = fileURLToPath(new URL("../../apps/desktop/src/renderer", import.meta.url));
 const LOCALES: readonly ShellLocale[] = ["zh-TW", "en"];
 
-/** Package runners the user would have to type. */
 const PACKAGE_RUNNER = /\b(?:pnpm|npm|npx|yarn)\b/i;
-/** A place the user would have to type into. A bare "PowerShell" is fine: it is only matched next to an instruction. */
 const TYPING_PLACE =
   /終端機|終端|命令列|命令提示|指令提示|\bterminal\b|command[ -]line|command prompt|cmd\.exe|(?:open|run|launch|in|execute|開啟|執行|在)\s*(?:a\s+|the\s+)?(?:Windows\s+)?PowerShell/i;
-/** "Run / type / paste this command". */
 const TYPE_A_COMMAND =
   /(?:執行|輸入|貼上|複製)[^。]{0,8}(?:指令|命令)|(?:run|type|paste|copy)\s+(?:this|the following|the)\s+command/i;
-/** A line that is a shell command: a leading prompt, a known command word with an argument, or a ` --flag`. */
 const SHELL_SHAPE = /^\s*\$\s|^\s*(?:sudo|cd|launchctl|systemctl|schtasks(?:\.exe)?|rm|brew|node)\s+\S|\s--[a-z][\w-]*/;
 
 const FORBIDDEN: readonly { readonly name: string; readonly pattern: RegExp }[] = [
@@ -39,10 +30,6 @@ const FORBIDDEN: readonly { readonly name: string; readonly pattern: RegExp }[] 
   { name: "shell command shape", pattern: SHELL_SHAPE },
 ];
 
-/**
- * Strings that may match and why. Keep it minimal; each entry is an exact string with the reason it is not an
- * instruction to the user. Empty on purpose: nothing needs it today.
- */
 const ALLOWED: ReadonlyMap<string, string> = new Map();
 
 interface Found {
@@ -58,10 +45,7 @@ function collectDictionary(value: unknown, where: string, out: Found[]): void {
   }
 }
 
-/**
- * Every dictionary the shell module exports, found by name (`...Messages(locale)`) so a new one is scanned without anyone
- * remembering to add it here; a list kept by hand is how restoreMessages and agentRemoveMessages were once missed.
- */
+/** Found by name (`...Messages(locale)`) so a new dictionary is scanned without being added here by hand. */
 function dictionaryFunctions(): readonly [string, (locale: ShellLocale) => unknown][] {
   return Object.entries(desktopCore)
     .filter(([name, value]) => /Messages$/.test(name) && typeof value === "function" && value.length === 1)
@@ -77,11 +61,6 @@ function dictionaryStrings(): Found[] {
   return out;
 }
 
-/**
- * The web page strings a desktop-managed window shows: the Agent connections and legacy-service parts of the status page
- * and the first-run checklist's Agent step. The web's CLI help pages (and the command shown to a user of the plain web
- * server) are for people who run the server themselves and stay outside this guard on purpose.
- */
 const DESKTOP_WEB_KEYS: readonly string[] = [
   "systemStatus.agentsInOtherProjectsNeedDesktop",
   "systemStatus.openAgentSetupInDesktopApp",
@@ -93,12 +72,6 @@ const DESKTOP_WEB_KEYS: readonly string[] = [
   "projects.restoreInDesktopApp",
 ];
 
-/**
- * Every other string of the web locale that matches a pattern above, by key. Each is shown only outside the
- * desktop-managed window (the web server's own wording, with the desktop sentence above taking its place there) or is a
- * prompt pasted into an Agent conversation rather than a shell command. A new match fails the test until it is
- * either reworded or listed here with its reason.
- */
 const WEB_OUTSIDE_DESKTOP: ReadonlyMap<string, string> = new Map([
   [
     "systemStatus.localServiceDatabaseBackupMaintenance",
@@ -158,12 +131,10 @@ function sourceFiles(directory: string): string[] {
   });
 }
 
-/** A token with no space and no CJK (`div`, `card--attention`, `data-testid`, a path) is an identifier, not copy. */
 function isIdentifierLike(text: string): boolean {
   return !/\s/.test(text) && [...text].every((character) => character.charCodeAt(0) <= 0x24f);
 }
 
-/** Positions where a string literal is not user-visible: import/export specifiers, type literals, property names. */
 function isNotCopy(node: ts.Node): boolean {
   const parent = node.parent;
   if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) return true;
@@ -171,7 +142,6 @@ function isNotCopy(node: ts.Node): boolean {
   if (ts.isPropertyAssignment(parent) && parent.name === node) return true;
   if (ts.isElementAccessExpression(parent) && parent.argumentExpression === node) return true;
   if (ts.isCallExpression(parent) && parent.expression.getText() === "import") return true;
-  // A class or data-* attribute name, a selector or an event name handed to the DOM.
   if (ts.isCallExpression(parent) && ts.isPropertyAccessExpression(parent.expression)) {
     const method = parent.expression.name.text;
     if (
@@ -198,7 +168,6 @@ function rendererStrings(): { found: Found[]; files: number } {
     const relative = path.relative(RENDERER_ROOT, file);
     const content = readFileSync(file, "utf8");
     if (file.endsWith(".html")) {
-      // Visible text of static markup: what is outside the tags and the attribute values `title`, `aria-label`, `alt`.
       const text = content.replace(/<!--[\s\S]*?-->|<(?:script|style)[\s\S]*?<\/(?:script|style)>/g, "");
       for (const match of text.matchAll(/>([^<]+)</g)) found.push({ where: relative, text: match[1]!.trim() });
       for (const match of text.matchAll(/\b(?:title|aria-label|alt|placeholder)="([^"]*)"/g)) {
@@ -212,7 +181,6 @@ function rendererStrings(): { found: Found[]; files: number } {
       if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
         if (!isNotCopy(node) && !isIdentifierLike(node.text)) found.push({ where: relative, text: node.text });
       } else if (ts.isTemplateExpression(node)) {
-        // Each fixed part is checked on its own; the `${}` holes are values, never copy.
         const parts = [node.head.text, ...node.templateSpans.map((span) => span.literal.text)];
         for (const text of parts) if (!isIdentifierLike(text)) found.push({ where: relative, text });
       }
@@ -241,13 +209,11 @@ describe("no command copy in the desktop App (M-15)", () => {
     expect(dictionary.length).toBeGreaterThan(500);
     expect(dictionary.filter((entry) => entry.where.startsWith("shellMessages[zh-TW]")).length).toBeGreaterThan(50);
     expect(dictionary.filter((entry) => entry.where.startsWith("setupMessages[en]")).length).toBeGreaterThan(100);
-    // The dictionaries found by name include the ones that were once left off a hand-written list.
     const names = new Set(dictionaryFunctions().map(([name]) => name));
     for (const name of ["shellMessages", "setupMessages", "restoreMessages", "agentRemoveMessages"]) {
       expect(names.has(name), name).toBe(true);
       expect(dictionary.filter((entry) => entry.where.startsWith(`${name}[`)).length, name).toBeGreaterThan(10);
     }
-    // Every desktop-facing web key exists in both languages (a renamed key must not silently leave the guard).
     expect(webDesktopStrings()).toHaveLength(DESKTOP_WEB_KEYS.length * WEB_LOCALES.length);
     expect(renderer.files).toBeGreaterThan(15);
     expect(renderer.found.length).toBeGreaterThan(30);
@@ -270,7 +236,6 @@ describe("no command copy in the desktop App (M-15)", () => {
         .map((entry) => entry.where.slice(entry.where.indexOf("]") + 2)),
     );
     expect([...matching].filter((key) => !WEB_OUTSIDE_DESKTOP.has(key))).toEqual([]);
-    // A listed key that no longer matches (or no longer exists) is stale and must leave the list.
     expect([...WEB_OUTSIDE_DESKTOP.keys()].filter((key) => !matching.has(key))).toEqual([]);
   });
 
@@ -308,7 +273,6 @@ describe("no command copy in the desktop App (M-15)", () => {
       }
     }
     expect(violations(lines)).toEqual([]);
-    // A command line would show its tool name; none of the generated lines may.
     for (const { where, text } of lines) {
       expect(text, where).not.toMatch(/schtasks|launchctl|systemctl|taskkill|Remove-Item|\/(?:TN|PID|F)\b/i);
     }

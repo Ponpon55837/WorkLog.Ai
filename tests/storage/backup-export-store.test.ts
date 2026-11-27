@@ -51,7 +51,6 @@ function seededDatabase(): { root: string; databasePath: string } {
   return { root, databasePath };
 }
 
-/** Local relative imports of a source file, ignoring type-only and dynamic ones. */
 function staticRuntimeImports(path: string): string[] {
   const source = readFileSync(path, "utf8");
   const specifiers: string[] = [];
@@ -81,7 +80,6 @@ function runtimeGraph(entry: string): { files: Set<string>; packages: Set<string
 const GOLDEN_TOKEN = `ghp_${"C".repeat(36)}`;
 const GOLDEN_PROJECT_COUNT = 520; // above the 500-id batch of rowsByIds
 const GOLDEN_COLLATOR = new Intl.Collator();
-// Tables whose rows the export reads in SQL order without the collator sort (in at least one scope).
 const SQL_ORDER_TABLES = new Set<string>([
   "projects",
   "session_links",
@@ -97,7 +95,6 @@ function goldenId(index: number): string {
   return `${prefixes[index % prefixes.length]}${index.toString(36)}`;
 }
 
-/** Synthetic rows inserted by id in a scrambled order, so SQL id order and collator order disagree. */
 function goldenDatabase(): string {
   const { databasePath } = seededDatabase();
   const db = new DatabaseSync(databasePath);
@@ -160,7 +157,6 @@ function goldenDatabase(): string {
         at(index),
         at(index),
       );
-      // Equal created_at, so the ids alone decide the order.
       for (const suffix of ["b", "B", "a", "A", "_", "-"]) {
         insertItemEvent.run(`ev-${suffix}-${goldenId(index)}`, itemId, projectId, at(0));
       }
@@ -171,7 +167,6 @@ function goldenDatabase(): string {
   return databasePath;
 }
 
-/** The pre-change export path: every table the export sorts is sorted again with the collator, unconditionally. */
 function alwaysSorted(exported: ProjectDataExport): ProjectDataExport {
   const tables = { ...exported.tables } as Record<string, Record<string, unknown>[]>;
   for (const [table, rows] of Object.entries(tables)) {
@@ -191,7 +186,6 @@ function sha256(exported: ProjectDataExport): string {
   return createHash("sha256").update(JSON.stringify(exported)).digest("hex");
 }
 
-/** The streamed export of `scope`, read back as text. */
 async function writtenExport(store: BackupExportStore, scope: ProjectDataExport["scope"]): Promise<string> {
   const root = mkdtempSync(join(tmpdir(), "work-intelligence-export-stream-"));
   roots.push(root);
@@ -223,7 +217,6 @@ describe("BackupExportStore", () => {
         const actual = await lean.exportProjectData(scope);
         expect(actual.tables.session_diagrams).toHaveLength(1);
         expect(JSON.stringify(actual)).not.toContain(TOKEN);
-        // exportedAt is the export time; everything else must be identical.
         expect(JSON.stringify({ ...actual, exportedAt: "" })).toBe(JSON.stringify({ ...expected, exportedAt: "" }));
         const streamed = JSON.parse(await writtenExport(lean, scope)) as ProjectDataExport;
         expect(JSON.stringify({ ...streamed, exportedAt: "" })).toBe(JSON.stringify({ ...expected, exportedAt: "" }));
@@ -250,7 +243,6 @@ describe("BackupExportStore", () => {
         const reference = alwaysSorted(actual);
         expect(sha256(actual)).toBe(sha256(reference));
         expect(sha256(full.exportProjectData(scope))).toBe(sha256(actual));
-        // The streamed file is byte for byte the serialized export.
         expect(await writtenExport(lean, scope)).toBe(JSON.stringify(actual));
         expect(actual.exportedAt).toBe("2026-06-07T08:09:10.000Z");
         expect(JSON.stringify(actual)).not.toContain(GOLDEN_TOKEN);
@@ -278,7 +270,6 @@ describe("BackupExportStore", () => {
       const root = mkdtempSync(join(tmpdir(), "work-intelligence-export-limit-"));
       roots.push(root);
       const full = await lean.writeProjectData({ type: "all" }, join(root, "full.json"));
-      // Exactly the size passes; one byte less is refused, whichever of the two files the limit falls in.
       await expect(lean.writeProjectData({ type: "all" }, join(root, "exact.json"), full.bytes)).resolves.toEqual(full);
       for (const limit of [full.bytes - 1, Math.floor(full.bytes / 2), 10]) {
         await expect(lean.writeProjectData({ type: "all" }, join(root, "small.json"), limit)).rejects.toMatchObject({
@@ -351,7 +342,6 @@ describe("BackupExportStore", () => {
   it("keeps the schema package and zod out of its static import graph", () => {
     const { files, packages } = runtimeGraph(join(storageSource, "backup-export.ts"));
     expect([...packages].filter((name) => name === "zod" || name.startsWith("@work-intelligence/schema"))).toEqual([]);
-    // The one module that parses with the schema may only be reached through a dynamic import.
     expect([...files].map((file) => file.slice(storageSource.length + 1))).not.toContain("diagram-source-redaction.ts");
   });
 });

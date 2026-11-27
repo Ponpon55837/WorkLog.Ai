@@ -10,7 +10,6 @@ describe("activity calendar", () => {
     const calendar = buildActivityCalendar(today, []);
     expect(calendar.weeks).toHaveLength(53);
     expect(calendar.weeks[0]![0]!.date).toBe("2029-10-08");
-    // The last week holds Monday–Wednesday only; later days are not drawn.
     expect(calendar.weeks[52]!.map((cell) => cell?.date ?? null)).toEqual([
       "2030-10-07",
       "2030-10-08",

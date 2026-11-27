@@ -8,7 +8,6 @@ import { DatabaseInitializationError, WorkIntelligenceStore } from "../../packag
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
 
-// Fictional fixtures only.
 type Fingerprint = Record<string, { rows: number; hash: string }>;
 
 const tempDirs: string[] = [];
@@ -28,7 +27,6 @@ function expectOutcome<T extends { outcome: string }, O extends T["outcome"]>(
   return result as Extract<T, { outcome: O }>;
 }
 
-/** Writes Sessions, evidence, links, Knowledge, a page with versions, candidates in each state, items and a report. */
 function seed(store: WorkIntelligenceStore, projectRoot: string): void {
   const project = store.addProject("Meadow", projectRoot);
   store.updateProject(project.id, { status: "tracked" });
@@ -105,7 +103,6 @@ function seed(store: WorkIntelligenceStore, projectRoot: string): void {
   store.createReportSynthesisRequest({ period: "week", projectId: project.id, idempotencyKey: "week" });
 }
 
-/** Row count and content hash per table over the columns that existed before the upgrade. */
 function fingerprint(
   databasePath: string,
   columnsByTable?: Map<string, string[]>,
@@ -151,7 +148,6 @@ function migrationRows(databasePath: string): unknown[] {
   }
 }
 
-/** A file database written through the store, then rewound to schema 31 the way the other migration tests are. */
 function schema31Database() {
   const location = paths();
   mkdirSync(location.projectRoot);
@@ -191,7 +187,6 @@ describe("schema 31 to 33 upgrade", () => {
     } finally {
       store.close();
     }
-    // Opening only migrates: every table, the search index included, holds the same rows and values.
     const afterTables = fingerprint(location.databasePath, before.columns).tables;
     const created = Object.keys(afterTables).filter((name) => !(name in before.tables));
     expect(created.sort()).toEqual([
@@ -214,7 +209,6 @@ describe("schema 31 to 33 upgrade", () => {
       expect(reader.getDashboardSummary()).toMatchObject({ finalizedSessions: 4 });
       const candidates = expectOutcome(reader.listKnowledgeCandidates({}), "knowledge_candidates");
       expect(candidates.items).toHaveLength(1);
-      // Candidates submitted before schema 33 have no stored advisory, so none is listed.
       expect(candidates.items[0]).not.toHaveProperty("overlaps");
       expect(reader.listSessionsForAgent({ projectRoot: location.projectRoot, commitSha: "1111111" })).toMatchObject({
         items: [{ title: "Valve lease step 1" }],
@@ -234,7 +228,6 @@ describe("schema 31 to 33 upgrade", () => {
       "related_work_dirty",
     ];
     for (const [table, value] of Object.entries(before.tables)) {
-      // Reads may refresh derived index state; every project-data table stays byte-for-byte the same.
       if (!derived.includes(table)) expect({ table, ...after.tables[table] }).toEqual({ table, ...value });
     }
     const upgraded = new DatabaseSync(location.databasePath, { readOnly: true });

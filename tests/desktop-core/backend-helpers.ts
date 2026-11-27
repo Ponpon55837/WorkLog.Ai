@@ -16,7 +16,6 @@ import {
 } from "../../packages/desktop-core/src/index.js";
 import type { DatabaseIdentity } from "../../packages/desktop-core/src/index.js";
 
-// Fictional values only.
 export const RUN_ID = "synthetic-run-id-0123456789abcdef-synthetic";
 export const CHALLENGE = "synthetic-challenge-0123456789";
 export const EXECUTABLE = "/synthetic/runtime/node/bin/node";
@@ -28,30 +27,21 @@ export const IDENTITY: DatabaseIdentity = {
 };
 export const PORT = 41_234;
 
-/** The state of one scripted child: what it says to the parent, and how it reacts to being asked to stop. */
 export interface ChildScript {
   hello?: Record<string, unknown> | false;
   preflight?: Record<string, unknown> | false;
   ready?: Record<string, unknown> | false;
-  /** What the child does when it gets `shutdown`: exit with this code, or ignore it. */
   onShutdown?: { exit: number } | "ignore";
   onSigterm?: { exit: number | null } | "ignore";
   onSigkill?: "exit" | "ignore";
-  /** What the child does right after it said `ready`: end itself, optionally after reporting `failed`. */
   afterReady?: { exit: number; failed?: { code: string; detail: string } };
-  /** The answer to `copy-database`; false stays silent. */
   copy?: Record<string, unknown> | false;
-  /** The answer to `inspect-backups`; false stays silent. */
   inspect?: Record<string, unknown> | false;
-  /** The answer to `restore-database`; false stays silent, "exit" ends the child without an answer. */
   restore?: Record<string, unknown> | false | "exit";
-  /** The answer to `backup-roots`; false stays silent, "exit" ends the child without an answer. */
   roots?: Record<string, unknown> | false | "exit";
-  /** The answer to `maintain-database`; false stays silent, "exit" ends the child without an answer. */
   maintain?: Record<string, unknown> | false | "exit";
 }
 
-/** A `ChildProcess` stand-in driven by a script, with real streams and EventEmitter semantics. */
 export class FakeChild extends EventEmitter {
   pid: number | undefined = 4242;
   exitCode: number | null = null;
@@ -88,7 +78,6 @@ export class FakeChild extends EventEmitter {
     return true;
   }
 
-  /** Delivers a child message to the parent. */
   say(message: Record<string, unknown>): void {
     this.emit("message", message);
   }
@@ -171,20 +160,16 @@ export interface Harness {
 export interface HarnessOptions {
   platform?: NodeJS.Platform;
   parentEnvironment?: Record<string, string | undefined>;
-  /** One script per spawn, in order; the last one repeats. */
   scripts?: ChildScript[];
   isPortFree?: (port: number) => Promise<boolean>;
   health?: (url: string, headers: Record<string, string>, runId: string | undefined) => Promise<HealthResponse>;
   realpath?: (path: string) => string;
   timeouts?: Partial<typeof DEFAULT_BACKEND_TIMEOUTS>;
   workingDirectory?: string;
-  /** Makes the working directory exist; absent, the supervisor creates nothing. */
   ensureDirectory?: (path: string) => Promise<void>;
-  /** Stands in for the Windows process-tree kill; the harness records its calls. */
   killTree?: (pid: number) => void | Promise<void>;
 }
 
-/** The proof a genuine child with `runId` would send for the request's challenge. */
 export function genuineHealth(
   runId: string | undefined,
   headers: Record<string, string>,
@@ -251,7 +236,6 @@ export function startRequest(overrides: Partial<BackendStartRequest> = {}): Back
   return { port: PORT, databasePath: DB_PATH, ...overrides };
 }
 
-/** Lets pending microtasks (fake child replies) run without moving the fake clock. */
 export async function settle(): Promise<void> {
   await vi.advanceTimersByTimeAsync(0);
 }

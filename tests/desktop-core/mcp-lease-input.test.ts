@@ -9,7 +9,6 @@ import {
 } from "../../packages/shared/src/mcp-runtime.js";
 import { readMcpLeaseInput } from "../../packages/desktop-core/src/shell/mcp-lease-input.js";
 
-// Synthetic folders only: an App runtime root and a config directory of this test.
 let base = "";
 let runtimeRoot = "";
 let configDirectory = "";

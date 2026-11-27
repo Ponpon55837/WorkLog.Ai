@@ -2,14 +2,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-/**
- * The files two parts of the product exchange state through. Each entry names the file, the product file that writes it
- * and the different product file that reads it back, so a file one side writes and nobody reads (or the other way
- * round) fails here. A new `*FILE*` constant that names a `.json` file must be added to this registry.
- */
 interface StateFile {
   readonly name: string;
-  /** Text both sides spell, so each file really deals with this state file (a constant, a name or a helper). */
   readonly marker: RegExp;
   readonly writer: string;
   readonly reader: string;
@@ -96,8 +90,6 @@ describe("state files have a writer and a different reader", () => {
       }
     }
     expect(declared.length).toBeGreaterThan(3);
-    // These are read and written by one module alone (runtime GC and manifest, the Agent setup manifest, the App's
-    // language choice), not exchanged.
     const internal = new Set([
       "GC_STATE_FILE_NAME",
       "LANGUAGE_PREFERENCES_FILE_NAME",

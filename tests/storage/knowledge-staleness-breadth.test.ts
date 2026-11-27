@@ -14,9 +14,8 @@ import {
 import { setStalenessUnitLimits } from "../../packages/storage/src/later-change-index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only. Later Sessions that list more than 20 files are counted apart (broadChangesSince) and never
-// set possiblyStale; the appliesTo breadth of a possibly stale item is project-wide, as at write time: the share of the
-// project's newest 200 Sessions with 1-20 files that touch appliesTo.
+// Later Sessions listing more than 20 files only count toward broadChangesSince; breadth is the share of the project's
+// newest 200 Sessions with 1-20 files that touch appliesTo.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -76,7 +75,6 @@ function setup() {
     if (!item) throw new Error("Expected the Knowledge in the list");
     return item;
   };
-  /** Copies one finalized row into many Sessions, so a test can hold hundreds without finalizing each. */
   const insertRaw = (rows: Array<{ id: string; changedFilesJson: string; completedAt: string }>) => {
     const template = finalize("template", ["template.ts"], { completedAt: "2029-01-01T00:00:00.000Z" });
     const db = new DatabaseSync(databasePath);
@@ -167,8 +165,6 @@ describe("broad Sessions in the staleness check", () => {
       appliesTo: ["src/field/**"],
     });
     if (recorded.outcome !== "knowledge_recorded") throw new Error("Expected Knowledge");
-    // A Session that finished after the Knowledge was recorded, changed many files, and confirmed it: it is the last
-    // confirming Session, so it is not counted as a broad touch either.
     const confirming = finalize("confirming", wide("confirming", "src/field/c.ts"), {
       appliedKnowledgeIds: [recorded.knowledge.id],
     });
@@ -230,7 +226,6 @@ describe("broad Sessions in the staleness check", () => {
     const knowledge = record("baseline", ["src/field/**"]).knowledge;
     const before = finalize("before", ["src/field/a.ts"]);
     expect(read(knowledge.id).possiblyStale).toMatchObject({ sessionId: before.session.id });
-    // A confirmation dated before the Knowledge existed must not reopen the window to earlier Sessions.
     store.finalizeSession({
       projectRoot: root,
       idempotencyKey: "early-confirm",
@@ -262,7 +257,6 @@ describe("broad Sessions in the staleness check", () => {
       broadChangesSince: 2,
       possiblyStale: { sessionId: focused.session.id, sessionCount: 1 },
     });
-    // Warm again: the same answer without recomputing.
     expect(read(knowledge.id)).toMatchObject({ broadChangesSince: 2, possiblyStale: { sessionCount: 1 } });
 
     tick();
@@ -288,7 +282,6 @@ describe("project-wide breadth of a possibly stale Knowledge", () => {
 
   it("calls a wide appliesTo broad right after it was recorded, when only a few Sessions came after", () => {
     const context = setup();
-    // Twelve older focused Sessions, ten of which touch src/; the Knowledge is recorded after them.
     for (let index = 0; index < 12; index += 1) {
       context.finalize(`old-${index}`, [index < 10 ? `src/field/${index}.ts` : `docs/${index}.md`]);
     }
@@ -445,7 +438,6 @@ describe("appliesTo breadth when Knowledge is written", () => {
   it("scans only the newest Sessions and says when more matched", () => {
     const { insertRaw, record } = setup();
     const total = BREADTH_SCAN_LIMIT + 5;
-    // The oldest five touch appliesTo; the newest 200 do not, so truncation must hide those five.
     insertRaw(
       Array.from({ length: total }, (_, index) => ({
         id: `bulk-${index}`,
@@ -483,7 +475,6 @@ describe("appliesTo breadth when Knowledge is written", () => {
     ]);
     const result = record("damaged", ["src/field/**"]);
     expect(result.outcome).toBe("knowledge_recorded");
-    // Only the copied template Session (one file) and the good row are comparable.
     expect(result.appliesToBreadth).toMatchObject({ share: 0.5, sessions: 2, truncated: false });
   });
 

@@ -1,7 +1,3 @@
-/**
- * Vitest setup file (registered next to the isolated-environment setup): a no-op unless WI_SQLITE_TIMING=1.
- * Names the current test on slow-call records, records tests over 10 s and flushes the JSONL file after each file.
- */
 import { relative } from "node:path";
 import process from "node:process";
 import { afterAll, afterEach, expect } from "vitest";

@@ -175,7 +175,6 @@ describe("ensureBundledRuntime: install", () => {
     await expect(ensureBundledRuntime(root, bundleRoot, options())).rejects.toMatchObject({
       code: "RUNTIME_FILE_TAMPERED",
     });
-    // Nothing half-installed is left where a later start could trust it.
     expect(await fs.readdir(path.join(root, "runtimes")).catch(() => [])).not.toContain("bundle-1");
     await fs.rm(path.join(directory, "app/mcp.js"));
     await expect(ensureBundledRuntime(root, bundleRoot, options())).rejects.toMatchObject({
@@ -220,7 +219,6 @@ describe("ensureBundledRuntime: later starts", () => {
     const repaired = await ensureBundledRuntime(root, bundleRoot, options({ verifyInstalled: true }));
     expect(repaired.status).toBe("reinstalled");
     expect(await fs.readFile(file, "utf8")).toBe(FIXTURE_FILES["app/mcp.js"]);
-    // The damaged directory was set aside, not deleted... until the next slow path cleans it.
     expect((await fs.readdir(path.join(root, "runtimes"))).sort()).toEqual(
       ["bundle-1", expect.stringMatching(/^\.quarantine-bundle-1-/)].sort(),
     );
@@ -314,10 +312,8 @@ describe("ensureBundledRuntime: permissions are not a reason to reinstall", () =
   };
   const unreadable = { read: async () => Promise.reject(new Error("blocked")) };
 
-  /**
-   * An install on Windows leaves an ACL stamp in the verified cache that is valid on arrival (M-09), so the next start
-   * rightly skips the ACL read. Dropping the cache makes the next start read the ACLs, which is the path these tests are about.
-   */
+  // A Windows install leaves an ACL stamp valid on arrival (M-09), so the next start skips the ACL read; dropping the
+  // cache makes it read the ACLs, which is the path these tests are about.
   async function forgetVerifiedCache(): Promise<void> {
     await fs.rm(path.join(installedDirectory(), ".verified.json"), { force: true });
   }
@@ -401,7 +397,6 @@ describe("ensureBundledRuntime: shims, previous runtime and rollback", () => {
     let calls = 0;
     const rename = vi.fn(async (from: string, to: string) => {
       calls += 1;
-      // The first rename sets the old directory aside; the second is the staging directory going into place.
       if (calls === 2) throw Object.assign(new Error("ENOSPC"), { code: "ENOSPC" });
       await fs.rename(from, to);
     });
@@ -426,10 +421,6 @@ describe("ensureBundledRuntime: shims, previous runtime and rollback", () => {
 });
 
 describe("collectOldRuntimes", () => {
-  /**
-   * Two collections: the first records when each old runtime was seen retired, the second runs after the grace period.
-   * Returns what both did together (a leftover is removed by the first, an old runtime by the second).
-   */
   async function collectAged(options: Parameters<typeof collectOldRuntimes>[1]): ReturnType<typeof collectOldRuntimes> {
     const first = await collectOldRuntimes(root, options);
     const second = await collectOldRuntimes(root, {
@@ -484,7 +475,6 @@ describe("collectOldRuntimes", () => {
   it("leaves a directory that cannot be removed and reports it, without failing", async () => {
     await layout();
     const remove = vi.fn(async (directory: string) => {
-      // old-1 is renamed aside before it is removed; the quarantined directory the layout already holds is a different one.
       const name = path.basename(directory);
       if (name.startsWith(".quarantine-old-1-") && name !== ".quarantine-old-1-aa")
         throw Object.assign(new Error("in use"), { code: "EBUSY" });

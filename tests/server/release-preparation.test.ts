@@ -55,32 +55,26 @@ describe("release preparation", () => {
 
     expect(workflow).toContain('      - "v*"');
     expect(workflow).not.toMatch(/^\s+pull_request:/m);
-    // Manual path: strict version input, main only, passed through env, tag created in a job with its own write scope.
     expect(workflow).toMatch(/^ {2}workflow_dispatch:/m);
     expect(workflow).toContain("^[0-9]+\\.[0-9]+\\.[0-9]+$");
     expect(workflow).toContain('"$REF" != "refs/heads/main"');
     expect(workflow).toContain("INPUT_VERSION: ${{ inputs.version }}");
     expect(workflow).toContain("git tag -a");
     expect(workflow).toContain("needs: [prepare, verify, audit, quality, e2e-browser, desktop-package, desktop-smoke]");
-    // The real Electron shell of the release commit gates the release too (L-18).
     expect(workflow).toContain("uses: ./.github/workflows/desktop-smoke.yml");
     expect(workflow).toContain("needs.desktop-smoke.result == 'success'");
-    // The desktop installers of the release commit gate the release (ADR-03, DT-33) and are checksummed and attached.
     expect(workflow).toContain("uses: ./.github/workflows/desktop-package.yml");
     expect(workflow).toContain("needs.desktop-package.result == 'success'");
     expect(workflow).toContain('"Work-Intelligence-$RELEASE_VERSION-win-x64-setup.exe"');
     expect(workflow).toContain('"${installers[@]}"');
-    // The merged artifact download is nested by platform; the installers are moved to one flat folder before the check.
     expect(workflow).toContain('done < <(find "$dir" -mindepth 2 -type f -print0)');
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("--verify-tag");
-    // Publish packs the commit the checks verified, refuses a tag moved since, and keeps the write token out of git.
     expect(workflow).toContain("ref: ${{ needs.prepare.outputs.sha }}");
     expect(workflow).toContain("persist-credentials: false");
     expect(workflow).toContain('tagged="$(git rev-parse "refs/tags/$TAG^{commit}")"');
     expect(workflow).not.toContain("ref: ${{ github.ref }}");
     expect(workflow).not.toContain("GITHUB_REF_NAME");
-    // The standalone tarball is smoke-tested as uploaded, and every asset gets a SHA-256 line.
     expect(workflow).toContain("pnpm build && pnpm build:standalone");
     expect(workflow).toContain(
       'node scripts/smoke-standalone.mjs --tarball "dist/standalone/work-intelligence-$RELEASE_VERSION.tgz"',

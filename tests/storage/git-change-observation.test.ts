@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { observeGitChangedFileChanges, type GitRunner } from "../../packages/storage/src/git-change-observation.js";
 
-// Fictional fixtures only.
 const tempDirs: string[] = [];
 
 afterEach(() => {

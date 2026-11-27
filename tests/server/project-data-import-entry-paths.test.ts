@@ -18,10 +18,6 @@ import { BackupWorkerClient } from "../../apps/server/src/backup-worker-client.j
 import { runDatabaseCli } from "../../apps/server/src/cli.js";
 import { createApiHandler } from "../../apps/server/src/server.js";
 
-// Fictional data only. Every validation rule runs exactly once on every way into an import: the store called
-// directly, REST (inline and through the background worker) and the CLI. Each class of invalid file the transfer
-// tests cover is refused on each path with the same code, and nothing is written, not even a backup.
-
 type InvalidCase = {
   name: string;
   code: "invalid_input" | "unsupported_schema";
@@ -63,7 +59,6 @@ function exportedBundle(): ProjectDataExport {
   return source.exportProjectData({ type: "all" });
 }
 
-/** A deep copy with one change, so each case starts from the same valid bundle. */
 function changed(bundle: ProjectDataExport, change: (copy: ProjectDataExport) => void): ProjectDataExport {
   const copy = structuredClone(bundle);
   change(copy);
@@ -162,7 +157,6 @@ function invalidCases(bundle: ProjectDataExport): InvalidCase[] {
   ];
 }
 
-/** A file database, so an import would write a backup if it got that far. */
 function destination(): { store: WorkIntelligenceStore; databasePath: string; backups: string } {
   const root = createRoot();
   const databasePath = join(root, "destination.sqlite");
@@ -259,7 +253,6 @@ describe("project-data import entry paths", () => {
     }
     expectUnchanged(inline.store);
     expectUnchanged(worked.store);
-    // The same worker then imports a valid file, so a refusal never left it unusable.
     expect(await post(workerUrl, "/api/import", { bundle })).toEqual({ status: 200, code: undefined });
     expect(worked.store.listProjects()).toHaveLength(1);
   }, 60_000);
@@ -292,7 +285,6 @@ describe("project-data import entry paths", () => {
     const inputParse = vi.spyOn(projectDataImportInputSchema, "safeParse");
     const bundleParse = vi.spyOn(projectDataExportSchema, "safeParse");
     const envelopeParse = vi.spyOn(projectDataImportEnvelopeSchema, "safeParse");
-    /** Whole-input validations of one run: the input schema in memory, or the envelope schema of a streamed file. */
     const counted = async (run: () => unknown): Promise<{ input: number; streamed: number }> => {
       inputParse.mockClear();
       envelopeParse.mockClear();
@@ -307,7 +299,6 @@ describe("project-data import entry paths", () => {
 
     const inline = destination();
     const inlineUrl = await listen(createApiHandler(inline.store));
-    // REST and the CLI stream the file: rows are checked one at a time and the envelope once, never the whole input.
     expect(await counted(() => post(inlineUrl, "/api/import/preview", { bundle }))).toEqual({ input: 0, streamed: 1 });
     expect(await counted(() => post(inlineUrl, "/api/import", { bundle }))).toEqual({ input: 0, streamed: 1 });
 
@@ -322,7 +313,6 @@ describe("project-data import entry paths", () => {
         error: () => undefined,
         confirmPortableImport: async () => true,
       });
-    // One validation covers the preview and the import that follows it.
     expect(await counted(cliRun)).toEqual({ input: 0, streamed: 1 });
     expect(cli.store.listProjects()).toHaveLength(1);
   });

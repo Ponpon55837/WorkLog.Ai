@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgeCandidateInput } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -83,7 +82,6 @@ function storedOverlaps(store: WorkIntelligenceStore, candidateId: string): unkn
   return row?.overlaps_json === null || row === undefined ? row?.overlaps_json : JSON.parse(row.overlaps_json);
 }
 
-/** One proposed candidate that resembles one active Knowledge of the same project. */
 function submitOverlappingCandidate(fixture: ReturnType<typeof setup>) {
   const { store, root, finalize, candidate } = fixture;
   const first = finalize("first");
@@ -279,7 +277,6 @@ describe("Knowledge candidates", () => {
     ]);
     expect(result[0]!.overlaps![0]!.score).toBeGreaterThanOrEqual(0.3);
     expect(result.every((item) => item.status === "proposed")).toBe(true);
-    // Advisory only: nothing existing changed.
     expect(store.searchKnowledge({ projectRoot: root, status: "active" })).toMatchObject({ items: [{ id: active }] });
     expect(store.listKnowledgeCandidates({ projectRoot: root, status: "rejected" })).toMatchObject({
       items: [{ id: rejected.id }],
@@ -359,7 +356,6 @@ describe("stored Knowledge candidate overlap advisories", () => {
         score: expect.any(Number),
       },
     ]);
-    // No match is stored as an empty list, so it is never mistaken for a candidate submitted before schema 33.
     expect(storedOverlaps(store, result[1]!.id)).toEqual([]);
     expect(JSON.stringify(storedOverlaps(store, result[0]!.id))).not.toContain("Sprinkler");
 
@@ -379,7 +375,6 @@ describe("stored Knowledge candidate overlap advisories", () => {
     const again = store.submitKnowledgeCandidates({ requestId: request, candidates: payload });
     if (again.outcome !== "knowledge_candidates_submitted") throw new Error("Expected the replay");
     expect(again.duplicate).toBe(true);
-    // Recomputing would now say overlaps_archived; the stored advisory keeps what the submission found.
     expect(again.candidates[0]!.overlaps).toEqual([
       expect.objectContaining({ relation: "possible_duplicate", id: knowledgeId, status: "active" }),
     ]);
@@ -420,7 +415,6 @@ describe("stored Knowledge candidate overlap advisories", () => {
     const listed = store.listKnowledgeCandidates({});
     if (listed.outcome !== "knowledge_candidates") throw new Error("Expected the candidate list");
     const byId = new Map(listed.items.map((item) => [item.id, item]));
-    // The id resolves only inside the candidate's own project: it stays an advisory without a title.
     expect(byId.get(result[0]!.id)!.overlaps).toEqual([
       { relation: "possible_duplicate", type: "knowledge", id: foreign, status: "active", score: 0.9 },
     ]);

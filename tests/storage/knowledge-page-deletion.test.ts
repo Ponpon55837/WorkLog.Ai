@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AttentionItem, KnowledgePageSection } from "../../packages/core/src/index.js";
 import { KnowledgePageDeletionError, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -40,7 +39,6 @@ function setup() {
   return { store, root, projectRoot, project, finalize };
 }
 
-/** Requests the custom page, saves it twice and hides its attention reminder, so every dependent row exists. */
 function writtenCustomPage(fixture: ReturnType<typeof setup>) {
   const { store, projectRoot, project, finalize } = fixture;
   const sessionId = finalize();

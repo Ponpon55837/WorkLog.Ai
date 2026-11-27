@@ -8,7 +8,6 @@ import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 import { saveKnowledgePageInputSchema } from "../../packages/schema/src/index.js";
 import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 
-// Fictional fixtures only.
 const cleanups: Array<() => Promise<void> | void> = [];
 
 afterEach(async () => {
