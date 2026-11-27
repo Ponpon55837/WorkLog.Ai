@@ -13,7 +13,12 @@ import type {
   UserServiceStatus,
 } from "@work-intelligence/core";
 import type { z } from "zod";
-import { safeParseStrict, type DesktopFacts, type StrictParseResult } from "@work-intelligence/schema";
+import {
+  safeParseStrict,
+  type DesktopFacts,
+  type StrictParseResult,
+  flattenInputError,
+} from "@work-intelligence/schema";
 import type { ExportOptions, WorkIntelligenceStore } from "@work-intelligence/storage";
 import type { McpLeaseDiagnosis } from "@work-intelligence/shared/agent-observations";
 import type { McpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
@@ -115,7 +120,7 @@ export function validatedRoute<S extends z.ZodType>(
   return async (context) => {
     const parsed = parseRequestInput(schema, await input(context));
     if (!parsed.success) {
-      sendError(context.response, 400, invalidMessage, parsed.error.flatten());
+      sendError(context.response, 400, invalidMessage, flattenInputError(parsed.error));
       return;
     }
     sendJson(context.response, status, run(context, parsed.data));

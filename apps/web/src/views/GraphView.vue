@@ -19,10 +19,10 @@ import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import GraphCanvas from "../components/GraphCanvas.vue";
 import { useGraph, type GraphNodeFilter } from "../composables/useGraph";
+import { useProjectOptions } from "../composables/useProjectOptions";
 import { stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
 import { graphLoadPresetOptions, useGraphStore } from "../stores/graph";
-import { useProjectsStore } from "../stores/projects";
 import { graphEdgeKindLabels, graphNodeKindLabels, graphNodeKindOrder } from "../utils/labels";
 import { t } from "../i18n";
 
@@ -30,8 +30,6 @@ type GraphTab = "graph" | "timeline" | "hotspots";
 const graphTabs: readonly GraphTab[] = ["graph", "timeline", "hotspots"];
 
 const route = useRoute();
-const projectsStore = useProjectsStore();
-const { trackedProjects } = storeToRefs(projectsStore);
 const graphStore = useGraphStore();
 const {
   graph,
@@ -60,6 +58,7 @@ const {
 const load = (): Promise<void> => graphStore.loadGraph();
 useRouteQuery("project", graphProjectId, stringQuery());
 useRouteQuery("q", graphSearch, stringQuery());
+const projectOptions = useProjectOptions();
 
 const tab = computed<GraphTab>({
   get: () => {
@@ -74,10 +73,6 @@ const tabItems = [
   { value: "timeline" as const, label: t("graph.timeline"), icon: CalendarRange },
   { value: "hotspots" as const, label: t("common.hotspots"), icon: Flame },
 ];
-const projectOptions = computed(() => [
-  { value: "", label: t("common.allTrackedProjects") },
-  ...trackedProjects.value.map((project) => ({ value: project.id, label: project.name })),
-]);
 const kindOptions: { value: GraphNodeFilter; label: string }[] = [
   { value: "all", label: t("graph.allKinds") },
   ...graphNodeKindOrder.map((kind) => ({ value: kind, label: graphNodeKindLabels[kind] })),
@@ -151,7 +146,7 @@ onBeforeUnmount(() => {
   </PageToolbar>
 
   <section v-if="tab === 'timeline'" id="graph-panel-timeline" role="tabpanel" aria-labelledby="graph-tab-timeline">
-    <GraphTimelineBox v-model:project-id="graphProjectId" :projects="trackedProjects" />
+    <GraphTimelineBox v-model:project-id="graphProjectId" />
   </section>
   <section
     v-else-if="tab === 'hotspots'"
@@ -159,7 +154,7 @@ onBeforeUnmount(() => {
     role="tabpanel"
     aria-labelledby="graph-tab-hotspots"
   >
-    <GraphHotspotsBox v-model:project-id="graphProjectId" :projects="trackedProjects" />
+    <GraphHotspotsBox v-model:project-id="graphProjectId" />
   </section>
 
   <section v-else id="graph-panel-graph" role="tabpanel" aria-labelledby="graph-tab-graph">

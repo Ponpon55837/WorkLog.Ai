@@ -79,6 +79,7 @@ import {
   updateSessionTitleInputSchema,
   updateSessionWorkSummaryInputSchema,
   updateSessionWorkSummaryInputSchemaBase,
+  flattenInputError,
 } from "@work-intelligence/schema";
 import { truncateAtCodeUnitLimit, truncateText } from "@work-intelligence/shared";
 import type { McpRestartStatus } from "@work-intelligence/shared/mcp-runtime";
@@ -116,7 +117,7 @@ import { toFinalizeReceipt } from "./finalize-receipt.js";
 import { toKnowledgePageSaveReceipt } from "./knowledge-page-receipt.js";
 import { withMatchingProjects } from "./matching-projects.js";
 import { observeFinalizeChangedFiles, type FinalizeInput } from "./finalize-observation.js";
-import { inputErrorDetails, parseMcpInput } from "./input.js";
+import { parseMcpInput } from "./input.js";
 import { SegmentObserver, type ObservedSegmentStart } from "./segment-observer.js";
 import { hoistItemProject, scopeProject, withoutProjectFields } from "./project-scope.js";
 import { countResponseChars, sessionTextResult, textResult } from "./result.js";
@@ -418,7 +419,7 @@ function registerToolDispatchers(server: McpServer, operations: Map<string, Regi
             ...textResult({
               code: "INVALID_OPERATION_CALL",
               error: "Invalid Work Intelligence operation call.",
-              details: inputErrorDetails(parsed.error),
+              details: flattenInputError(parsed.error),
             }),
           };
         }
@@ -587,7 +588,7 @@ export function createWorkIntelligenceMcpServer(
         if (!parsed.success) {
           const invalidResponse = {
             isError: true,
-            ...textResult({ error: definition.invalidMessage, details: inputErrorDetails(parsed.error) }),
+            ...textResult({ error: definition.invalidMessage, details: flattenInputError(parsed.error) }),
           };
           if (readOnly) {
             auditRead(store, {

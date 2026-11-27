@@ -12,6 +12,7 @@ import AgentReviewRequestBox from "../components/domain/AgentReviewRequestBox.vu
 import KnowledgeCandidateEditorDialog from "../components/domain/KnowledgeCandidateEditorDialog.vue";
 import KnowledgeCandidatesBox from "../components/domain/KnowledgeCandidatesBox.vue";
 import AgentDecisionReviewBox from "../components/domain/AgentDecisionReviewBox.vue";
+import ProjectFilterMenu from "../components/domain/ProjectFilterMenu.vue";
 import KnowledgePagePanel from "../components/domain/KnowledgePagePanel.vue";
 import KnowledgePagesBox from "../components/domain/KnowledgePagesBox.vue";
 import KnowledgeKindOverview from "../components/domain/KnowledgeKindOverview.vue";
@@ -50,7 +51,6 @@ const knowledgeTabs: readonly KnowledgeTab[] = ["decisions", "candidates", "list
 const knowledgeStore = useKnowledgeStore();
 const {
   knowledgeItems,
-  knowledgeProjects,
   knowledgePage,
   knowledgePageSize,
   knowledgePageInfo,
@@ -105,6 +105,7 @@ const { pendingCount, decisionsLoaded } = storeToRefs(decisionStore);
 const { candidates, candidatesLoaded, knowledgeLoaded } = storeToRefs(knowledgeStore);
 const editorStore = useKnowledgeEditorStore();
 const projectsStore = useProjectsStore();
+const { trackedProjects } = storeToRefs(projectsStore);
 const pagesStore = useKnowledgePagesStore();
 const { pages, pagesLoaded, openPageId } = storeToRefs(pagesStore);
 useRouteQuery("knowledgePage", openPageId, {
@@ -125,7 +126,7 @@ const hasFilters = computed(() =>
 );
 const isAgentView = computed(() => reviewFilter.value === "agent");
 const selectedProjectRoot = computed(
-  () => knowledgeProjects.value.find((project) => project.id === knowledgeProjectId.value)?.rootPath,
+  () => trackedProjects.value.find((project) => project.id === knowledgeProjectId.value)?.rootPath,
 );
 const tab = computed<KnowledgeTab>({
   get: () => {
@@ -166,10 +167,6 @@ const tabs = computed(() => [
     icon: BookMarked,
     count: pagesLoaded.value ? pages.value.length : undefined,
   },
-]);
-const projectItems = computed(() => [
-  { value: "", label: t("common.allTrackedProjects") },
-  ...knowledgeProjects.value.map((project) => ({ value: project.id, label: project.name })),
 ]);
 const kindItems = [
   { value: "" as const, label: t("common.allKinds") },
@@ -312,7 +309,7 @@ onBeforeUnmount(() => {
   </UiFlash>
 
   <KnowledgeCandidateEditorDialog :project-root="selectedProjectRoot" />
-  <KnowledgePagePanel :projects="knowledgeProjects" />
+  <KnowledgePagePanel :projects="trackedProjects" />
 
   <UiSplitLayout
     v-if="tab === 'decisions'"
@@ -322,11 +319,11 @@ onBeforeUnmount(() => {
   >
     <template #main><AgentDecisionReviewBox :project-root="selectedProjectRoot" /></template>
     <template #aside>
-      <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
+      <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="trackedProjects" />
     </template>
   </UiSplitLayout>
   <section v-else-if="tab === 'pages'" id="knowledge-panel-pages" role="tabpanel" aria-labelledby="knowledge-tab-pages">
-    <KnowledgePagesBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
+    <KnowledgePagesBox v-model:project-id="knowledgeProjectId" :projects="trackedProjects" />
   </section>
   <UiSplitLayout
     v-else-if="tab === 'candidates'"
@@ -335,10 +332,10 @@ onBeforeUnmount(() => {
     aria-labelledby="knowledge-tab-candidates"
   >
     <template #main>
-      <KnowledgeCandidatesBox :projects="knowledgeProjects" :project-root="selectedProjectRoot" />
+      <KnowledgeCandidatesBox :projects="trackedProjects" :project-root="selectedProjectRoot" />
     </template>
     <template #aside>
-      <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
+      <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="trackedProjects" />
     </template>
   </UiSplitLayout>
   <UiSplitLayout v-else>
@@ -348,7 +345,7 @@ onBeforeUnmount(() => {
         id="knowledge-panel-list"
         role="tabpanel"
         aria-labelledby="knowledge-tab-list"
-        :projects="knowledgeProjects"
+        :projects="trackedProjects"
         :project-root="selectedProjectRoot"
       />
       <UiBox v-else id="knowledge-panel-list" role="tabpanel" aria-labelledby="knowledge-tab-list" sticky-header>
@@ -363,14 +360,7 @@ onBeforeUnmount(() => {
           />
           <div class="knowledge__filters">
             <AgentReviewFilter v-model="reviewFilter" :pending-label="t('knowledge.reviewFilterAllKnowledge')" />
-            <UiActionMenu
-              v-model="knowledgeProjectId"
-              :label="t('common.project')"
-              :header="t('common.filterProject')"
-              default-value=""
-              align="end"
-              :items="projectItems"
-            />
+            <ProjectFilterMenu v-model="knowledgeProjectId" :header="t('common.filterProject')" align="end" />
             <UiActionMenu
               v-model="knowledgeKind"
               :label="t('common.kind')"
@@ -431,7 +421,7 @@ onBeforeUnmount(() => {
       </UiBox>
     </template>
     <template #aside>
-      <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
+      <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="trackedProjects" />
       <!-- The card is held by a Skeleton while the counts load; a failed or skipped request leaves it out. -->
       <KnowledgeKindOverview
         v-if="kindCounts || kindCountsLoading"

@@ -154,9 +154,6 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const knowledgeItems = computed(() =>
     listQuery.data.value?.outcome === "knowledge" ? listQuery.data.value.items : [],
   );
-  const knowledgeProjects = computed(() =>
-    listQuery.data.value?.outcome === "knowledge" ? listQuery.data.value.projects : [],
-  );
   const knowledgePageInfo = computed(() =>
     listQuery.data.value?.outcome === "knowledge"
       ? listQuery.data.value.pageInfo
@@ -295,7 +292,6 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
 
   return {
     knowledgeItems,
-    knowledgeProjects,
     knowledgePage,
     knowledgePageSize,
     knowledgePageInfo,

@@ -6,6 +6,7 @@ import {
   agentReviewRequestQuerySchema,
   createAgentReviewRequestInputSchema,
   overturnAgentReviewInputSchema,
+  flattenInputError,
 } from "@work-intelligence/schema";
 import { numberParam, readJsonObject, sendError, sendJson, textParam } from "../http.js";
 import { parseRequestInput, type Route, type RouteContext } from "./router.js";
@@ -43,7 +44,7 @@ function reviewRoute<S extends z.ZodType>(
   return async (context) => {
     const parsed = parseRequestInput(schema, await input(context));
     if (!parsed.success) {
-      sendError(context.response, 400, "Invalid Agent review input.", parsed.error.flatten());
+      sendError(context.response, 400, "Invalid Agent review input.", flattenInputError(parsed.error));
       return;
     }
     sendResult(context.response, run(context, parsed.data), status);

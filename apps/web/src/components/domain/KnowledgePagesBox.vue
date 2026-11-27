@@ -7,6 +7,7 @@ import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
 import { errorMessage, formatDate, formatRelative } from "../../utils/format";
 import { knowledgePageStatusVisual } from "../../utils/status";
+import ProjectFilterMenu from "./ProjectFilterMenu.vue";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
@@ -43,10 +44,6 @@ const statusFilter = ref("all");
 
 const projectsById = computed(() => new Map(props.projects.map((project) => [project.id, project])));
 const selectedProject = computed(() => projectsById.value.get(projectId.value));
-const projectItems = computed(() => [
-  { value: "", label: t("common.allTrackedProjects") },
-  ...props.projects.map((project) => ({ value: project.id, label: project.name })),
-]);
 const statusItems = [
   { value: "all", label: t("knowledge.allStatuses") },
   { value: "has_new_data", label: t("common.newDataAvailable") },
@@ -114,14 +111,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
     <template #header>
       <UiBoxTitle :icon="BookMarked" :title="t('knowledge.knowledgePages', { length: pages.length })" />
       <div class="knowledge-pages__tools">
-        <UiActionMenu
-          v-model="projectId"
-          :label="t('common.project')"
-          :header="t('common.filterProject')"
-          default-value=""
-          align="end"
-          :items="projectItems"
-        />
+        <ProjectFilterMenu v-model="projectId" :header="t('common.filterProject')" align="end" />
         <UiActionMenu
           v-model="statusFilter"
           :label="t('common.status')"

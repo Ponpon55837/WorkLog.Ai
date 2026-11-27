@@ -14,7 +14,7 @@ import { useSessionsStore } from "../../stores/sessions";
 import { formatPercent, formatRelative } from "../../utils/format";
 import { knowledgeCandidateOverlapLabels } from "../../utils/labels";
 import { knowledgeKindVisual } from "../../utils/status";
-import UiActionMenu from "../ui/UiActionMenu.vue";
+import ProjectFilterMenu from "./ProjectFilterMenu.vue";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
@@ -80,7 +80,6 @@ const backlogText = computed(() => {
     ? t("knowledge.candidateBacklog", { uncovered: uncoveredSessions, highValue: highValueSessions })
     : t("knowledge.candidateBacklogPlain", { uncovered: uncoveredSessions });
 });
-const requestItems = computed(() => props.projects.map((project) => ({ value: project.id, label: project.name })));
 const isAgentView = computed(() => filter.value === "agent");
 const shownCandidates = computed(() => (isAgentView.value ? reviewedCandidates.value : candidates.value));
 const shownLoaded = computed(() => (isAgentView.value ? reviewedCandidatesLoaded.value : candidatesLoaded.value));
@@ -124,14 +123,14 @@ function onRequest(projectId: string): void {
       />
       <div class="knowledge-candidates__tools">
         <AgentReviewFilter v-model="filter" />
-        <UiActionMenu
+        <ProjectFilterMenu
           v-if="!isAgentView"
           :label="t('knowledge.synthesizeCandidates')"
           :header="t('knowledge.chooseAProjectToSynthesize')"
           variant="button"
           size="sm"
           align="end"
-          :items="requestItems"
+          :include-all="false"
           @select="onRequest"
         />
       </div>

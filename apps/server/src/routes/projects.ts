@@ -3,6 +3,7 @@ import {
   deleteProjectInputSchema,
   updateProjectInputSchema,
   updateProjectLocationInputSchema,
+  flattenInputError,
 } from "@work-intelligence/schema";
 import { ProjectDeletionError, ProjectLocationError } from "@work-intelligence/storage";
 import { inspectProjectFolder, readJsonBody, sendError, sendJson, withProjectFolderStatus } from "../http.js";
@@ -15,7 +16,7 @@ async function deleteProject({ store, request, response, params }: RouteContext)
       response,
       400,
       "Invalid project deletion confirmation.",
-      parsed.error.flatten(),
+      flattenInputError(parsed.error),
       "invalid_project_deletion_confirmation",
     );
     return;
@@ -58,7 +59,13 @@ async function deleteProject({ store, request, response, params }: RouteContext)
 async function updateLocation({ store, request, response, params }: RouteContext): Promise<void> {
   const parsed = parseRequestInput(updateProjectLocationInputSchema, await readJsonBody(request));
   if (!parsed.success) {
-    sendError(response, 400, "重新指定專案位置的資料無效。", parsed.error.flatten(), "project_location_invalid");
+    sendError(
+      response,
+      400,
+      "重新指定專案位置的資料無效。",
+      flattenInputError(parsed.error),
+      "project_location_invalid",
+    );
     return;
   }
   if (inspectProjectFolder(parsed.data.rootPath) !== "found") {
@@ -86,7 +93,7 @@ async function updateLocation({ store, request, response, params }: RouteContext
 async function updateProject({ store, request, response, params }: RouteContext): Promise<void> {
   const parsed = parseRequestInput(updateProjectInputSchema, await readJsonBody(request));
   if (!parsed.success) {
-    sendError(response, 400, "Invalid project update payload.", parsed.error.flatten());
+    sendError(response, 400, "Invalid project update payload.", flattenInputError(parsed.error));
     return;
   }
   const project = store.updateProject(params.projectId!, parsed.data);

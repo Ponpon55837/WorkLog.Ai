@@ -1,6 +1,6 @@
 import type { ServerResponse } from "node:http";
 import type { ProjectRecord, UsageProjectItem, UsageProjectsResponse } from "@work-intelligence/core";
-import { usageScanRequestSchema } from "@work-intelligence/schema";
+import { usageScanRequestSchema, flattenInputError } from "@work-intelligence/schema";
 import {
   UsageScanAbortedError,
   UsageScanTimeoutError,
@@ -91,7 +91,7 @@ async function scanUsage(context: RouteContext): Promise<void> {
   const { response, services } = context;
   const parsed = parseRequestInput(usageScanRequestSchema, await readJsonBody(context.request));
   if (!parsed.success) {
-    sendError(response, 400, "用量掃描的請求格式錯誤。", parsed.error.flatten());
+    sendError(response, 400, "用量掃描的請求格式錯誤。", flattenInputError(parsed.error));
     return;
   }
   const body = parsed.data;

@@ -25,6 +25,7 @@ vi.mock("../../../apps/web/src/stores/agent-review", () => ({
 vi.mock("../../../apps/web/src/stores/knowledge-pages", () => ({
   useKnowledgePagesStore: () => reactive({ pages }),
 }));
+vi.mock("../../../apps/web/src/components/domain/ProjectFilterMenu.vue", () => ({ default: { render: () => null } }));
 vi.mock("../../../apps/web/src/composables/useAgentReviewActions", () => ({
   useAgentReviewActions: () => ({ requestReview: vi.fn(), cancelRequest: vi.fn() }),
 }));

@@ -7,6 +7,7 @@ import type { OutstandingItemStatus, WorkSessionRecord } from "@work-intelligenc
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
 import OutstandingItemsBox from "../components/domain/OutstandingItemsBox.vue";
+import ProjectFilterMenu from "../components/domain/ProjectFilterMenu.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
 import UiActionMenu from "../components/ui/UiActionMenu.vue";
 import UiBox from "../components/ui/UiBox.vue";
@@ -25,7 +26,6 @@ import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
 import { useOutstandingItemsStore, type OutstandingClosedFilter } from "../stores/outstanding-items";
-import { useProjectsStore } from "../stores/projects";
 import { useSessionDayInsightsStore } from "../stores/session-day-insights";
 import { useSessionsStore } from "../stores/sessions";
 import { formatDayGroup } from "../utils/format";
@@ -42,8 +42,6 @@ type SessionsTab = "sessions" | "outstanding";
 const sessionTabs: readonly SessionsTab[] = ["sessions", "outstanding"];
 
 const route = useRoute();
-const projectsStore = useProjectsStore();
-const { projects } = storeToRefs(projectsStore);
 const sessionsStore = useSessionsStore();
 const {
   sessions,
@@ -163,10 +161,6 @@ const tab = computed<SessionsTab>({
       query: route.query,
     }),
 });
-const projectItems = computed(() => [
-  { value: "", label: t("common.allProjects") },
-  ...projects.value.map((project) => ({ value: project.id, label: project.name })),
-]);
 const agentItems = computed(() => [
   { value: "", label: t("common.allAgents") },
   ...agentOptions.value.map((agent) => ({ value: agent, label: agent })),
@@ -302,14 +296,7 @@ onBeforeUnmount(() => {
           }}</span>
         </UiBoxTitle>
         <div class="sessions__filters">
-          <UiActionMenu
-            v-model="selectedProjectId"
-            :label="t('common.project')"
-            :header="t('common.filterProject')"
-            default-value=""
-            align="end"
-            :items="projectItems"
-          />
+          <ProjectFilterMenu v-model="selectedProjectId" :header="t('common.filterProject')" align="end" scope="all" />
           <UiActionMenu
             v-if="agentOptions.length > 0"
             v-model="selectedAgent"
@@ -384,7 +371,6 @@ onBeforeUnmount(() => {
       v-model:to="outstandingTo"
       v-model:closed-filter="outstandingClosedFilter"
       :items="outstandingItems"
-      :projects="projects"
       :page-info="outstandingPageInfo"
       :loading="outstandingLoading"
       :loaded="outstandingLoaded"

@@ -103,6 +103,27 @@ describe("strict REST input", () => {
     expect(body.details?.fieldErrors?.workSummary?.join(" ")).toMatch(/in workSummary: outcomez/);
   });
 
+  it("names the nested path of a failed union field", async () => {
+    const response = await fetch(`${baseUrl}/api/sessions/probe-id/work-summary`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        workSummary: {
+          outcomes: [],
+          scope: [],
+          verification: [],
+          nextSteps: [],
+          decisions: [{ text: "Fictional decision.", origin: "user_directed" }],
+        },
+      }),
+    });
+    const body = (await response.json()) as { details?: { fieldErrors?: Record<string, string[]> } };
+    expect(response.status).toBe(400);
+    const message = body.details?.fieldErrors?.workSummary?.join(" ") ?? "";
+    expect(message).toMatch(/decisions\.0\.origin/);
+    expect(message).toContain("agent_autonomous");
+  });
+
   it("names unknown fields in bounded form, also on export and import", async () => {
     const keys = Array.from({ length: 500 }, (_, index) => `${"k".repeat(1_500)}${index}`);
     const flood = Object.fromEntries(keys.map((key) => [key, 1]));

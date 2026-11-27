@@ -18,10 +18,7 @@ import { useToast } from "./useToast";
 import { t } from "../i18n";
 
 function knowledgeProject(item: KnowledgeRecord): ProjectRecord | undefined {
-  return (
-    useProjectsStore().projects.find((project) => project.id === item.projectId) ??
-    useKnowledgeStore().knowledgeProjects.find((project) => project.id === item.projectId)
-  );
+  return useProjectsStore().projects.find((project) => project.id === item.projectId);
 }
 
 async function patchKnowledge(

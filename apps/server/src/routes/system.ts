@@ -11,6 +11,7 @@ import {
   discardStagedImportBodySchema,
   projectDataImportOptionsSchema,
   projectDataExportRequestSchema,
+  flattenInputError,
 } from "@work-intelligence/schema";
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import { inspectDatabaseReadOnlyMetadata, shouldSuggestReclaim } from "../database-inspection.js";
@@ -144,7 +145,7 @@ async function useStagedImport(context: RouteContext, apply: boolean): Promise<v
     // The choices are checked before the id, so a wrong field is named even when the file has expired.
     const parsed = parseRequestInput(projectDataImportOptionsSchema, options);
     if (!parsed.success) {
-      sendError(response, 400, "匯入選項格式錯誤。", parsed.error.flatten());
+      sendError(response, 400, "匯入選項格式錯誤。", flattenInputError(parsed.error));
       return;
     }
     const id = params.stagingId ?? "";
@@ -165,7 +166,7 @@ async function useStagedImport(context: RouteContext, apply: boolean): Promise<v
 async function discardStagedImport({ request, response, services, params }: RouteContext): Promise<void> {
   const parsed = parseRequestInput(discardStagedImportBodySchema, await readJsonBody(request));
   if (!parsed.success) {
-    sendError(response, 400, "取消匯入請求無效。", parsed.error.flatten());
+    sendError(response, 400, "取消匯入請求無效。", flattenInputError(parsed.error));
     return;
   }
   services.stagedImports.remove(params.stagingId ?? "");
@@ -247,7 +248,7 @@ async function deleteBackup({ store, request, response, params }: RouteContext):
   const body = await readJsonBody(request);
   const parsedBody = parseRequestInput(deleteDatabaseBackupBodySchema, body);
   if (!parsedBody.success) {
-    sendError(response, 400, "刪除備份請求無效。", parsedBody.error.flatten());
+    sendError(response, 400, "刪除備份請求無效。", flattenInputError(parsedBody.error));
     return;
   }
   let fileName: string;
@@ -283,7 +284,7 @@ async function exportData({ request, response, services }: RouteContext): Promis
   }
   const parsed = parseRequestInput(projectDataExportRequestSchema, body);
   if (!parsed.success) {
-    sendError(response, 400, "匯出範圍無效。", parsed.error.flatten());
+    sendError(response, 400, "匯出範圍無效。", flattenInputError(parsed.error));
     return;
   }
   const scope: ProjectDataExportScope =

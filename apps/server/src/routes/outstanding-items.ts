@@ -2,6 +2,7 @@ import {
   batchUpdateOutstandingItemStatusInputSchema,
   webOutstandingItemListQuerySchema,
   updateOutstandingItemStatusInputSchema,
+  flattenInputError,
 } from "@work-intelligence/schema";
 import { numberParam, readJsonObject, sendError, sendJson, textParam } from "../http.js";
 import { parseRequestInput, validatedRoute, type Route } from "./router.js";
@@ -31,7 +32,7 @@ export const outstandingItemRoutes: Route[] = [
     handler: async ({ request, response, store }) => {
       const parsed = parseRequestInput(batchUpdateOutstandingItemStatusInputSchema, await readJsonObject(request));
       if (!parsed.success) {
-        sendError(response, 400, "Invalid outstanding item batch.", parsed.error.flatten());
+        sendError(response, 400, "Invalid outstanding item batch.", flattenInputError(parsed.error));
         return;
       }
       const result = store.batchUpdateOutstandingItemStatus(parsed.data);

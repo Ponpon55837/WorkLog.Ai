@@ -2,6 +2,7 @@
 import { ChartColumn, Download, FolderGit2, Search } from "lucide-vue-next";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
+import ProjectFilterMenu from "../components/domain/ProjectFilterMenu.vue";
 import ReportCopyButton from "../components/domain/ReportCopyButton.vue";
 import ReportEvidencePanel from "../components/domain/ReportEvidencePanel.vue";
 import ReportOverviewPanel from "../components/domain/ReportOverviewPanel.vue";
@@ -28,7 +29,6 @@ const {
   reportDatePickerRange,
   reportProjectId,
   projectLabel,
-  projectItems,
   exportItems,
   reportLoading,
   reportExportLoading,
@@ -75,15 +75,13 @@ const {
           :label="t('reports.chooseReportDate')"
         />
       </div>
-      <UiActionMenu
+      <ProjectFilterMenu
         v-model="reportProjectId"
         :label="projectLabel"
         :icon="FolderGit2"
         variant="button"
         :header="t('reports.projectScope')"
-        default-value=""
         align="end"
-        :items="projectItems"
       />
       <ReportCopyButton />
       <UiActionMenu
