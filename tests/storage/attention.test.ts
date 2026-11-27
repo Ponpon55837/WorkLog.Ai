@@ -394,7 +394,13 @@ describe("attention source fingerprints", () => {
     const baseline = firstItem(store, project.id, "knowledge_page");
     expect(firstItem(store, project.id, "knowledge_page").sourceRevision).toBe(baseline.sourceRevision);
 
-    execSql(databasePath, `UPDATE sessions SET updated_at = '2030-01-01T00:00:00.000Z' WHERE id = '${first.id}'`);
+    execSql(databasePath, `UPDATE sessions SET updated_at = '2029-12-31T00:00:00.000Z' WHERE id = '${first.id}'`);
+    expect(firstItem(store, project.id, "knowledge_page").sourceRevision).toBe(baseline.sourceRevision);
+
+    execSql(
+      databasePath,
+      `UPDATE sessions SET updated_at = '2030-01-01T00:00:00.000Z', content_updated_at = '2030-01-01T00:00:00.000Z' WHERE id = '${first.id}'`,
+    );
     const updated = firstItem(store, project.id, "knowledge_page");
     expect(updated.sourceRevision).not.toBe(baseline.sourceRevision);
 
@@ -409,5 +415,27 @@ describe("attention source fingerprints", () => {
     store.setSessionVoid({ sessionId: first.id, voided: true, reason: "Fictional void" });
     store.deleteSession(first.id);
     expect(firstItem(store, project.id, "knowledge_page").sourceRevision).not.toBe(voided.sourceRevision);
+  });
+
+  it("keeps the Knowledge page revision through a diagram void when content_updated_at is NULL", () => {
+    const { store, projectRoot, project, databasePath, finalize } = setup();
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+    const first = finalize("first");
+    const diagram = store.attachDiagram({
+      sessionId: first.id,
+      idempotencyKey: "diagram",
+      title: "Flow",
+      kind: "architecture",
+      formatVersion: 1,
+      source: JSON.stringify({ version: 1, nodes: [{ id: "entry", label: "Entry" }] }),
+    });
+    if (diagram.outcome !== "diagram_attached") throw new Error("Expected a diagram");
+    execSql(databasePath, `UPDATE sessions SET content_updated_at = NULL WHERE id = '${first.id}'`);
+    const baseline = firstItem(store, project.id, "knowledge_page");
+
+    store.setDiagramVoid({ diagramId: diagram.diagram.id, voided: true, reason: "Fictional void" });
+    store.setDiagramVoid({ diagramId: diagram.diagram.id, voided: false });
+
+    expect(firstItem(store, project.id, "knowledge_page").sourceRevision).toBe(baseline.sourceRevision);
   });
 });

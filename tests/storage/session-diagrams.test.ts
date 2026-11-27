@@ -290,6 +290,7 @@ describe("Session diagrams", () => {
             .run(earlierVoid, "Voided elsewhere.", diagram!.id);
           return { allowed: true, projectStatus: "tracked", canonicalRoot: root };
         },
+        touchSession: () => undefined,
       });
       expect(service.setVoid({ diagramId: diagram!.id, voided: true, reason: "Late void." })).toMatchObject({
         outcome: "diagram_void_updated",

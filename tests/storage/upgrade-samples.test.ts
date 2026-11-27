@@ -34,6 +34,7 @@ const fixtures = [...manifest.fixtures].sort((a, b) => a.schemaVersion - b.schem
 const newestFixture = fixtures.at(-1)!;
 const upgradable = fixtures.filter((fixture) => fixture.schemaVersion < LATEST_SCHEMA_VERSION);
 
+const BACKFILLED_COLUMNS = ["sessions.content_updated_at"];
 const TOKEN = "zebrafixturetoken";
 const SEEDED_SESSIONS = 6;
 const PRIVATE_TEXT = "zephyrquill";
@@ -190,7 +191,9 @@ describe("upgrading committed samples", () => {
               differsFromDefault: 0,
             });
           }
-          const added = addedColumns.filter((entry) => entry.dflt_value === null).map((entry) => entry.name);
+          const added = addedColumns
+            .filter((entry) => entry.dflt_value === null && !BACKFILLED_COLUMNS.includes(`${table}.${entry.name}`))
+            .map((entry) => entry.name);
           for (const column of added) {
             const count = db
               .prepare(`SELECT COUNT(*) AS count FROM "${table}" WHERE "${column}" IS NOT NULL`)

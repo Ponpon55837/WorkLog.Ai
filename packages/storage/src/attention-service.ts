@@ -264,7 +264,7 @@ export class AttentionService {
       const result = this.dependencies.pages(projectId);
       const revisions = this.db
         .prepare(
-          `SELECT kp.id,json_array(COUNT(s.id),MAX(s.updated_at),MAX(s.id)) AS fingerprint
+          `SELECT kp.id,json_array(COUNT(s.id),MAX(COALESCE(s.content_updated_at,s.updated_at)),MAX(s.id)) AS fingerprint
         FROM knowledge_pages kp JOIN projects p ON p.id=kp.project_id AND p.status='tracked'
         LEFT JOIN sessions s ON s.project_id=kp.project_id AND s.voided_at IS NULL
           AND COALESCE(json_extract(s.verification_json,'$.status'),'')<>'in_progress' AND s.completed_at>
@@ -357,7 +357,7 @@ export class AttentionService {
       // CROSS JOIN starts from the pending items; SQLite otherwise walked every Session of the project.
       const source = pending ? "outstanding_items o CROSS JOIN sessions s ON s.id = o.source_session_id" : "sessions s";
       sql = `WITH counts AS (SELECT p.id AS project_id, p.name AS project_name, COUNT(*) AS count, MAX(s.completed_at) AS updated_at,
-        ${pending ? "json_array(COUNT(*),MAX(o.updated_at),MAX(o.id))" : "json_array(COUNT(*),MAX(s.updated_at),MAX(s.id))"} AS fingerprint
+        ${pending ? "json_array(COUNT(*),MAX(o.updated_at),MAX(o.id))" : "json_array(COUNT(*),MAX(COALESCE(s.content_updated_at,s.updated_at)),MAX(s.id))"} AS fingerprint
         FROM ${source} JOIN projects p ON p.id = s.project_id WHERE p.status = 'tracked' AND s.voided_at IS NULL ${scope} AND ${condition}
         GROUP BY p.id) SELECT project_id AS source_id, *, '' AS title, '${pending ? "open" : "missing"}' AS reason, COUNT(*) OVER () AS total FROM counts ORDER BY updated_at DESC, source_id DESC LIMIT ?`;
     }
