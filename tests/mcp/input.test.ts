@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { finalizeSessionInputSchema, flattenInputError } from "@work-intelligence/schema";
+import {
+  finalizeSessionInputSchema,
+  flattenInputError,
+  updateSessionWorkSummaryInputSchema,
+} from "@work-intelligence/schema";
 import { MAX_INPUT_PAYLOAD_BYTES, parseMcpInput } from "../../apps/mcp/src/input.js";
 
 describe("MCP input boundary", () => {
@@ -206,5 +210,19 @@ describe("MCP input boundary", () => {
     expect(parsed.success).toBe(false);
     if (parsed.success) return;
     expect(flattenInputError(parsed.error).fieldErrors.workSummary?.join(" ")).toContain("decisions.0.origin");
+  });
+
+  it("reports the branch with fewer issues when union branches fail at the same depth", () => {
+    const parsed = parseMcpInput(updateSessionWorkSummaryInputSchema, {
+      sessionId: "s",
+      idempotencyKey: "k",
+      mode: "patch",
+      workSummary: { outcomes: ["a"], decisions: [{ text: "x", origin: "bad" }] },
+    });
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    const messages = flattenInputError(parsed.error).fieldErrors.workSummary ?? [];
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatch(/^decisions\.0\.origin: /);
   });
 });

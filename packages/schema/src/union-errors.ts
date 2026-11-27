@@ -11,9 +11,10 @@ function expandUnionIssue(issue: z.core.$ZodIssue): z.core.$ZodIssue[] {
   if (issue.code !== INVALID_UNION_ISSUE_CODE || issue.errors.length === 0) {
     return [issue];
   }
-  const branch = issue.errors.reduce((best, candidate) =>
-    branchDepth(candidate) > branchDepth(best) ? candidate : best,
-  );
+  const branch = issue.errors.reduce((best, candidate) => {
+    const depth = branchDepth(candidate) - branchDepth(best);
+    return depth > 0 || (depth === 0 && candidate.length < best.length) ? candidate : best;
+  });
   return branch.flatMap((nested) => expandUnionIssue({ ...nested, path: [...issue.path, ...nested.path] }));
 }
 
