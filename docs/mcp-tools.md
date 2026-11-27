@@ -85,7 +85,7 @@ MCP 回應是一張回條，不回顯 Agent 剛送出的內容：`session` 只�
 
 `outstandingItemWarnings` 除 `unresolvedIds`、`unsupersededIds` 與 `message` 外，另有逐 id 的 `reasons`：`[{ id, list, code }]`，`list` 為 `resolved` 或 `superseded`，`code` 為 `not_found`、`other_project`、`not_pending`、`source_voided`、`held_by_cleanup`、`no_next_steps`、`both_lists`；`work_resolve_outstanding_items` 另有 `not_earlier`（來源 Session 不早於本 Session；本 Session 自己的項目在 resolved 清單可結案，superseded 清單仍不行）。伺服器在同一個交易內用一次查詢判斷，筆數不超過請求的 id 數，既有欄位與結果不變。
 
-finalize 回條的 `relatedOutstandingItems` 會把與本次 Session 的標題、摘要或 outcomes 共用 issue 編號（`#N`、`/issues/N`、`/pull/N`，整數必須完全相同，`#48` 不會比對到 `#481`）或版本號（`x.y.z`，可帶 `v`）的 pending 項目排在前面，並標示 `possiblyDone: true`。這只是優先核對的提示，不是完成證據；Agent 仍要讀來源後才用 `work_resolve_outstanding_items` 結案。同一 Session 之後也可用它把自己 nextSteps 中已完成的項目結案（只限 resolved 清單）。
+finalize 回條的 `relatedOutstandingItems` 會把與本次 Session 的標題、摘要或 outcomes 共用 issue 編號（`#N`、`/issues/N`、`/pull/N`，整數必須完全相同，`#48` 不會比對到 `#481`）或版本號（`x.y.z`，可帶 `v`）的 pending 項目排在前面，並標示 `possiblyDone: true`。這只是優先核對的提示，不是完成證據；Agent 仍要讀來源後才用 `work_resolve_outstanding_items` 結案。同一 Session 之後也可用它把自己 nextSteps 中已完成的項目結案（只限 resolved 清單）。另外，同專案、非本 Session 建立的 pending 項目若與本 Session 已儲存的某一筆 nextStep 共用 issue 編號（範圍如 `#483–#490` 涵蓋被提到的編號也算），會排在最前面並標示 `possibleDuplicateOf`（該 nextStep 在儲存清單中的索引，0 起算）；確認該 nextStep 已取代它時，以 `supersededOutstandingItemIds`（finalize 或 `work_resolve_outstanding_items`）結案。
 
 輸入文字有開頭的 `<private>` 標籤卻沒有結尾標籤時（這種標籤維持原文，不會被遮蔽），結果帶 `privateTagWarnings: { fields, unclosed, message }`：`fields` 是欄位路徑（例如 `summary`、`workSummary.nextSteps[0]`，最多 10 個），`unclosed` 是沒有配對的開頭標籤總數。只回報位置與次數，不回傳內容；資料照常保存。重播（`duplicate`）不帶這個欄位。
 
@@ -295,8 +295,8 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 | --- | --- | --- |
 | `work_request_outstanding_cleanup` | `work_write_idempotent` | `projectRoot`、`idempotencyKey`；建立與 Web 相同的固定快照請求（每專案一個進行中請求）。回傳 `outstanding_cleanup_request_created`（`duplicate` 表示同 key 重送）、`outstanding_cleanup_request_active`（已有 pending／awaiting_review 請求，直接沿用）、`not_needed`（沒有待處理項目）、`rejected`（`idempotency_conflict`、`too_many_items`）；未追蹤專案安靜回傳 `skipped`。 |
 | `work_list_outstanding_cleanup_requests` | `work_read` | 可選 `projectId`、`status`、`page`；`pageSize` 預設／上限 5，列出 tracked 專案請求 |
-| `work_get_outstanding_cleanup_context` | `work_read` | `requestId`；獨立 `itemPage`／`sessionPage`，`itemPageSize` 上限 5、`sessionPageSize` 上限 10；整體 24,000 字元 |
-| `work_submit_outstanding_cleanup_proposals` | `work_write_idempotent` | `requestId`、`idempotencyKey`、1–100 個 `examinedItemIds`，及 0–100 個判定（`proposals`）；判定即時生效 |
+| `work_get_outstanding_cleanup_context` | `work_read` | `requestId` 或 `projectRoot` 擇一（`projectRoot` 解析為該專案最新開放中的請求；沒有開放請求回 `no_open_request`，未追蹤專案安靜略過）；獨立 `itemPage`／`sessionPage`，`itemPageSize` 上限 5、`sessionPageSize` 上限 10；整體 24,000 字元 |
+| `work_submit_outstanding_cleanup_proposals` | `work_write_idempotent` | `requestId`、`idempotencyKey`、1–100 個 `examinedItemIds`，及 0–100 個判定（`proposals`）；判定即時生效。同一請求中先前只標記已檢查、沒有判定的項目，之後仍可補上判定（會重新檢查資格、過期與證據）；已有判定的項目或重複只標記已檢查會以 `already_examined` 拒絕 |
 
 若合法匯入資料的識別或時間欄位過長，文字截短後仍超過預算，context 整頁回傳 `rejected`／`context_too_large`；不截短 ID 或靜默漏掉項目。
 

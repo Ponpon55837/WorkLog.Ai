@@ -47,6 +47,8 @@ const KNOWLEDGE_TO_REVIEW_HINT =
 const PENDING_ITEMS_AFTER_SAVE_HINT =
   "逐項讀來源核對（possiblyDone 優先）；已驗證完成的用 work_resolve_outstanding_items 結案；不確定就保留。";
 
+const POSSIBLE_DUPLICATE_HINT = "possibleDuplicateOf=nextSteps 索引；被取代者用 supersededOutstandingItemIds。";
+
 function compactUnreportedKnowledge(unreported: UnreportedKnowledge): unknown {
   return {
     items: unreported.items,
@@ -58,13 +60,20 @@ function compactUnreportedKnowledge(unreported: UnreportedKnowledge): unknown {
 function compactRelatedItems(related: RelatedOutstandingItems): unknown {
   return {
     ...related,
-    ...(related.hint ? { hint: PENDING_ITEMS_AFTER_SAVE_HINT } : {}),
+    ...(related.hint
+      ? {
+          hint: related.items.some((item) => item.possibleDuplicateOf !== undefined)
+            ? `${PENDING_ITEMS_AFTER_SAVE_HINT} ${POSSIBLE_DUPLICATE_HINT}`
+            : PENDING_ITEMS_AFTER_SAVE_HINT,
+        }
+      : {}),
     items: related.items.map((item) => ({
       id: item.id,
       sourceSessionId: item.sourceSessionId,
       text: item.text,
       ...(item.textTruncated ? { textTruncated: true } : {}),
       ...(item.possiblyDone ? { possiblyDone: true } : {}),
+      ...(item.possibleDuplicateOf !== undefined ? { possibleDuplicateOf: item.possibleDuplicateOf } : {}),
     })),
   };
 }

@@ -101,6 +101,8 @@ const CONTEXT_PAGE_SECTION_CHARS = 500;
 const CONTEXT_EXCERPT_CHARS = 240;
 const RELATED_OUTSTANDING_HINT =
   "仍未處理：逐項讀來源核對（possiblyDone 表示與本次提到同一 issue 或版本，優先核對）；本次工作已直接驗證完成的，於 finalize 的 resolvedOutstandingItemIds 或 finalize 後以一次 work_resolve_outstanding_items 批次結案（本 Session 為依據）；被本次 nextSteps 取代才標記不再需要；無法確認就保留。";
+const POSSIBLE_DUPLICATE_HINT =
+  "possibleDuplicateOf 是本次 nextSteps 的索引（0 起算）：該未結項與那一步提到同一 issue，多半是重複。確認本次 nextSteps 已取代它，就以 supersededOutstandingItemIds 標記（finalize 或 work_resolve_outstanding_items）。";
 const RECALL_EXCERPT_CHARS = 110;
 const CONTINUED_OUTSTANDING_ITEM_LIMIT = 10;
 
@@ -532,7 +534,7 @@ export class ContextRecallService {
 
   public relatedOutstandingItems(
     projectId: string,
-    focus: ContextFocus & { identifierText?: string },
+    focus: ContextFocus & { identifierText?: string; nextSteps?: readonly string[] },
     excludeSourceSessionId?: string,
     excludeItemIds?: readonly string[],
   ): RelatedOutstandingItems {
@@ -1772,7 +1774,7 @@ export class ContextRecallService {
   }
 
   private outstandingItemDigest(result: {
-    items: Array<OutstandingItem & { possiblyDone?: true }>;
+    items: Array<OutstandingItem & { possiblyDone?: true; possibleDuplicateOf?: number }>;
     total: number;
     truncated?: true;
   }): RelatedOutstandingItems {
@@ -1789,12 +1791,19 @@ export class ContextRecallService {
           ...(text.truncated ? { textTruncated: true } : {}),
           ...(title.truncated ? { sourceSessionTitleTruncated: true } : {}),
           ...(item.possiblyDone ? { possiblyDone: true as const } : {}),
+          ...(item.possibleDuplicateOf !== undefined ? { possibleDuplicateOf: item.possibleDuplicateOf } : {}),
         };
       }),
       total: result.total,
       omitted: Math.max(0, result.total - result.items.length),
       ...(result.truncated ? { truncated: true as const } : {}),
-      ...(result.total > 0 ? { hint: RELATED_OUTSTANDING_HINT } : {}),
+      ...(result.total > 0
+        ? {
+            hint: result.items.some((item) => item.possibleDuplicateOf !== undefined)
+              ? `${RELATED_OUTSTANDING_HINT} ${POSSIBLE_DUPLICATE_HINT}`
+              : RELATED_OUTSTANDING_HINT,
+          }
+        : {}),
     };
   }
 

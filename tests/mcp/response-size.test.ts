@@ -695,6 +695,64 @@ describe("synthetic MCP response-size baseline", () => {
     expect(JSON.stringify(related).length).toBeLessThanOrEqual(RESPONSE_BUDGETS.relatedOutstandingItems);
   });
 
+  it("keeps the finalize receipt within budget when many long pending items are possible duplicates", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const longTail = "Synthetic read volume work remains open pending verification. ".repeat(45);
+
+    for (let sourceIndex = 0; sourceIndex < 12; sourceIndex += 1) {
+      vi.setSystemTime(Date.now() + 60_000);
+      const source = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `response-size-duplicate-source-${sourceIndex}`,
+        title: `Duplicate fixture source ${sourceIndex + 1}`,
+        summary: `Created long synthetic duplicate items for source ${sourceIndex + 1}.`,
+        workSummary: {
+          outcomes: ["Created fictional long outstanding-item fixtures."],
+          scope: [],
+          decisions: [],
+          verification: ["The response-budget fixture is synthetic."],
+          nextSteps: Array.from(
+            { length: 5 },
+            (_, itemIndex) => `#474 read volume item ${sourceIndex + 1}.${itemIndex + 1}. ${longTail}`,
+          ),
+        },
+        changedFiles: [],
+        verification: { status: "passed", summary: "Synthetic fixture verification passed." },
+      });
+      if (source.outcome !== "finalized") throw new Error(`Expected synthetic source; received ${source.outcome}.`);
+    }
+
+    vi.setSystemTime(Date.now() + 60_000);
+    const finalized = await serializedFinalizePayload(client, {
+      projectRoot,
+      idempotencyKey: "response-size-finalize-possible-duplicates",
+      title: "Duplicate fixture follow-up",
+      summary: "Wrote one next step that repeats pending work.",
+      workSummary: {
+        outcomes: ["Recorded one synthetic next step."],
+        scope: [],
+        decisions: [],
+        verification: ["The synthetic next step was recorded."],
+        nextSteps: ["Plan the unrelated cleanup.", "#474 read volume improvement."],
+      },
+      changedFiles: [],
+      verification: { status: "passed", summary: "Synthetic verification passed." },
+    });
+    const related = (
+      finalized.value as {
+        relatedOutstandingItems: {
+          items: Array<{ possibleDuplicateOf?: number }>;
+          hint: string;
+        };
+      }
+    ).relatedOutstandingItems;
+    expect(related.items).toHaveLength(5);
+    expect(related.items.every((item) => item.possibleDuplicateOf === 1)).toBe(true);
+    expect(related.hint).toContain("supersededOutstandingItemIds");
+    expect(finalized.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.finalizeWithRelatedOutstandingItems);
+    expect(JSON.stringify(related).length).toBeLessThanOrEqual(RESPONSE_BUDGETS.relatedOutstandingItems);
+  });
+
   it("keeps focused context and recall within budget when many Knowledge records match through appliesTo", async () => {
     const { client, projectRoot, store } = await connectWithSyntheticHistory();
     const guidance = "Synthetic guidance for the fictional tidal gate retains its calibration notes. ".repeat(8);

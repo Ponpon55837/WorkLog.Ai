@@ -224,8 +224,9 @@ export class OutstandingCleanupService {
   }
 
   public context(input: OutstandingCleanupContextQuery): OutstandingCleanupContextResult {
-    const request = this.request(input.requestId);
-    if (!request) return { outcome: "not_found", requestId: input.requestId };
+    const resolved = this.resolveContextRequest(input);
+    if ("outcome" in resolved) return resolved;
+    const request = resolved;
     const denied = this.denied(request.project_id);
     if (denied) return denied;
     const total = (
@@ -318,7 +319,7 @@ export class OutstandingCleanupService {
       itemPageInfo,
       sessions,
       sessionPageInfo,
-      hint: "逐頁檢查固定項目與之後的來源；截短摘要只是指標，請讀完整 Session 核對成果與 PR。明確完成或已被取代才提交附證據 ID 的 verdict；範圍排除或已知限制、沒有後續動作的項目用 acknowledged（只需理由）。證據不足只回報已檢查、不提交 verdict。stale 項目不提交；verdict 會立即變更項目狀態，使用者可在 Web 重新開啟。",
+      hint: "逐頁檢查固定項目與之後的來源；截短摘要只是指標，請讀完整 Session 核對成果與 PR。明確完成或已被取代才提交附證據 ID 的 verdict；範圍排除或已知限制、沒有後續動作的項目用 acknowledged（只需理由）。證據不足只回報已檢查、不提交 verdict（之後讀到證據，可在同一請求再提交該項目的 verdict）。stale 項目不提交；verdict 會立即變更項目狀態，使用者可在 Web 重新開啟。",
       truncated:
         request.project_name.length > 160 ||
         items.some((item) => item.textTruncated || item.sourceSessionTitleTruncated) ||
@@ -335,7 +336,7 @@ export class OutstandingCleanupService {
     };
     this.fitContext(result);
     if (JSON.stringify(result).length > CONTEXT_BUDGET) {
-      return { outcome: "rejected", reason: "context_too_large", requestId: input.requestId };
+      return { outcome: "rejected", reason: "context_too_large", requestId: request.id };
     }
     return result;
   }
@@ -514,7 +515,11 @@ export class OutstandingCleanupService {
       const byItem = new Map(snapshots.map((row) => [row.item_id, row]));
       const invalid = input.examinedItemIds.filter((id) => !byItem.has(id));
       if (invalid.length) return { outcome: "rejected", reason: "invalid_items", itemIds: invalid };
-      const examined = snapshots.filter((row) => row.examined_submission_id).map((row) => row.item_id);
+      const verdictItemIds = new Set(normalized.proposals.map((proposal) => proposal.itemId));
+      const decided = this.itemsWithProposals(snapshots.map((row) => row.id));
+      const examined = snapshots
+        .filter((row) => row.examined_submission_id && (decided.has(row.id) || !verdictItemIds.has(row.item_id)))
+        .map((row) => row.item_id);
       if (examined.length) return { outcome: "rejected", reason: "already_examined", itemIds: examined };
       const sourceIds = [
         ...snapshots.map((row) => row.source_session_id),
@@ -596,7 +601,7 @@ export class OutstandingCleanupService {
       }
       this.db
         .prepare(
-          "UPDATE outstanding_cleanup_request_items SET examined_submission_id = ? WHERE request_id = ? AND item_id IN (SELECT value FROM json_each(?))",
+          "UPDATE outstanding_cleanup_request_items SET examined_submission_id = ? WHERE request_id = ? AND examined_submission_id IS NULL AND item_id IN (SELECT value FROM json_each(?))",
         )
         .run(submissionId, current.id, JSON.stringify(input.examinedItemIds));
       this.refreshStatus(current.id, at);
@@ -638,6 +643,27 @@ export class OutstandingCleanupService {
         };
   }
 
+  private resolveContextRequest(input: OutstandingCleanupContextQuery): RequestRow | OutstandingCleanupContextResult {
+    if (input.requestId) {
+      return this.request(input.requestId) ?? { outcome: "not_found", requestId: input.requestId };
+    }
+    const decision = this.dependencies.checkProjectRoot(input.projectRoot ?? "");
+    if (!decision.allowed || !decision.project) {
+      return {
+        outcome: "skipped",
+        projectRoot: decision.canonicalRoot,
+        projectStatus: decision.projectStatus,
+        reason: decision.reason ?? "Project recording is not enabled.",
+      };
+    }
+    const open = this.db
+      .prepare(
+        `${REQUEST_SELECT} WHERE r.project_id = ? AND r.status = 'pending' ORDER BY r.requested_at DESC, r.id DESC LIMIT 1`,
+      )
+      .get(decision.project.id) as RequestRow | undefined;
+    return open ?? { outcome: "no_open_request", projectId: decision.project.id };
+  }
+
   private request(id: string): RequestRow | undefined {
     return this.db.prepare(`${REQUEST_SELECT} WHERE r.id = ?`).get(id) as RequestRow | undefined;
   }
@@ -648,6 +674,15 @@ export class OutstandingCleanupService {
       .prepare("SELECT * FROM sessions WHERE project_id = ? AND id IN (SELECT value FROM json_each(?))")
       .all(projectId, JSON.stringify([...new Set(ids)])) as SessionRow[];
     return new Map(rows.map((row) => [row.id, row]));
+  }
+
+  private itemsWithProposals(requestItemIds: readonly string[]): Set<string> {
+    const rows = this.db
+      .prepare(
+        "SELECT DISTINCT request_item_id FROM outstanding_cleanup_proposals WHERE request_item_id IN (SELECT value FROM json_each(?))",
+      )
+      .all(JSON.stringify(requestItemIds)) as Array<{ request_item_id: string }>;
+    return new Set(rows.map((row) => row.request_item_id));
   }
 
   private snapshotsByItem(requestId: string, ids: readonly string[]): SnapshotRow[] {
@@ -702,7 +737,10 @@ export class OutstandingCleanupService {
     if (!request) return { outcome: "not_found", requestId };
     const examined = this.db
       .prepare(
-        "SELECT item_id FROM outstanding_cleanup_request_items WHERE examined_submission_id = ? ORDER BY item_id",
+        `SELECT ci.item_id FROM outstanding_cleanup_request_items ci
+         WHERE ci.examined_submission_id = ?1
+            OR ci.id IN (SELECT request_item_id FROM outstanding_cleanup_proposals WHERE submission_id = ?1)
+         ORDER BY ci.item_id`,
       )
       .all(submissionId) as Array<{ item_id: string }>;
     const proposals = this.db

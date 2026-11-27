@@ -32,6 +32,7 @@ import {
   mcpOutstandingCleanupRequestQuerySchema,
   requestOutstandingCleanupInputSchema,
   outstandingCleanupContextQuerySchema,
+  outstandingCleanupContextQuerySchemaBase,
   submitOutstandingCleanupProposalsInputSchema,
   requestAgentReviewInputSchema,
   agentReviewContextQuerySchema,
@@ -790,9 +791,9 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_outstanding_cleanup_context", {
     title: "Read outstanding cleanup evidence context",
     description:
-      "Read a tracked Web request's fixed pending-item snapshot and later nonvoided finalized Session pointers, bounded to 5 items, 10 Sessions and 24,000 serialized characters. itemPage and sessionPage are independent; changing the item page changes its source time floor. Sources were completed/created no later than requestedAt and may be newer than only some items; validate each item's actual source date. Totals/pageInfo and truncated fields expose incomplete coverage; read full source Sessions with work_get_session. Stale/examined items stay identifiable and must not get guessed proposals. This read never claims or changes a request. " +
+      "Read a tracked request's fixed pending-item snapshot (pass requestId, or projectRoot for the project's latest open request; no_open_request when none is open) and later nonvoided finalized Session pointers, bounded to 5 items, 10 Sessions and 24,000 serialized characters. itemPage and sessionPage are independent; changing the item page changes its source time floor. Sources were completed/created no later than requestedAt and may be newer than only some items; validate each item's actual source date. Totals/pageInfo and truncated fields expose incomplete coverage; read full source Sessions with work_get_session. Stale/examined items stay identifiable and must not get guessed proposals. This read never claims or changes a request. " +
       outstandingCleanupContract,
-    inputShape: outstandingCleanupContextQuerySchema.shape,
+    inputShape: outstandingCleanupContextQuerySchemaBase.shape,
     schema: outstandingCleanupContextQuerySchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid outstanding cleanup context query.",
@@ -802,7 +803,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_submit_outstanding_cleanup_proposals", {
     title: "Submit outstanding cleanup verdicts",
     description:
-      "Submit up to 100 examined snapshot item IDs with a subset of completed/not_needed/acknowledged verdicts; completed and not_needed need a reason and 1–10 supporting later Session IDs, acknowledged (a scope exclusion or known limitation with no later action; stored as not_needed) needs only a reason. They apply directly: each verdict changes the item status and writes an Agent-sourced audit event linked to the request; the user can reopen items in Web. Empty proposals explicitly withholds all examined items. Same idempotency key and normalized payload replays the original proposal IDs; differing payload or already examined items conflict. Only pending requests accept new pages. Evidence and item/source eligibility are rechecked atomically: one ineligible verdict rejects the whole submission. " +
+      "Submit up to 100 examined snapshot item IDs with a subset of completed/not_needed/acknowledged verdicts; completed and not_needed need a reason and 1–10 supporting later Session IDs, acknowledged (a scope exclusion or known limitation with no later action; stored as not_needed) needs only a reason. They apply directly: each verdict changes the item status and writes an Agent-sourced audit event linked to the request; the user can reopen items in Web. Empty proposals explicitly withholds all examined items. Same idempotency key and normalized payload replays the original proposal IDs; differing payload conflicts, and so does an item that already has a verdict or an examined item resubmitted without one; an item examined earlier without a verdict can get its verdict now. Only pending requests accept new pages. Evidence and item/source eligibility are rechecked atomically: one ineligible verdict rejects the whole submission. " +
       outstandingCleanupContract,
     inputShape: submitOutstandingCleanupProposalsInputSchema.shape,
     schema: submitOutstandingCleanupProposalsInputSchema,

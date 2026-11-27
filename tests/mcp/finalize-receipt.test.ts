@@ -111,6 +111,33 @@ describe("finalize receipt", () => {
     expect(JSON.stringify(receipt)).not.toContain("sourceSessionTitle");
   });
 
+  it("keeps possibleDuplicateOf on related items and tells the Agent how to close a duplicate", () => {
+    const item = {
+      id: "item-1",
+      sourceSessionId: "session-source",
+      sourceSessionTitle: "Fictional source",
+      sourceSessionCompletedAt: "2026-05-01T09:00:00.000Z",
+      text: "Fictional follow-up #7.",
+    };
+    const receipt = toFinalizeReceipt(
+      { changedFiles: [] },
+      finalized({
+        relatedOutstandingItems: {
+          items: [
+            { ...item, possibleDuplicateOf: 0 },
+            { ...item, id: "item-2" },
+          ],
+          total: 2,
+          omitted: 0,
+          hint: "stored hint",
+        },
+      }),
+    ) as { relatedOutstandingItems: { items: Array<Record<string, unknown>>; hint: string } };
+    expect(receipt.relatedOutstandingItems.items[0]).toMatchObject({ id: "item-1", possibleDuplicateOf: 0 });
+    expect(receipt.relatedOutstandingItems.items[1]).not.toHaveProperty("possibleDuplicateOf");
+    expect(receipt.relatedOutstandingItems.hint).toContain("supersededOutstandingItemIds");
+  });
+
   it("labels a start the server filled in and omits the source for a reported one", () => {
     const observed = toFinalizeReceipt({ changedFiles: [] }, finalized({ startedAtSource: "server_observed" }));
     const events = toFinalizeReceipt({ changedFiles: [] }, finalized({ startedAtSource: "events" }));

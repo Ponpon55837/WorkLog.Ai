@@ -4,6 +4,15 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- `work_submit_outstanding_cleanup_proposals` accepts a verdict for an item that was examined without one earlier in the same request. It is rechecked for eligibility, staleness and evidence like a first verdict. An item that already has a verdict, or an examined item resubmitted without a verdict, is still rejected as `already_examined`; replays of either submission return their own examined items.
+- `work_get_outstanding_cleanup_context` accepts `projectRoot` instead of `requestId` (exactly one) and reads the project's latest open cleanup request; `no_open_request` reports that none is open.
+
+### Added
+
+- The finalize receipt's `relatedOutstandingItems` lists pending items of the same project (not created by this Session) that share an issue reference with one of its stored `nextSteps` first, marked `possibleDuplicateOf` (the index of that nextStep). Ranges such as `#483–#490` cover a referenced number. The hint points to `supersededOutstandingItemIds` in finalize or `work_resolve_outstanding_items`.
+
 ## [1.6.90] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.90.md).
