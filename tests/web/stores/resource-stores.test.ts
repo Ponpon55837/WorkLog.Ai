@@ -56,6 +56,7 @@ const importPreview = {
   updates: { sessions: 2 },
   keptLocal: { sessions: 1 },
   renumbered: {},
+  replacedLocal: {},
   selectedProjects: [],
   remappedPaths: [],
   autoRemaps: [],

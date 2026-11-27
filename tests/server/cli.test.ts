@@ -261,6 +261,55 @@ describe("database maintenance CLI", () => {
     expect(messages.error.join("\n")).toContain("--strategy 只接受 merge 或 newer-wins");
   });
 
+  it("reports the outdated local decisions an import replaces, in the preview and the result", async () => {
+    const root = createRoot();
+    const source = createStore();
+    const { project, finalized } = createPortableProject(source, root);
+    const bundleFile = join(root, "portable.json");
+    const bundle = source.exportProjectData({ type: "project", projectId: project.id });
+    const session = bundle.tables.sessions.find((item) => item.id === finalized.session.id);
+    if (!session) throw new Error("Expected the finalized Session in the export.");
+    session.work_summary_json = JSON.stringify({
+      outcomes: [],
+      scope: [],
+      decisions: ["M0"],
+      verification: [],
+      nextSteps: [],
+    });
+    const decision = (id: string, text: string) => ({
+      id,
+      session_id: finalized.session.id,
+      project_id: project.id,
+      position: 0,
+      text,
+      origin: "user_requested",
+      review_status: "confirmed",
+      reviewed_at: null,
+      knowledge_id: null,
+      reviewed_by: null,
+      review_reason: null,
+      review_request_id: null,
+    });
+    const destination = createStore();
+    const messages = { log: [] as string[], error: [] as string[] };
+    const deps = dependencies(destination, root, messages, async () => true);
+    const localRoot = join(root, "local-checkout");
+    const args = ["import", "portable.json", "--remap-root", `${project.rootPath}=${localRoot}`];
+
+    bundle.tables.session_decisions = [decision("w0", "W0")];
+    writeFileSync(bundleFile, JSON.stringify(bundle));
+    expect(await runDatabaseCli(args, deps)).toBe(0);
+    expect(messages.log.join("\n")).not.toContain("取代本機過時決策");
+
+    bundle.tables.session_decisions = [decision("m0", "M0")];
+    writeFileSync(bundleFile, JSON.stringify(bundle));
+    messages.log.length = 0;
+    expect(await runDatabaseCli(args, deps)).toBe(0);
+    expect(messages.log.filter((line) => line === "取代本機過時決策：1 筆（以 Session 摘要的決策為準）")).toHaveLength(
+      2,
+    );
+  });
+
   it("asks for a missing project folder during an interactive portable import", async () => {
     const root = createRoot();
     const source = createStore();

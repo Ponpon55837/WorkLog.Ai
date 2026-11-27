@@ -43,6 +43,14 @@ import {
   type ProjectDataTransferErrorCode,
 } from "./project-data-export.js";
 import { writeProjectDataExport } from "./project-data-export-stream.js";
+import {
+  applyDecisionSets,
+  decisionSetsWrite,
+  emptyDecisionSets,
+  failedDecisionSessions,
+  planDecisionSets,
+  type DecisionSetPlan,
+} from "./project-data-decision-sets.js";
 import { hashProjectDataImportInput, hydrateRow, type ProjectDataSpill } from "./project-data-spill.js";
 import { remapPathPrefix, storedProjectRoot } from "./project-path-remap.js";
 import { databaseUnavailableReason } from "./sqlite-errors.js";
@@ -209,6 +217,7 @@ const PLANNER_VALUE_COLUMNS: ReadonlySet<string> = new Set([
 ]);
 const plannerColumnCache = new Map<ProjectDataTable, ReadonlySet<string>>();
 const PAGE_VERSION_OFFSET = 1_000_000;
+const NO_IDS: ReadonlySet<string> = new Set();
 const CONFLICT_GROUP_SAMPLE_LIMIT = 5;
 const PARENT_OTHER_PROJECT_REASON = "上層資料屬於另一個專案。";
 const MISSING_PROJECT_REASON = "所屬專案不在匯入檔中。";
@@ -359,6 +368,8 @@ interface TransferPlan {
   conflictGroups: ProjectDataImportConflictGroup[];
   pageVersionRenumbers: Array<{ id: string; version: number }>;
   renumbered: ProjectDataCounts;
+  decisionSets: DecisionSetPlan;
+  replacedLocal: ProjectDataCounts;
   conventionsWithdrawn: number;
 }
 
@@ -754,6 +765,7 @@ function existingUniqueRow(
   table: ProjectDataTable,
   row: ProjectDataRow,
   exceptId?: string,
+  ignoreIds: ReadonlySet<string> = NO_IDS,
 ): ProjectDataRow | undefined {
   for (const fields of UNIQUE_FIELDS[table] ?? []) {
     const values: ProjectDataValue[] = [];
@@ -773,7 +785,7 @@ function existingUniqueRow(
     const columns = projectDataExportTableColumns[table].join(", ");
     const found = cachedStatement(db, `SELECT ${columns} FROM ${table} WHERE ${where}`).get(...values) as
       ProjectDataRow | undefined;
-    if (found && String(found.id) !== exceptId) {
+    if (found && String(found.id) !== exceptId && !ignoreIds.has(String(found.id))) {
       return found;
     }
   }
@@ -1133,6 +1145,7 @@ function dependencyIssue(
     const actorSessionId = typeof row.actor_session_id === "string" ? row.actor_session_id : undefined;
     if (
       actorSessionId &&
+      sessionProjectIds.has(actorSessionId) &&
       (!isAvailable("sessions", actorSessionId, selectedIds.sessions, availableIds, conflictIds) ||
         sessionProjectIds.get(actorSessionId) !== row.project_id)
     ) {
@@ -1533,6 +1546,7 @@ function planExistingRow(
   addPlan: AddPlan,
   importedSessionCompletedAt: ReadonlyMap<string, string>,
   onConventionWithdrawn: (projectId: string) => void,
+  releasedIds: ReadonlySet<string> = NO_IDS,
 ): void {
   if (equalRows(table, current, row)) {
     addPlan(table, row, "skip");
@@ -1575,7 +1589,7 @@ function planExistingRow(
       addPlan(table, row, "conflict", "相同 ID 的既有資料屬於另一個專案或上層資料，不會被覆寫。", "dependency");
       return;
     }
-    if (existingUniqueRow(db, table, row, String(row.id))) {
+    if (existingUniqueRow(db, table, row, String(row.id), releasedIds)) {
       addPlan(table, row, "conflict", "唯一識別值已被另一筆資料使用。", "unique");
       return;
     }
@@ -1680,7 +1694,24 @@ function planPageVersionNumbers(
   return { localRenumbers, count };
 }
 
-function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): TransferPlan {
+function decisionSessionSources(sessions: readonly PlannedRow[]): Map<string, ProjectDataRow | null> {
+  const sources = new Map<string, ProjectDataRow | null>();
+  for (const { row, disposition, category } of sessions) {
+    const keepsLocalRow =
+      disposition === "skip" ||
+      disposition === "keep" ||
+      (disposition === "conflict" && category !== undefined && NON_BLOCKING_CONFLICTS.has(category));
+    if (disposition === "update") sources.set(String(row.id), row);
+    else if (keepsLocalRow) sources.set(String(row.id), null);
+  }
+  return sources;
+}
+
+function makePlan(
+  db: DatabaseSync,
+  validated: ValidatedProjectDataImport,
+  abandonedDecisionSessions: ReadonlySet<string> = NO_IDS,
+): TransferPlan {
   const { input } = validated;
   const strategy: ProjectDataImportStrategy = input.strategy ?? "merge";
   const { bundle: selectedBundle, missingParents } = bundleForScope(input.bundle, input.projectId);
@@ -2024,32 +2055,53 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
   const pendingConventionAdds: Array<{ row: ProjectDataRow; projectId: string }> = [];
   const parentOwners = collectParentOwners(db, selectedBundle.tables, projectIds);
   const deletedPageIds = deletedKnowledgePageIds(db, selectedBundle.tables);
+  const issueOf = (table: ProjectDataTable, row: ProjectDataRow) =>
+    dependencyIssue(
+      table,
+      row,
+      projectIds,
+      selectedIds,
+      existingIds,
+      conflictIds,
+      sessionProjectIds,
+      outstandingItemProjectIds,
+      outstandingItemSourceSessionIds,
+      cleanupRequestReferences,
+      cleanupSubmissionReferences,
+      cleanupRequestItemReferences,
+      cleanupProposalReferences,
+      parentOwners,
+    );
+  let decisionSets = emptyDecisionSets();
   for (const table of TABLE_ORDER) {
     if (table === "projects") {
       continue;
+    }
+    if (table === "session_decisions") {
+      decisionSets = planDecisionSets(
+        db,
+        selectedBundle.tables.session_decisions,
+        decisionSessionSources(rows.sessions),
+        (row) => issueOf(table, row),
+        new Set(
+          selectedBundle.tables.attention_preferences.flatMap((preference) =>
+            preference.kind === "decision" ? [String(preference.source_id)] : [],
+          ),
+        ),
+        abandonedDecisionSessions,
+      );
     }
     const sourceRows =
       table === "knowledge" ? orderKnowledgeRows(selectedBundle.tables.knowledge) : selectedBundle.tables[table];
     for (const sourceRow of sourceRows) {
       const row = { ...sourceRow };
-      const dependencyError = dependencyIssue(
-        table,
-        row,
-        projectIds,
-        selectedIds,
-        existingIds,
-        conflictIds,
-        sessionProjectIds,
-        outstandingItemProjectIds,
-        outstandingItemSourceSessionIds,
-        cleanupRequestReferences,
-        cleanupSubmissionReferences,
-        cleanupRequestItemReferences,
-        cleanupProposalReferences,
-        parentOwners,
-      );
+      const dependencyError = issueOf(table, row);
       const id = String(row.id);
       const current = existingRowsById[table].get(id);
+      if (table === "session_decisions" && decisionSets.keepIds.has(id)) {
+        addPlan(table, row, "keep");
+        continue;
+      }
       const pageId = current ? undefined : knowledgePageIdOf(table, row);
       if (pageId !== undefined && deletedPageIds.has(pageId)) {
         addPlan(table, row, "conflict", DELETED_PAGE_REASON, "deleted");
@@ -2064,15 +2116,29 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
         continue;
       }
       if (current) {
-        planExistingRow(db, table, current, row, strategy, addPlan, importedSessionCompletedAt, (projectId) => {
-          conventionsWithdrawn += 1;
-          const taken = conventionCounts.get(projectId) ?? 0;
-          if (taken > 0) conventionCounts.set(projectId, taken - 1);
-        });
+        const moved = table === "session_decisions" && decisionSets.movedIds.has(id);
+        planExistingRow(
+          db,
+          table,
+          moved ? { ...current, position: row.position ?? null } : current,
+          row,
+          strategy,
+          moved
+            ? (rowTable, plannedRow, disposition, reason, category) =>
+                addPlan(rowTable, plannedRow, disposition === "skip" ? "update" : disposition, reason, category)
+            : addPlan,
+          importedSessionCompletedAt,
+          (projectId) => {
+            conventionsWithdrawn += 1;
+            const taken = conventionCounts.get(projectId) ?? 0;
+            if (taken > 0) conventionCounts.set(projectId, taken - 1);
+          },
+          decisionSets.releasedLocalIds,
+        );
         continue;
       }
 
-      const unique = existingUniqueRow(db, table, row);
+      const unique = existingUniqueRow(db, table, row, undefined, decisionSets.releasedLocalIds);
       if (unique) {
         if (table === "session_links" && unique.relation === hydrateRow(row).relation) {
           addPlan(table, row, "skip");
@@ -2111,6 +2177,11 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
       }
       addPlan(table, row, "add");
     }
+  }
+
+  const failedSessions = failedDecisionSessions(decisionSets, rows.session_decisions);
+  if (failedSessions.length > 0) {
+    return makePlan(db, validated, new Set([...abandonedDecisionSessions, ...failedSessions]));
   }
 
   pendingConventionAdds.sort(
@@ -2165,6 +2236,8 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
     ),
     pageVersionRenumbers: renumbering.localRenumbers,
     renumbered: renumbering.count > 0 ? { knowledge_page_versions: renumbering.count } : {},
+    decisionSets,
+    replacedLocal: decisionSets.removeIds.length > 0 ? { session_decisions: decisionSets.removeIds.length } : {},
     conventionsWithdrawn,
   };
 }
@@ -2180,6 +2253,7 @@ function previewFromPlan(plan: TransferPlan): ProjectDataImportPreview {
     updates: counts.update,
     keptLocal: counts.keep,
     renumbered: plan.renumbered,
+    replacedLocal: plan.replacedLocal,
     selectedProjects: plan.selectedProjects,
     remappedPaths: plan.remappedPaths,
     autoRemaps: plan.autoRemaps,
@@ -2271,6 +2345,7 @@ function dataRevision(db: DatabaseSync): number {
 function planWritesData(plan: TransferPlan): boolean {
   return (
     plan.pageVersionRenumbers.length > 0 ||
+    decisionSetsWrite(plan.decisionSets) ||
     TABLE_ORDER.some((table) =>
       plan.rows[table].some((entry) => entry.disposition === "add" || entry.disposition === "update"),
     )
@@ -2333,6 +2408,7 @@ export class ProjectDataTransferService {
       const changed = planWritesData(plan);
       if (changed && !planned.backedUp) return undefined;
       applyPageVersionRenumbers(this.db, plan.pageVersionRenumbers);
+      applyDecisionSets(this.db, plan.decisionSets);
       const insertStatements = new Map<ProjectDataTable, InsertStatement>();
       const updateStatements = new Map<ProjectDataTable, InsertStatement>();
       for (const table of TABLE_ORDER) {
@@ -2379,6 +2455,7 @@ export class ProjectDataTransferService {
         updates: preview.updates,
         keptLocal: preview.keptLocal,
         renumbered: preview.renumbered,
+        replacedLocal: preview.replacedLocal,
       });
       this.db
         .prepare(

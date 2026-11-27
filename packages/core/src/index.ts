@@ -3927,6 +3927,8 @@ export interface ProjectDataImportPreview {
   updates: ProjectDataCounts;
   keptLocal: ProjectDataCounts;
   renumbered: ProjectDataCounts;
+  /** Local rows deleted because a Session's decisions are replaced as a set by the imported copy. */
+  replacedLocal: ProjectDataCounts;
   selectedProjects: Array<{
     id: string;
     name: string;

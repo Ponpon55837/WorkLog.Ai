@@ -236,6 +236,11 @@ const IMPORT_CONFLICT_CATEGORY_LABELS: Record<ProjectDataImportConflictCategory,
   deleted: "已在本機刪除",
 };
 
+function logReplacedLocal(counts: ProjectDataImportPreview["replacedLocal"], log: (message: string) => void): void {
+  const replaced = totalCounts(counts);
+  if (replaced > 0) log(`取代本機過時決策：${replaced} 筆（以 Session 摘要的決策為準）`);
+}
+
 function printImportPreview(
   preview: ProjectDataImportPreview,
   log: (message: string) => void = (message) => console.log(message),
@@ -255,6 +260,7 @@ function printImportPreview(
   log(
     `將以匯入資料更新 ${totalCounts(preview.updates)} 筆、保留本機較新 ${totalCounts(preview.keptLocal)} 筆、知識頁版本重新編號 ${totalCounts(preview.renumbered)} 筆。`,
   );
+  logReplacedLocal(preview.replacedLocal, log);
   if (preview.conventionsWithdrawn) {
     log(
       `專案慣例：${preview.conventionsWithdrawn} 筆不會保留（超過每個專案 5 筆上限、已封存、需要複查，或匯入的版本改了標題或內文），會以一般 Knowledge 匯入。`,
@@ -579,6 +585,7 @@ export async function runDatabaseCli(
             print(
               `匯入完成：新增 ${totalCounts(result.additions)} 筆，更新 ${totalCounts(result.updates)} 筆，保留本機 ${totalCounts(result.keptLocal)} 筆，略過 ${totalCounts(result.skipped)} 筆，衝突 ${totalCounts(result.conflicts)} 筆。`,
             );
+            logReplacedLocal(result.replacedLocal, print);
             if (result.backupFileName) print(`匯入前的資料已備份為 ${result.backupFileName}。`);
             if (result.changed) {
               print("新匯入的專案已暫停；確認專案路徑後，可在專案頁啟用記錄。");

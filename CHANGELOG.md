@@ -4,6 +4,11 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Fixed
+
+- Importing a project file after the other machine rewrote a Session's decisions no longer skips them as `unique` conflicts. A Session's decisions are one set that follows the decisions in its summary, so when the file's decisions match that summary and this machine's do not, the outdated local decisions are replaced (Knowledge and Agent review requests that cite them are kept). A file that is the stale side is kept out of the database instead of being reported as conflicts. The import preview (Web and CLI) and its audit report how many local decisions were replaced, and a backup is taken first. Importing again heals a stale machine; nothing is repaired on upgrade.
+- An import no longer rejects an outstanding-item audit event whose acting Session was permanently deleted. When that Session is in neither the file nor this database, the event is imported as it is; an acting Session from another project, or one that is itself a conflict, is still rejected.
+
 ## [1.6.86] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.86.md).
