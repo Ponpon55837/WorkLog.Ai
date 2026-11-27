@@ -225,6 +225,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | --- | --- | --- |
 | POST | `/api/agent-review-requests` | JSON `{projectId,idempotencyKey}`，為專案待處理的決策、Knowledge 候選與有疑慮的 Knowledge 建立固定快照 |
 | GET | `/api/agent-review-requests` | `projectId?`、`status?`（pending／processing／completed／failed／cancelled）、`page?`、`pageSize?`（1–20，預設 5）；已完成的請求附 `knowledgePages`：`{slug,title,reasons,state}`，清單在請求完成時存下，`state` 讀取時計算（`pending` 仍在更新佇列、`updated` 完成後存過新版本、`checked` 曾排入佇列後離開佇列且沒有新版本、`unchanged` 其餘） |
+| GET | `/api/agent-review-pending` | 無參數；每個 tracked 專案目前待處理的項目數：`projects: [{projectId,projectName,decisionCount,candidateCount,knowledgeCount}]`，沒有待處理項目的專案不列出；數量與新請求的快照一致（最多 500 筆） |
 | POST | `/api/agent-review-requests/:requestId/cancel` | JSON `{}`；已處理的結果保留，未處理的項目回到使用者的待確認清單 |
 | POST | `/api/session-decisions/:decisionId/overturn` | JSON `{projectRoot}`；只接受 Agent 處理過的決策 |
 | POST | `/api/knowledge/candidates/:candidateId/overturn` | JSON `{projectRoot}`；只接受 Agent 處理過的候選 |

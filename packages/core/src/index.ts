@@ -3262,6 +3262,16 @@ export type RequestAgentReviewResult = CreateAgentReviewRequestResult;
 export type AgentReviewRequestListResult =
   { outcome: "agent_review_requests"; requests: AgentReviewRequest[]; pageInfo: PageInfo } | AgentReviewSkippedResult;
 
+export interface AgentReviewPendingProject {
+  projectId: string;
+  projectName: string;
+  decisionCount: number;
+  candidateCount: number;
+  knowledgeCount: number;
+}
+
+export type AgentReviewPendingListResult = { outcome: "agent_review_pending"; projects: AgentReviewPendingProject[] };
+
 export type AgentReviewContextResult =
   | AgentReviewContext
   | { outcome: "request_not_open"; request: AgentReviewRequest; reason: string }

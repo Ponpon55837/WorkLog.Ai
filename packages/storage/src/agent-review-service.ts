@@ -10,6 +10,7 @@ import type {
   AgentReviewKnowledgePage,
   AgentReviewLaterSession,
   AgentReviewPageState,
+  AgentReviewPendingListResult,
   AgentReviewRequest,
   AgentReviewRequestPage,
   AgentReviewRequestListResult,
@@ -426,6 +427,29 @@ export class AgentReviewService {
       outcome: "agent_review_requests",
       requests: this.withKnowledgePages(this.toRequests(rows), rows),
       pageInfo,
+    };
+  }
+
+  public listPending(): AgentReviewPendingListResult {
+    const projects = this.db
+      .prepare("SELECT id, name FROM projects WHERE status = 'tracked' ORDER BY name COLLATE NOCASE, id")
+      .all() as Array<{ id: string; name: string }>;
+    return {
+      outcome: "agent_review_pending",
+      projects: projects.flatMap((project) => {
+        const { items } = this.snapshot(project.id);
+        if (items.length === 0) return [];
+        const count = (kind: AgentReviewItemKind): number => items.filter((item) => item.kind === kind).length;
+        return [
+          {
+            projectId: project.id,
+            projectName: project.name,
+            decisionCount: count("decision"),
+            candidateCount: count("candidate"),
+            knowledgeCount: count("knowledge"),
+          },
+        ];
+      }),
     };
   }
 

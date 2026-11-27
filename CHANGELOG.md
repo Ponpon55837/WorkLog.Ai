@@ -4,6 +4,18 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- `AgentHandoffNotice`: one handoff block for every Agent flow (status, one sentence on what happens next, a copyable command that names Work Intelligence, and cancel where the flow supports it). Agent review, Knowledge pages, Knowledge candidates, Open items cleanup, metadata backfill and the report card all use it; toasts now only say the request was created.
+- Agent review no longer needs a project filter: with none chosen it lists the projects that have pending items (count and button each), shows the only one directly, and lists every in-progress request with its own cancel. New `GET /api/agent-review-pending` returns the per-project counts.
+- The 「整理候選」 menu has a title and each project's pending count.
+- `UiButton` takes `disabledReason`, shown as a tooltip and to assistive tech.
+
+### Changed
+
+- Disabled buttons use a neutral grey look instead of a dimmed accent.
+- Knowledge page rows that already have an update request show 「已要求」 (disabled, with the reason) instead of staying clickable; there is no route to cancel a page update request.
+
 ## [1.6.91] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.91.md).

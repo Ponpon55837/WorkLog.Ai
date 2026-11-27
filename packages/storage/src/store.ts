@@ -22,6 +22,7 @@ import type {
   AgentReviewContextQuery,
   AgentReviewContextResult,
   AgentReviewedKnowledgeListResult,
+  AgentReviewPendingListResult,
   AgentReviewedKnowledgeQuery,
   AgentReviewRequestListResult,
   AgentReviewRequestQuery,
@@ -1322,6 +1323,10 @@ export class WorkIntelligenceStore {
 
   public listAgentReviewRequests(input: AgentReviewRequestQuery = {}): AgentReviewRequestListResult {
     return this.agentReviews.listRequests(input);
+  }
+
+  public listAgentReviewPending(): AgentReviewPendingListResult {
+    return this.agentReviews.listPending();
   }
 
   public createAgentReviewRequest(input: CreateAgentReviewRequestInput): CreateAgentReviewRequestResult {

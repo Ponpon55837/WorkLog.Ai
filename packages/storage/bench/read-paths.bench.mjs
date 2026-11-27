@@ -1684,6 +1684,12 @@ try {
       knowledgeReviewStore.cancelAgentReviewRequest(created.request.id);
       return context;
     },
+    "listAgentReviewPending (500 pending decisions: one snapshot count)": () => {
+      const result = reviewStore.listAgentReviewPending();
+      if (result.outcome !== "agent_review_pending" || result.projects.length === 0)
+        throw new Error("The pending review list must count the synthetic project's items.");
+      return result;
+    },
     "listAgentReviewedKnowledge (200 standing verdicts)": () => {
       const result = knowledgeReviewStore.listAgentReviewedKnowledge({ projectRoot: knowledgeReviewRoot });
       if (result.outcome !== "agent_reviewed_knowledge" || result.items.length !== 200)
@@ -1989,6 +1995,7 @@ try {
     "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": 150,
     "agentReview (500 pending decisions: snapshot, first context page)": 250,
     "agentReview (200 possibly stale Knowledge: snapshot, first context page)": 250,
+    "listAgentReviewPending (500 pending decisions: one snapshot count)": 100,
     "listAgentReviewedKnowledge (200 standing verdicts)": 100,
     "summarizeAgentReads (5,000 rows)": 100,
     "searchKnowledge (staleness)": 500,

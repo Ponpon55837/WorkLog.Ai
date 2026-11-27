@@ -108,7 +108,7 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
   const selectedRequest = computed(
     () => proposalResult.value?.request ?? requests.value.find((request) => request.id === requestId.value),
   );
-  const hasActiveRequest = computed(() => requests.value.some((request) => request.status === "pending"));
+  const activeRequest = computed(() => requests.value.find((request) => request.status === "pending"));
   const loading = computed(() => requestsQuery.isLoading.value);
   const proposalsLoading = computed(() => proposalsQuery.isLoading.value);
   const skipped = computed(
@@ -191,8 +191,8 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     }
   }
 
-  async function cancelRequest(): Promise<void> {
-    const result = await cancelMutation.mutateAsync(requestId.value);
+  async function cancelRequest(id: string): Promise<void> {
+    const result = await cancelMutation.mutateAsync(id);
     if (result.outcome !== "outstanding_cleanup_request_cancelled")
       throw new Error(t("outstanding.thisRequestCannotBeCancelled"));
   }
@@ -211,7 +211,7 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     proposals,
     proposalPageInfo,
     selectedRequest,
-    hasActiveRequest,
+    activeRequest,
     loading,
     proposalsLoading,
     error,

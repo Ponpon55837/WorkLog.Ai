@@ -7,6 +7,8 @@ import OutstandingCleanupPanel from "../../../apps/web/src/components/domain/Out
 import { loadCatalog, locale, t } from "../../../apps/web/src/i18n/index.js";
 
 const proposals = ref<OutstandingCleanupProposal[]>([]);
+const activeRequest = ref<OutstandingCleanupRequest | undefined>();
+const skipped = ref(false);
 const request: OutstandingCleanupRequest = {
   id: "cleanup-1",
   projectId: "project-1",
@@ -43,12 +45,12 @@ vi.mock("../../../apps/web/src/stores/outstanding-cleanup", () => ({
     proposals,
     proposalPageInfo: ref(pageInfo),
     selectedRequest: ref(request),
-    hasActiveRequest: ref(false),
+    activeRequest,
     loading: ref(false),
     proposalsLoading: ref(false),
     error: ref(""),
     proposalError: ref(""),
-    skipped: ref(false),
+    skipped,
     setActive: vi.fn(),
     reopen: vi.fn(),
   }),
@@ -109,6 +111,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   proposals.value = [];
+  activeRequest.value = undefined;
+  skipped.value = false;
 });
 
 describe("OutstandingCleanupPanel", () => {
@@ -146,5 +150,26 @@ describe("OutstandingCleanupPanel", () => {
 
     expect(html).toContain(t("outstanding.noClosedItemsYet"));
     expect(html).not.toContain(t("outstanding.reopenSelected"));
+  });
+
+  it("offers the create button first and the handoff block only while a request waits for the Agent", async () => {
+    const idle = await render();
+    expect(idle).toContain(t("outstanding.createRequest"));
+    expect(idle).not.toContain(t("outstanding.cleanupCommand"));
+
+    activeRequest.value = { ...request, status: "pending" };
+    const waiting = await render();
+    expect(waiting).toContain(t("outstanding.cleanupCommand").replace("'", "&#39;"));
+    expect(waiting).toContain(t("outstanding.cleanupHandoffMessage"));
+    expect(waiting).toContain(t("outstanding.cancelRequest"));
+    expect(waiting).not.toContain(t("outstanding.createRequest"));
+  });
+
+  it("names why the create button is disabled", async () => {
+    skipped.value = true;
+
+    const html = await render();
+
+    expect(html).toContain(`title="${t("outstanding.trackingIsNotEnabledFor")}"`);
   });
 });

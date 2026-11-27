@@ -41,9 +41,9 @@ export function useAgentReviewActions() {
   const store = useAgentReviewStore();
   const { showToast } = useToast();
 
-  async function requestReview(): Promise<void> {
+  async function requestReview(projectId: string): Promise<void> {
     try {
-      const result = await store.createRequest();
+      const result = await store.createRequest(projectId);
       if (result.outcome === "agent_review_request") {
         showToast(result.duplicate ? t("knowledge.agentReviewAlreadyOpen") : t("knowledge.agentReviewRequested"));
       } else if (result.outcome === "agent_review_not_needed" || result.outcome === "skipped") {

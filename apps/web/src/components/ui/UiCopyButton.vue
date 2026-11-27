@@ -62,7 +62,6 @@ onBeforeUnmount(() => {
     :icon-only="iconOnly"
     :label="buttonLabel"
     :aria-label="iconOnly ? buttonLabel : undefined"
-    :disabled="copying"
     @click="copy"
   >
     {{ buttonLabel }}

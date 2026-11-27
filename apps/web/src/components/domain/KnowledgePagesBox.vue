@@ -8,8 +8,9 @@ import { useProjectChip } from "../../composables/useProjectChip";
 import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
 import { errorMessage, formatDate, formatRelative } from "../../utils/format";
-import { knowledgePageStatusVisual } from "../../utils/status";
+import { knowledgePageStatusVisual, requestStatus } from "../../utils/status";
 import { filterChip } from "../../utils/filter-chips";
+import AgentHandoffNotice from "./AgentHandoffNotice.vue";
 import ProjectFilterMenu from "./ProjectFilterMenu.vue";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
@@ -97,6 +98,11 @@ const filterChips = computed(() => {
   return chips;
 });
 
+function requestLabel(row: PageRow): string {
+  if (row.page?.updateRequestedAt) return t("knowledge.pageRequested");
+  return row.page ? t("knowledge.requestUpdate") : t("knowledge.requestCreation");
+}
+
 function removeFilter(key: string): void {
   if (key === "project") projectId.value = "";
   else statusFilter.value = "all";
@@ -117,7 +123,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
   try {
     const result = await pagesStore.requestUpdate({ projectRoot: project.rootPath, slug: row.slug });
     if (result.outcome === "knowledge_page_update_requested") {
-      showToast(t("knowledge.requestedAnUpdateOfSay", { title: row.title }), "success");
+      showToast(t("knowledge.pageUpdateRequested", { title: row.title }), "success");
     } else {
       showToast(result.reason ?? t("knowledge.couldNotRequestAnUpdate"), "danger");
     }
@@ -151,9 +157,13 @@ async function requestUpdate(row: PageRow): Promise<void> {
 
     <UiFilterChips :chips="filterChips" clearable @remove="removeFilter" @clear="clearFilters" />
     <UiFlash v-if="pagesError" tone="danger">{{ pagesError }}</UiFlash>
-    <UiFlash v-if="waitingCount > 0" tone="accent">
-      {{ t("knowledge.knowledgePagesAreWaitingFor", { waitingCount }) }}
-    </UiFlash>
+    <div v-if="waitingCount > 0" class="knowledge-pages__handoff" data-testid="knowledge-pages-handoff">
+      <AgentHandoffNotice
+        :status="requestStatus.pending"
+        :message="t('knowledge.knowledgePagesAreWaitingFor', { waitingCount })"
+        :command="t('knowledge.pagesCommand')"
+      />
+    </div>
 
     <UiSkeleton v-if="pagesLoading && rows.length === 0" :count="3" :label="t('knowledge.loadingKnowledgePages')" />
     <UiEmptyState
@@ -239,8 +249,10 @@ async function requestUpdate(row: PageRow): Promise<void> {
                 :variant="!row.page ? 'primary' : 'default'"
                 :icon="Sparkles"
                 :loading="requesting === row.key"
+                :disabled="Boolean(row.page?.updateRequestedAt)"
+                :disabled-reason="t('knowledge.pageRequestedReason')"
                 @click="requestUpdate(row)"
-                >{{ row.page ? t("knowledge.requestUpdate") : t("knowledge.requestCreation") }}</UiButton
+                >{{ requestLabel(row) }}</UiButton
               >
             </div>
           </template>
@@ -257,6 +269,10 @@ async function requestUpdate(row: PageRow): Promise<void> {
 </template>
 
 <style scoped>
+.knowledge-pages__handoff {
+  padding: var(--space-3) var(--space-4);
+}
+
 .knowledge-pages__tools,
 .knowledge-pages__actions {
   display: flex;

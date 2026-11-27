@@ -39,6 +39,7 @@ export const queryKeys = {
   },
   agentReview: {
     requests: ["agent-review", "requests"] as const,
+    pending: ["agent-review", "pending"] as const,
     candidates: ["knowledge", "candidates", "agent-reviewed"] as const,
     knowledge: [...knowledgeListKey, "agent-reviewed"] as const,
   },

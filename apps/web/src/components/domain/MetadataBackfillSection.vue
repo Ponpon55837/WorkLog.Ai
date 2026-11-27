@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { storeToRefs } from "pinia";
-import { CircleCheckBig, FolderGit2, ScanSearch, X } from "lucide-vue-next";
+import { CircleCheckBig, FolderGit2, ScanSearch } from "lucide-vue-next";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
 import { useToast } from "../../composables/useToast";
 import { metadataBackfillInstruction, useMetadataBackfillStore } from "../../stores/metadata-backfill";
@@ -11,13 +11,13 @@ import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
-import UiCommandBlock from "../ui/UiCommandBlock.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiStack from "../ui/UiStack.vue";
 import UiStatCard from "../ui/UiStatCard.vue";
 import UiStatGrid from "../ui/UiStatGrid.vue";
 import VirtualList from "../VirtualList.vue";
+import AgentHandoffNotice from "./AgentHandoffNotice.vue";
 import ProjectFilterMenu from "./ProjectFilterMenu.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
@@ -85,38 +85,23 @@ const requestMessage = computed(() => {
     <UiFlash v-if="metadataBackfillError" tone="danger">{{ metadataBackfillError }}</UiFlash>
     <UiFlash v-if="metadataBackfillRequestError" tone="danger">{{ metadataBackfillRequestError }}</UiFlash>
 
-    <UiBox v-if="request" padded>
-      <template #header>
-        <UiBoxTitle :title="t('projects.askAgentToBackfillMetadata')" />
-        <div class="backfill__request-actions">
-          <StatusLabel :status="requestStatus[request.status]" />
-        </div>
+    <AgentHandoffNotice
+      v-if="request"
+      :title="t('projects.askAgentToBackfillMetadata')"
+      :status="requestStatus[request.status]"
+      :message="requestMessage"
+      :command="metadataBackfillRequestIsActive ? metadataBackfillInstruction() : undefined"
+      :success-message="t('projects.naturalLanguageMetadataBackfillInstruction')"
+      :cancel-label="metadataBackfillRequestIsActive ? t('projects.cancelBackfill') : undefined"
+      :cancel-disabled="metadataBackfillRequestLoading"
+      @cancel="cancelMetadataBackfillRequest"
+    >
+      <template v-if="!metadataBackfillRequestIsActive && preview?.items.length" #actions>
+        <UiButton size="sm" :loading="metadataBackfillRequestCreating" @click="createMetadataBackfillRequest">{{
+          t("projects.createBackfillRequestAgain")
+        }}</UiButton>
       </template>
-      <p class="backfill__message">{{ requestMessage }}</p>
-      <UiCommandBlock
-        v-if="metadataBackfillRequestIsActive"
-        :text="metadataBackfillInstruction()"
-        :success-message="t('projects.naturalLanguageMetadataBackfillInstruction')"
-      />
-      <div class="backfill__buttons">
-        <UiButton
-          v-if="metadataBackfillRequestIsActive"
-          variant="danger"
-          size="sm"
-          :icon="X"
-          :disabled="metadataBackfillRequestLoading"
-          @click="cancelMetadataBackfillRequest"
-          >{{ t("projects.cancelBackfill") }}</UiButton
-        >
-        <UiButton
-          v-else-if="preview?.items.length"
-          size="sm"
-          :loading="metadataBackfillRequestCreating"
-          @click="createMetadataBackfillRequest"
-          >{{ t("projects.createBackfillRequestAgain") }}</UiButton
-        >
-      </div>
-    </UiBox>
+    </AgentHandoffNotice>
     <UiFlash v-else-if="preview?.items.length" tone="attention" :title="t('projects.theseGapsNeedAgentConfirmation')">
       {{ t("projects.theScanNeverGuessesFiles") }}
       <template #actions
@@ -213,27 +198,6 @@ const requestMessage = computed(() => {
 </template>
 
 <style scoped>
-.backfill__request-actions,
-.backfill__buttons {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.backfill__buttons:empty {
-  display: none;
-}
-
-.backfill__message {
-  margin-bottom: var(--space-3);
-  color: var(--fg-muted);
-  font-size: var(--text-sm);
-}
-
-.backfill__buttons {
-  margin-top: var(--space-3);
-}
-
 .backfill__stats {
   padding: var(--space-4);
   border-bottom: 1px solid var(--border-muted);

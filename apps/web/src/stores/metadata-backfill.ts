@@ -173,11 +173,7 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
       const result = await createRequestMutation.mutateAsync(preview.project?.id);
       if (result.outcome === "metadata_backfill_request") {
         useToast().showToast(
-          result.duplicate
-            ? t("projects.aMetadataBackfillRequestIs")
-            : t("projects.metadataBackfillRequestCreatedIn", {
-                metadataBackfillInstruction: metadataBackfillInstruction(),
-              }),
+          result.duplicate ? t("projects.aMetadataBackfillRequestIs") : t("projects.metadataBackfillRequestCreated"),
         );
       } else if (result.outcome === "metadata_backfill_not_needed") {
         useToast().showToast(result.reason);

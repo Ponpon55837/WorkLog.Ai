@@ -390,6 +390,33 @@ describe("Agent review REST routes", () => {
     expect(overturnSkipped).toMatchObject({ status: 200, body: { outcome: "skipped" } });
   });
 
+  it("counts pending items per tracked project and leaves out projects with nothing to review", async () => {
+    const { root, store } = createFixture("Agent review pending fixture");
+    const handler = startApi(store);
+    resources.push({ handler, store, root });
+    const quietRoot = mkdtempSync(join(tmpdir(), "work-intelligence-agent-review-quiet-"));
+    store.updateProject(store.addProject("Agent review quiet fixture", quietRoot).id, { status: "tracked" });
+    finalizeDecisions(store, root, "agent-review-pending", ["Keep the retry budget small.", "Name the queue."]);
+
+    const pending = await requestJson<{ outcome: string; projects: unknown[] }>(handler, "/api/agent-review-pending");
+    expect(pending).toMatchObject({
+      status: 200,
+      body: {
+        outcome: "agent_review_pending",
+        projects: [
+          {
+            projectName: "Agent review pending fixture",
+            decisionCount: 2,
+            candidateCount: 0,
+            knowledgeCount: 0,
+          },
+        ],
+      },
+    });
+    expect(pending.body.projects).toHaveLength(1);
+    rmSync(quietRoot, { recursive: true, force: true });
+  });
+
   it("masks internal errors", async () => {
     const { root, store } = createFixture("Agent review REST error fixture");
     const handler = startApi(store);
@@ -403,6 +430,11 @@ describe("Agent review REST routes", () => {
     vi.spyOn(store, "listAgentReviewedKnowledge").mockImplementation(() => {
       throw new Error("private database path and SQL details");
     });
+    vi.spyOn(store, "listAgentReviewPending").mockImplementation(() => {
+      throw new Error("private database path and SQL details");
+    });
+    const maskedPending = await requestJson<{ code: string }>(handler, "/api/agent-review-pending");
+    expect(maskedPending).toMatchObject({ status: 500, body: { code: "internal_error" } });
     const maskedKnowledge = await requestJson<{ code: string }>(handler, "/api/agent-review-knowledge");
     expect(maskedKnowledge).toMatchObject({ status: 500, body: { code: "internal_error" } });
   });

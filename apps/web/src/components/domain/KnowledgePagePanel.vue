@@ -130,9 +130,17 @@ watch([() => openPage.value?.id, shownVersion], () => {
           <UiLabel v-if="openPage.updateRequestedAt" tone="accent">{{ t("knowledge.updateRequested") }}</UiLabel>
         </div>
         <div class="page-panel__actions">
-          <UiButton size="sm" :icon="Sparkles" :loading="requesting" @click="requestUpdate">{{
-            t("knowledge.askAgentToUpdate")
-          }}</UiButton>
+          <UiButton
+            size="sm"
+            :icon="Sparkles"
+            :loading="requesting"
+            :disabled="Boolean(openPage?.updateRequestedAt)"
+            :disabled-reason="t('knowledge.pageRequestedReason')"
+            @click="requestUpdate"
+            >{{
+              openPage?.updateRequestedAt ? t("knowledge.pageRequested") : t("knowledge.askAgentToUpdate")
+            }}</UiButton
+          >
           <UiButton size="sm" :icon="Pencil" :disabled="shownVersion !== null" @click="editorOpen = true">{{
             t("knowledge.editedByHand")
           }}</UiButton>
