@@ -987,6 +987,169 @@ describe("outstanding cleanup requests", () => {
     });
   });
 
+  it("allows a later verdict for an item examined without one and still rejects a decided or re-withheld item", () => {
+    const { store, root, projectId } = createTrackedProject("Cleanup later verdict fixture");
+    finalize(store, root, "cleanup-later-source", ["Withheld first", "Decided in the first call", "Never examined"]);
+    const items = pendingItems(store, projectId);
+    const evidence = finalize(store, root, "cleanup-later-evidence", [], EVIDENCE_TIME);
+    const request = createRequest(store, projectId, "cleanup-later-request");
+    const [withheld, decided, third] = items;
+
+    expect(
+      store.submitOutstandingCleanupProposals({
+        requestId: request.id,
+        idempotencyKey: "cleanup-later-first",
+        examinedItemIds: [withheld!.id, decided!.id],
+        proposals: [
+          {
+            itemId: decided!.id,
+            status: "completed",
+            reason: "The cited synthetic Session verifies this item.",
+            evidenceSessionIds: [evidence.id],
+          },
+        ],
+      }),
+    ).toMatchObject({ outcome: "outstanding_cleanup_proposals_submitted", request: { examinedCount: 2 } });
+
+    expect(
+      store.submitOutstandingCleanupProposals({
+        requestId: request.id,
+        idempotencyKey: "cleanup-later-redecide",
+        examinedItemIds: [decided!.id, third!.id],
+        proposals: [],
+      }),
+    ).toMatchObject({ outcome: "rejected", reason: "already_examined", itemIds: [decided!.id] });
+    expect(
+      store.submitOutstandingCleanupProposals({
+        requestId: request.id,
+        idempotencyKey: "cleanup-later-rewithhold",
+        examinedItemIds: [withheld!.id, third!.id],
+        proposals: [],
+      }),
+    ).toMatchObject({ outcome: "rejected", reason: "already_examined", itemIds: [withheld!.id] });
+    expect(
+      store.submitOutstandingCleanupProposals({
+        requestId: request.id,
+        idempotencyKey: "cleanup-later-bad-evidence",
+        examinedItemIds: [withheld!.id, third!.id],
+        proposals: [
+          {
+            itemId: withheld!.id,
+            status: "completed",
+            reason: "Evidence is not a Session of this project.",
+            evidenceSessionIds: ["missing-session"],
+          },
+        ],
+      }),
+    ).toMatchObject({ outcome: "rejected", reason: "invalid_evidence", itemIds: [withheld!.id] });
+
+    const later = store.submitOutstandingCleanupProposals({
+      requestId: request.id,
+      idempotencyKey: "cleanup-later-verdict",
+      examinedItemIds: [withheld!.id, third!.id],
+      proposals: [
+        {
+          itemId: withheld!.id,
+          status: "not_needed",
+          reason: "A later look shows the cited Session made this item moot.",
+          evidenceSessionIds: [evidence.id],
+        },
+      ],
+    });
+    expect(later).toMatchObject({
+      outcome: "outstanding_cleanup_proposals_submitted",
+      duplicate: false,
+      examinedItemIds: [withheld!.id, third!.id].sort(),
+      request: { status: "completed", examinedCount: 3, proposalCount: 2 },
+    });
+    const replay = store.submitOutstandingCleanupProposals({
+      requestId: request.id,
+      idempotencyKey: "cleanup-later-verdict",
+      examinedItemIds: [withheld!.id, third!.id],
+      proposals: [
+        {
+          itemId: withheld!.id,
+          status: "not_needed",
+          reason: "A later look shows the cited Session made this item moot.",
+          evidenceSessionIds: [evidence.id],
+        },
+      ],
+    });
+    expect(replay).toMatchObject({
+      outcome: "outstanding_cleanup_proposals_submitted",
+      duplicate: true,
+      examinedItemIds: [withheld!.id, third!.id].sort(),
+    });
+    const firstReplay = store.submitOutstandingCleanupProposals({
+      requestId: request.id,
+      idempotencyKey: "cleanup-later-first",
+      examinedItemIds: [withheld!.id, decided!.id],
+      proposals: [
+        {
+          itemId: decided!.id,
+          status: "completed",
+          reason: "The cited synthetic Session verifies this item.",
+          evidenceSessionIds: [evidence.id],
+        },
+      ],
+    });
+    expect(firstReplay).toMatchObject({
+      outcome: "outstanding_cleanup_proposals_submitted",
+      duplicate: true,
+      examinedItemIds: [withheld!.id, decided!.id].sort(),
+    });
+    expect(pendingItems(store, projectId).map((item) => item.id)).toEqual([third!.id]);
+  });
+
+  it("rejects a later verdict once the request completed, with a hint to open a new request", () => {
+    const { store, root, projectId } = createTrackedProject("Cleanup closed request fixture");
+    finalize(store, root, "cleanup-closed-source", ["Withheld item"]);
+    const item = pendingItems(store, projectId)[0]!;
+    const evidence = finalize(store, root, "cleanup-closed-evidence", [], EVIDENCE_TIME);
+    const request = createRequest(store, projectId, "cleanup-closed-request");
+    expect(
+      store.submitOutstandingCleanupProposals({
+        requestId: request.id,
+        idempotencyKey: "cleanup-closed-withhold",
+        examinedItemIds: [item.id],
+        proposals: [],
+      }),
+    ).toMatchObject({ outcome: "outstanding_cleanup_proposals_submitted", request: { status: "completed" } });
+
+    const late = submitOneProposal(store, request.id, "cleanup-closed-late", item.id, evidence.id);
+    expect(late).toMatchObject({ outcome: "rejected", reason: "request_closed" });
+    expect(JSON.stringify(late)).toContain("work_request_outstanding_cleanup");
+
+    const reopened = createRequest(store, projectId, "cleanup-closed-new-request");
+    expect(submitOneProposal(store, reopened.id, "cleanup-closed-new-verdict", item.id, evidence.id)).toMatchObject({
+      outcome: "outstanding_cleanup_proposals_submitted",
+    });
+  });
+
+  it("resolves the context by project root to the latest open request", () => {
+    const { store, root, projectId } = createTrackedProject("Cleanup context root fixture");
+    expect(store.getOutstandingCleanupContext({ projectRoot: root })).toEqual({
+      outcome: "no_open_request",
+      projectId,
+    });
+    finalize(store, root, "cleanup-root-source", ["Root context item"]);
+    const request = createRequest(store, projectId, "cleanup-root-request");
+
+    const byRoot = store.getOutstandingCleanupContext({ projectRoot: root });
+    expect(byRoot).toMatchObject({ outcome: "outstanding_cleanup_context", request: { id: request.id } });
+    expect(store.getOutstandingCleanupContext({ requestId: request.id })).toEqual(byRoot);
+
+    store.cancelOutstandingCleanupRequest(request.id);
+    expect(store.getOutstandingCleanupContext({ projectRoot: root })).toEqual({
+      outcome: "no_open_request",
+      projectId,
+    });
+
+    const untracked = mkdtempSync(join(tmpdir(), "work-intelligence-outstanding-cleanup-untracked-"));
+    tempDirs.push(untracked);
+    expect(store.getOutstandingCleanupContext({ projectRoot: untracked })).toMatchObject({ outcome: "skipped" });
+  });
+
   it("rolls back item, proposal, and audit changes when cleanup audit insertion fails", () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-outstanding-cleanup-rollback-"));
     tempDirs.push(root);

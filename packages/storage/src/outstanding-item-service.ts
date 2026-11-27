@@ -22,9 +22,11 @@ import { MAX_OUTSTANDING_ITEM_BATCH_SIZE, OUTSTANDING_ITEM_STATUSES } from "@wor
 import { nowIso } from "@work-intelligence/shared";
 import {
   identifiersIn,
+  issueSpansIn,
   rankRelatedPendingWithin,
   RELATED_PENDING_UNIT_LIMIT,
   sharesIdentifier,
+  spansOverlap,
   type RelatedPendingCandidate,
 } from "./outstanding-item-relevance.js";
 import { MAX_STORED_CHANGED_FILES_JSON_BYTES } from "./applies-to-match.js";
@@ -41,9 +43,10 @@ export interface OutstandingItemFocus {
   excludeSourceSessionId?: string;
   excludeItemIds?: readonly string[];
   identifierText?: string;
+  nextSteps?: readonly string[];
 }
 
-export type RelatedPendingItem = OutstandingItem & { possiblyDone?: true };
+export type RelatedPendingItem = OutstandingItem & { possiblyDone?: true; possibleDuplicateOf?: number };
 
 type OutstandingItemRow = {
   id: string;
@@ -92,6 +95,7 @@ interface OutstandingItemDependencies {
 }
 
 const RELATED_PENDING_LIMIT = 5;
+const MAX_LEADING_DUPLICATES = 3;
 /** About 45 times the largest real project's pending items. */
 const RELATED_PENDING_CANDIDATE_LIMIT = 2_000;
 
@@ -257,7 +261,15 @@ export class OutstandingItemService {
     const sources = [...new Set(input.sourceSessionIds ?? [])].slice(0, 20);
     const excludedIds = [...new Set(input.excludeItemIds ?? [])];
     const identifiers = identifiersIn(input.identifierText ?? "");
-    if (!terms.length && !paths.length && !sources.length && identifiers.size === 0) return { items: [], total: 0 };
+    const nextStepSpans = (input.nextSteps ?? []).map(issueSpansIn);
+    if (
+      !terms.length &&
+      !paths.length &&
+      !sources.length &&
+      identifiers.size === 0 &&
+      !nextStepSpans.some((spans) => spans.length)
+    )
+      return { items: [], total: 0 };
     const candidates = this.db
       .prepare(
         `${baseSelect(
@@ -308,17 +320,31 @@ export class OutstandingItemService {
     const truncated = overLimit || exhausted || overBound;
     const rankedIds = new Set(ranked.map((row) => row.id));
     const possiblyDone = new Set(read.filter((row) => sharesIdentifier(row.text, identifiers)).map((row) => row.id));
-    const ordered = possiblyDone.size
+    const possibleDuplicateOf = new Map<string, number>();
+    if (nextStepSpans.some((spans) => spans.length)) {
+      for (const row of read) {
+        const spans = issueSpansIn(row.text);
+        const index = nextStepSpans.findIndex((stepSpans) => spansOverlap(stepSpans, spans));
+        if (index >= 0) possibleDuplicateOf.set(row.id, index);
+      }
+    }
+    const prioritized = possiblyDone.size
       ? [
           ...ranked.filter((row) => possiblyDone.has(row.id)),
           ...read.filter((row) => possiblyDone.has(row.id) && !rankedIds.has(row.id)),
           ...ranked.filter((row) => !possiblyDone.has(row.id)),
         ]
       : ranked;
+    const leading = read.filter((row) => possibleDuplicateOf.has(row.id)).slice(0, MAX_LEADING_DUPLICATES);
+    const leadingIds = new Set(leading.map((row) => row.id));
+    const ordered = leading.length
+      ? [...leading, ...prioritized.filter((row) => !leadingIds.has(row.id))]
+      : prioritized;
     return {
       items: ordered.slice(0, RELATED_PENDING_LIMIT).map((row) => ({
         ...toOutstandingItem(row),
         ...(possiblyDone.has(row.id) ? { possiblyDone: true as const } : {}),
+        ...(possibleDuplicateOf.has(row.id) ? { possibleDuplicateOf: possibleDuplicateOf.get(row.id) } : {}),
       })),
       total: ordered.length,
       ...(truncated ? { truncated: true as const } : {}),

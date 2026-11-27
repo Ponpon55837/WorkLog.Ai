@@ -57,7 +57,9 @@ function countTerms(value: string, terms: readonly string[]): number {
   return count;
 }
 
-const ISSUE_REFERENCE = /(?<![\w&])#(\d{1,7})\b|\/(?:issues|pull)\/(\d{1,7})\b/g;
+const ISSUE_REFERENCE = /(?<![\w&])#(\d{1,7})\b(?!\.\d)|\/(?:issues|pull)\/(\d{1,7})\b/g;
+const ISSUE_RANGE = /(?<![\w&])#(\d{1,7})\s*[-–—~～]\s*#(\d{1,7})\b(?!\.\d)/g;
+const MAX_ISSUE_RANGE_WIDTH = 50;
 const VERSION_REFERENCE = /(?<![\w.])v?(\d{1,3}\.\d{1,3}\.\d{1,3})(?!\w|\.\d)/g;
 
 export function identifiersIn(text: string): Set<string> {
@@ -71,6 +73,28 @@ export function sharesIdentifier(text: string, identifiers: ReadonlySet<string>)
   if (identifiers.size === 0) return false;
   for (const identifier of identifiersIn(text)) if (identifiers.has(identifier)) return true;
   return false;
+}
+
+type IssueSpan = readonly [first: number, last: number];
+
+export function issueSpansIn(text: string): IssueSpan[] {
+  const spans: IssueSpan[] = [];
+  for (const match of text.matchAll(ISSUE_REFERENCE)) {
+    const number = Number(match[1] ?? match[2]);
+    spans.push([number, number]);
+  }
+  for (const match of text.matchAll(ISSUE_RANGE)) {
+    const first = Number(match[1]);
+    const last = Number(match[2]);
+    if (first < last && last - first <= MAX_ISSUE_RANGE_WIDTH) spans.push([first, last]);
+  }
+  return spans;
+}
+
+export function spansOverlap(left: readonly IssueSpan[], right: readonly IssueSpan[]): boolean {
+  return left.some(([leftFirst, leftLast]) =>
+    right.some(([rightFirst, rightLast]) => leftFirst <= rightLast && rightFirst <= leftLast),
+  );
 }
 
 function compareBinary(left: string, right: string): number {

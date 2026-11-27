@@ -2137,6 +2137,7 @@ export class WorkIntelligenceStore {
               task: `${session.title} ${session.summary}`.slice(0, 2_000),
               paths: session.changedFiles,
               identifierText: [session.title, session.summary, ...(session.workSummary?.outcomes ?? [])].join("\n"),
+              nextSteps: session.workSummary?.nextSteps ?? [],
             },
             session.id,
             continuedIds,

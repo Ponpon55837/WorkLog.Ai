@@ -1479,6 +1479,14 @@ describe("Work Intelligence MCP server", () => {
       items: [expect.objectContaining({ id: itemId, sourceSessionId: source.session.id, stale: false })],
     });
     expect(context.sessions.map(({ id }) => id)).toContain(evidence.session.id);
+    expect(await callJson(client, "work_get_outstanding_cleanup_context", { projectRoot: root })).toEqual(context);
+    const both = await callMcpOperation(client, "work_get_outstanding_cleanup_context", {
+      requestId: created.request.id,
+      projectRoot: root,
+    });
+    expect(both.isError).toBe(true);
+    const neither = await callMcpOperation(client, "work_get_outstanding_cleanup_context", {});
+    expect(neither.isError).toBe(true);
 
     const unknownField = await callMcpOperation(client, "work_list_outstanding_cleanup_requests", {
       projectId: project.id,
@@ -1521,6 +1529,16 @@ describe("Work Intelligence MCP server", () => {
       },
     );
     expect(conflict).toMatchObject({ outcome: "rejected", reason: "idempotency_conflict" });
+    expect(await callJson(client, "work_get_outstanding_cleanup_context", { projectRoot: root })).toEqual({
+      outcome: "no_open_request",
+      projectId: project.id,
+    });
+    store.updateProject(project.id, { status: "paused" });
+    expect(await callJson(client, "work_get_outstanding_cleanup_context", { projectRoot: root })).toMatchObject({
+      outcome: "skipped",
+      projectStatus: "paused",
+    });
+    store.updateProject(project.id, { status: "tracked" });
 
     expect(store.listOutstandingItems({ projectId: project.id, status: "completed", pageSize: 10 })).toMatchObject({
       items: [expect.objectContaining({ id: itemId, status: "completed" })],

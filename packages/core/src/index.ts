@@ -2944,7 +2944,8 @@ export interface OutstandingCleanupRequestQuery {
 }
 
 export interface OutstandingCleanupContextQuery {
-  requestId: string;
+  requestId?: string;
+  projectRoot?: string;
   itemPage?: number;
   sessionPage?: number;
   itemPageSize?: number;
@@ -3032,6 +3033,7 @@ export interface OutstandingCleanupRejectedResult {
     | "context_too_large";
   itemIds?: string[];
   requestId?: string;
+  hint?: string;
 }
 
 export type OutstandingCleanupFailure =
@@ -3060,6 +3062,8 @@ export type OutstandingCleanupContextResult =
       hint: string;
       truncated: boolean;
     }
+  | { outcome: "no_open_request"; projectId: string }
+  | KnowledgeCandidateSkippedResult
   | OutstandingCleanupFailure;
 export type SubmitOutstandingCleanupProposalsResult =
   | {
@@ -3351,6 +3355,8 @@ export interface RelatedOutstandingItems {
     sourceSessionTitleTruncated?: boolean;
     /** The item names an issue or version that this Session's own title, summary or outcomes also name. */
     possiblyDone?: true;
+    /** Index in this Session's nextSteps of an entry that names an issue this pending item also names. */
+    possibleDuplicateOf?: number;
   }>;
   total: number;
   omitted: number;

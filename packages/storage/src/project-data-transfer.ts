@@ -1334,8 +1334,8 @@ function dependencyIssue(
     ) {
       return "清理提案及其關聯資料必須屬於同一專案與請求。";
     }
-    if (requestItem.examinedSubmissionId !== submissionId) {
-      return "清理提案提交紀錄必須與快照項目檢視的提交一致。";
+    if (requestItem.examinedSubmissionId === null) {
+      return "清理提案對應的快照項目必須已被檢視。";
     }
   }
 

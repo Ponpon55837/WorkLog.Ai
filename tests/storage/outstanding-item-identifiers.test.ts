@@ -2,7 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { identifiersIn, sharesIdentifier } from "../../packages/storage/src/outstanding-item-relevance.js";
+import {
+  identifiersIn,
+  issueSpansIn,
+  sharesIdentifier,
+  spansOverlap,
+} from "../../packages/storage/src/outstanding-item-relevance.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 const roots: string[] = [];
@@ -58,6 +63,86 @@ describe("identifier extraction", () => {
   });
 });
 
+describe("issue spans", () => {
+  it("reads single references and ranges, and overlaps a referenced number with a range", () => {
+    expect(issueSpansIn("#485、#483 之後 #486–#490")).toEqual([
+      [485, 485],
+      [483, 483],
+      [486, 486],
+      [490, 490],
+      [486, 490],
+    ]);
+    expect(issueSpansIn("#483-#490 and #483~#490")).toEqual([
+      [483, 483],
+      [490, 490],
+      [483, 483],
+      [490, 490],
+      [483, 490],
+      [483, 490],
+    ]);
+    expect(issueSpansIn("#9~#3")).not.toContainEqual([9, 3]);
+    expect(spansOverlap(issueSpansIn("UX #485"), issueSpansIn("issue #483–#490"))).toBe(true);
+    expect(spansOverlap(issueSpansIn("UX #491"), issueSpansIn("issue #483–#490"))).toBe(false);
+    expect(spansOverlap(issueSpansIn("#48"), issueSpansIn("#481"))).toBe(false);
+    expect(spansOverlap([], issueSpansIn("#48"))).toBe(false);
+  });
+});
+
+describe("issue span false positives", () => {
+  it("does not read prose, dates, counts, wide ranges or version suffixes as issue ranges", () => {
+    expect(issueSpansIn("PR #3 - 10 tests failing")).toEqual([[3, 3]]);
+    expect(issueSpansIn("#12 - 2026-11-27")).toEqual([[12, 12]]);
+    expect(issueSpansIn("#7 — 15 個項目")).toEqual([[7, 7]]);
+    expect(issueSpansIn("#483-490")).toEqual([[483, 483]]);
+    expect(issueSpansIn("#100–#100000")).toEqual([
+      [100, 100],
+      [100000, 100000],
+    ]);
+    expect(issueSpansIn("#100–#150")).toContainEqual([100, 150]);
+    expect(identifiersIn("Released #1.6.89 today")).toEqual(new Set(["1.6.89"]));
+    expect(identifiersIn("Fixed #12. Then #13.")).toEqual(new Set(["#12", "#13"]));
+  });
+});
+
+describe("possibleDuplicateOf in the finalize receipt", () => {
+  it("lists pending items of the project that share an issue with a stored nextStep first, with its index", () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-duplicates-"));
+    roots.push(root);
+    const store = new WorkIntelligenceStore(":memory:");
+    stores.push(store);
+    const project = store.addProject("Duplicate fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    finalize(store, root, "older-source", "2026-05-01T09:00:00.000Z", {
+      nextSteps: [
+        "Unrelated reminder",
+        "#474 read volume work has not started.",
+        "UX walkthrough issue #483–#490 by priority.",
+      ],
+    });
+
+    const result = finalize(store, root, "closing", "2026-05-02T09:00:00.000Z", {
+      title: "Plan follow-ups",
+      summary: "Planned the next steps for the read volume work.",
+      nextSteps: ["Reading volume #474.", "Fix #485 and #483 first, then #484 and #486–#490."],
+    });
+
+    const related = result.relatedOutstandingItems;
+    expect(related?.items.slice(0, 2).map((item) => [item.text, item.possibleDuplicateOf])).toEqual([
+      ["#474 read volume work has not started.", 0],
+      ["UX walkthrough issue #483–#490 by priority.", 1],
+    ]);
+    expect(related?.items.find((item) => item.text === "Unrelated reminder")?.possibleDuplicateOf).toBeUndefined();
+    expect(related?.hint).toContain("possibleDuplicateOf");
+
+    const noSteps = finalize(store, root, "no-steps", "2026-05-03T09:00:00.000Z", {
+      title: "Read volume",
+      summary: "Read volume #474 again.",
+    });
+    expect(noSteps.relatedOutstandingItems?.items.some((item) => item.possibleDuplicateOf !== undefined)).toBe(false);
+    expect(noSteps.relatedOutstandingItems?.hint).not.toContain("possibleDuplicateOf");
+  });
+});
+
 describe("possiblyDone ranking in the finalize receipt", () => {
   it("ranks pending items sharing an issue or version with this Session first and labels them", () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-identifiers-"));
@@ -96,5 +181,38 @@ describe("possiblyDone ranking in the finalize receipt", () => {
     ).toEqual(["Check the release notes for v2.3.4", "Verify #48 follow-up"]);
     expect(items.find((item) => item.text === "Verify #481 follow-up")?.possiblyDone).toBeUndefined();
     expect(items.find((item) => item.text === "Unrelated reminder")?.possiblyDone).toBeUndefined();
+  });
+
+  it("keeps at most three duplicate-marked items first so possiblyDone items still show, counting each item once", () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-duplicate-limit-"));
+    roots.push(root);
+    const store = new WorkIntelligenceStore(":memory:");
+    stores.push(store);
+    const project = store.addProject("Duplicate limit fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    finalize(store, root, "older-source", "2026-05-01T09:00:00.000Z", {
+      nextSteps: [
+        "Duplicate A for #474",
+        "Duplicate B for #474",
+        "Duplicate C for #474",
+        "Duplicate D for #474",
+        "Check v2.3.4 notes",
+        "Verify #48 follow-up",
+      ],
+    });
+
+    const result = finalize(store, root, "closing", "2026-05-02T09:00:00.000Z", {
+      title: "Ship #48",
+      summary: "Closed issue #48 and v2.3.4.",
+      nextSteps: ["Continue #474."],
+    });
+
+    const related = result.relatedOutstandingItems;
+    const items = related?.items ?? [];
+    expect(items).toHaveLength(5);
+    expect(items.slice(0, 3).every((item) => item.possibleDuplicateOf === 0)).toBe(true);
+    expect(items.slice(3).every((item) => item.possiblyDone)).toBe(true);
+    expect(items.slice(3).every((item) => item.possibleDuplicateOf === undefined)).toBe(true);
+    expect(related?.total).toBe(5);
   });
 });

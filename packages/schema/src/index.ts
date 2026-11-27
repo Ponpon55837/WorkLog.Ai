@@ -1728,13 +1728,18 @@ export const agentReviewedKnowledgeQuerySchema = z
 
 export const agentReviewRequestIdSchema = z.object({ requestId: agentReviewIdSchema });
 export const outstandingCleanupRequestIdSchema = z.object({ requestId: cleanupIdSchema });
-export const outstandingCleanupContextQuerySchema = z.object({
-  requestId: cleanupIdSchema,
+export const outstandingCleanupContextQuerySchemaBase = z.object({
+  requestId: cleanupIdSchema.optional(),
+  projectRoot: z.string().trim().min(1).max(1_000).optional(),
   itemPage: cleanupPageSchema,
   sessionPage: cleanupPageSchema,
   itemPageSize: z.number().int().min(1).max(5).optional(),
   sessionPageSize: z.number().int().min(1).max(10).optional(),
 });
+export const outstandingCleanupContextQuerySchema = outstandingCleanupContextQuerySchemaBase.refine(
+  (value) => Boolean(value.requestId) !== Boolean(value.projectRoot),
+  { message: "Provide exactly one of requestId or projectRoot." },
+);
 export const submitOutstandingCleanupProposalsInputSchema = z.object({
   requestId: cleanupIdSchema,
   idempotencyKey: cleanupIdSchema,
