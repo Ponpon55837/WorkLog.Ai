@@ -8,6 +8,7 @@ import {
   reportQuerySchema,
   searchQuerySchema,
   saveKnowledgePageInputSchema,
+  updateKnowledgePageInputSchema,
   saveKnowledgePageInputSchemaBase,
   knowledgePageContextQuerySchema,
   staticFileRequestPathSchema,
@@ -650,6 +651,23 @@ describe("Knowledge page schemas", () => {
     ]);
   });
 
+  it("accepts up to 200 source ids per section from an Agent and keeps 20 for the Web editor", () => {
+    const sources = (count: number) => Array.from({ length: count }, (_, index) => `session-${index}`);
+    const section = (count: number) => ({
+      heading: "Build",
+      content: "Build shared first.",
+      sourceSessionIds: sources(count),
+    });
+    expect(saveKnowledgePageInputSchema.safeParse({ ...base, sections: [section(200)] }).success).toBe(true);
+    expect(saveKnowledgePageInputSchema.safeParse({ ...base, sections: [section(201)] }).success).toBe(false);
+    expect(
+      saveKnowledgePageInputSchema.safeParse({ ...base, reviewToken: "kpr1.token", upsertSections: [section(200)] })
+        .success,
+    ).toBe(true);
+    expect(updateKnowledgePageInputSchema.safeParse({ pageId: "page-1", sections: [section(20)] }).success).toBe(true);
+    expect(updateKnowledgePageInputSchema.safeParse({ pageId: "page-1", sections: [section(21)] }).success).toBe(false);
+  });
+
   describe("section updates", () => {
     const section = (heading: string) => ({ heading, content: "Build shared first.", sourceSessionIds: ["session-1"] });
     const update = { ...base, reviewToken: "kpr1.token" };
@@ -657,6 +675,18 @@ describe("Knowledge page schemas", () => {
       const result = saveKnowledgePageInputSchema.safeParse(input);
       return result.success ? [] : result.error.issues.map((issue) => issue.path.join("."));
     };
+
+    it("accepts checkedThroughSessionId with a section update only", () => {
+      const checked = { checkedThroughSessionId: "session-9" };
+      expect(
+        saveKnowledgePageInputSchema.safeParse({ ...update, upsertSections: [section("Build")], ...checked }).success,
+      ).toBe(true);
+      expect(issuePaths({ ...base, sections: [section("Build")], ...checked })).toEqual(["checkedThroughSessionId"]);
+      expect(
+        saveKnowledgePageInputSchema.safeParse({ ...update, removeHeadings: ["Deploy"], checkedThroughSessionId: "" })
+          .success,
+      ).toBe(false);
+    });
 
     it("accepts upsertSections, removeHeadings, or both with a reviewToken", () => {
       expect(saveKnowledgePageInputSchema.safeParse({ ...update, upsertSections: [section("Build")] }).success).toBe(
@@ -714,6 +744,7 @@ describe("Knowledge page schemas", () => {
         "upsertSections",
         "removeHeadings",
         "reviewToken",
+        "checkedThroughSessionId",
       ]);
     });
   });

@@ -266,7 +266,8 @@ export class AttentionService {
         .prepare(
           `SELECT kp.id,json_array(COUNT(s.id),MAX(s.updated_at),MAX(s.id)) AS fingerprint
         FROM knowledge_pages kp JOIN projects p ON p.id=kp.project_id AND p.status='tracked'
-        LEFT JOIN sessions s ON s.project_id=kp.project_id AND s.voided_at IS NULL AND s.completed_at>
+        LEFT JOIN sessions s ON s.project_id=kp.project_id AND s.voided_at IS NULL
+          AND COALESCE(json_extract(s.verification_json,'$.status'),'')<>'in_progress' AND s.completed_at>
           COALESCE((SELECT completed_at FROM sessions WHERE id=kp.checked_through_session_id),
             kp.covered_through_completed_at,kp.sourced_through,'')
         WHERE kp.id IN (SELECT value FROM json_each(?)) GROUP BY kp.id`,

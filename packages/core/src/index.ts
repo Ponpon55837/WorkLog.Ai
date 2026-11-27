@@ -2320,6 +2320,8 @@ export const KNOWLEDGE_PAGE_AUTHORS = ["agent", "web"] as const;
 export type KnowledgePageAuthor = (typeof KNOWLEDGE_PAGE_AUTHORS)[number];
 export type KnowledgePageStatus = "empty" | "fresh" | "has_new_data";
 export const KNOWLEDGE_PAGE_INSUFFICIENT = "資料不足";
+/** A section keeps its newest this many source Sessions; an agent save citing more is trimmed, not rejected. */
+export const KNOWLEDGE_PAGE_SECTION_SOURCE_LIMIT = 20;
 
 export interface KnowledgePageSection {
   heading: string;
@@ -2412,6 +2414,8 @@ export interface SaveKnowledgePageInput {
    * without it, no version check is made.
    */
   reviewToken?: string;
+  /** Section update only: also advance the review cursor to this Session, with the markChecked rules. */
+  checkedThroughSessionId?: string;
 }
 
 export interface MarkKnowledgePageCheckedInput {
@@ -2541,7 +2545,14 @@ export type KnowledgePageContextResult =
   | KnowledgePageNotFoundResult
   | KnowledgePageSkippedResult;
 
-export interface KnowledgePageVersionConflictResult {
+/** Sent with a version_conflict so the Agent can reapply only its edits to the current page. */
+export interface KnowledgePageRetryMaterial {
+  reviewToken: string;
+  /** Headings that were replaced, added or removed after the token's version; absent when that version is unknown. */
+  changedHeadings?: string[];
+}
+
+export interface KnowledgePageVersionConflictResult extends Partial<KnowledgePageRetryMaterial> {
   outcome: "version_conflict";
   reason: string;
   baseVersion: number;
@@ -2562,12 +2573,15 @@ export type SaveKnowledgePageResult =
       redactions?: RedactionSummary;
       sectionChanges?: KnowledgePageSectionChanges;
       warnings?: string[];
+      /** Source Sessions cut from sections that cited more than the limit, oldest first, by section heading. */
+      droppedSourceSessionIds?: Array<{ heading: string; sessionIds: string[] }>;
       size?: KnowledgePageSize;
       splitSuggestion?: KnowledgePageSplitSuggestion;
     }
   | { outcome: "not_found"; slug: string; reason: string }
   | { outcome: "invalid_sources"; reason: string; sessionIds: string[] }
   | { outcome: "invalid_review_token"; reason: string; fix?: string }
+  | { outcome: "invalid_cursor"; reason: string }
   /** The idempotencyKey already saved different sections for this page; nothing was written. */
   | { outcome: "idempotency_conflict"; reason: string }
   /** removeHeadings the page has no section for, as sent; nothing was written. */

@@ -28,6 +28,7 @@ import {
   KNOWLEDGE_PAGE_AUTHORS,
   KNOWLEDGE_PAGE_DEFAULTS,
   KNOWLEDGE_PAGE_INSUFFICIENT,
+  KNOWLEDGE_PAGE_SECTION_SOURCE_LIMIT,
   KNOWLEDGE_PAGE_MAX_CONTENT_CHARS,
   KNOWLEDGE_PAGE_MAX_SECTIONS,
   SESSION_DECISION_ORIGINS,
@@ -1055,30 +1056,37 @@ export const recordKnowledgeInputSchema = z.object({
   supersedesId: z.string().trim().min(1).max(200).optional(),
 });
 
-const knowledgePageSectionSchema = z
-  .object({
-    heading: z.string().trim().min(1).max(120),
-    content: z.string().trim().min(1).max(4_000),
-    sourceSessionIds: z.array(z.string().trim().min(1).max(200)).max(20),
-  })
-  .strict()
-  .refine((section) => section.sourceSessionIds.length > 0 || section.content === KNOWLEDGE_PAGE_INSUFFICIENT, {
-    message: `Cite the Sessions this section is based on, or write exactly "${KNOWLEDGE_PAGE_INSUFFICIENT}" when they do not answer it.`,
-    path: ["sourceSessionIds"],
-  });
-const knowledgePageSectionsSchema = z
-  .array(knowledgePageSectionSchema)
-  .min(1)
-  .max(KNOWLEDGE_PAGE_MAX_SECTIONS, {
-    message: `A page holds at most ${KNOWLEDGE_PAGE_MAX_SECTIONS} sections; move sections to a custom page instead of merging them.`,
-  })
-  .refine(
-    (sections) =>
-      sections.reduce((total, section) => total + section.content.length, 0) <= KNOWLEDGE_PAGE_MAX_CONTENT_CHARS,
-    {
-      message: `A page holds at most ${KNOWLEDGE_PAGE_MAX_CONTENT_CHARS.toLocaleString("en-US")} characters of section content; move sections to a custom page instead of shortening them.`,
-    },
-  );
+const AGENT_SAVE_SOURCE_INPUT_MAX = 200;
+
+const knowledgePageSectionSchemaFor = (maxSources: number) =>
+  z
+    .object({
+      heading: z.string().trim().min(1).max(120),
+      content: z.string().trim().min(1).max(4_000),
+      sourceSessionIds: z.array(z.string().trim().min(1).max(200)).max(maxSources),
+    })
+    .strict()
+    .refine((section) => section.sourceSessionIds.length > 0 || section.content === KNOWLEDGE_PAGE_INSUFFICIENT, {
+      message: `Cite the Sessions this section is based on, or write exactly "${KNOWLEDGE_PAGE_INSUFFICIENT}" when they do not answer it.`,
+      path: ["sourceSessionIds"],
+    });
+const knowledgePageSectionsSchemaFor = (sectionSchema: ReturnType<typeof knowledgePageSectionSchemaFor>) =>
+  z
+    .array(sectionSchema)
+    .min(1)
+    .max(KNOWLEDGE_PAGE_MAX_SECTIONS, {
+      message: `A page holds at most ${KNOWLEDGE_PAGE_MAX_SECTIONS} sections; move sections to a custom page instead of merging them.`,
+    })
+    .refine(
+      (sections) =>
+        sections.reduce((total, section) => total + section.content.length, 0) <= KNOWLEDGE_PAGE_MAX_CONTENT_CHARS,
+      {
+        message: `A page holds at most ${KNOWLEDGE_PAGE_MAX_CONTENT_CHARS.toLocaleString("en-US")} characters of section content; move sections to a custom page instead of shortening them.`,
+      },
+    );
+const knowledgePageSectionSchema = knowledgePageSectionSchemaFor(KNOWLEDGE_PAGE_SECTION_SOURCE_LIMIT);
+const knowledgePageSectionsSchema = knowledgePageSectionsSchemaFor(knowledgePageSectionSchema);
+const agentKnowledgePageSectionSchema = knowledgePageSectionSchemaFor(AGENT_SAVE_SOURCE_INPUT_MAX);
 
 export const knowledgePageListQuerySchema = z
   .object({
@@ -1127,9 +1135,9 @@ export const saveKnowledgePageInputSchemaBase = z
     projectRoot: z.string().trim().min(1).max(1_000),
     slug: knowledgePageSlugSchema,
     idempotencyKey: z.string().trim().min(1).max(300),
-    sections: knowledgePageSectionsSchema.optional(),
+    sections: knowledgePageSectionsSchemaFor(agentKnowledgePageSectionSchema).optional(),
     upsertSections: z
-      .array(knowledgePageSectionSchema)
+      .array(agentKnowledgePageSectionSchema)
       .min(1)
       .max(12)
       .optional()
@@ -1147,6 +1155,13 @@ export const saveKnowledgePageInputSchemaBase = z
       .max(1_000)
       .optional()
       .describe("The reviewToken from the work_get_knowledge_page_context read this page was written from, unchanged."),
+    checkedThroughSessionId: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Section update only: also mark the page checked through this reviewed Session."),
   })
   .strict();
 const normalizedHeading = (heading: string): string => heading.toLowerCase();
@@ -1160,7 +1175,17 @@ export const saveKnowledgePageInputSchema = saveKnowledgePageInputSchemaBase.sup
     });
     return;
   }
-  if (!isSectionUpdate) return;
+  if (!isSectionUpdate) {
+    if (value.checkedThroughSessionId !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "checkedThroughSessionId belongs to a section update; with sections, the save already counts coverage.",
+        path: ["checkedThroughSessionId"],
+      });
+    }
+    return;
+  }
   if (value.reviewToken === undefined) {
     context.addIssue({
       code: "custom",
