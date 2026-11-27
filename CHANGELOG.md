@@ -4,6 +4,15 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.83] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.83.md).
+
+### Fixed
+
+- Completing a start record (`verification.status: "in_progress"`) with the same `idempotencyKey` after an MCP restart keeps the start record's `startedAt` and its start-source event instead of taking the new process's server observation. An explicit `startedAt` still wins. The receipt omits `startedAtSource` when the stored start is kept.
+- Rewriting a start record keeps its Session links' IDs and `created_at` instead of recreating them, and an import skips a `session_links` row whose Session pair and relation already exist under another ID instead of reporting a unique conflict. A different relation still conflicts.
+
 ### Internal
 
 - `packages/storage`, `apps/server`, `apps/desktop`, `packages/agent-setup` and `packages/schema` follow the comment rule (worklog-code-layout §8); only comments changed, and every touched file prints the same with comments stripped.
