@@ -95,6 +95,7 @@ const importSummary = computed(() => (preview: ProjectDataImportPreview) => {
     updates: total(preview.updates),
     keptLocal: total(preview.keptLocal),
     renumbered: total(preview.renumbered),
+    replacedLocal: total(preview.replacedLocal),
     skipped: total(preview.skipped),
     conflicts: total(preview.conflicts),
     projects: preview.additions.projects ?? 0,
@@ -435,6 +436,9 @@ onBeforeUnmount(() => {
         </p>
         <p v-if="importSummary(importPreview).renumbered > 0" class="backup-section__hint">
           {{ t("projects.pageVersionsRenumbered", { count: importSummary(importPreview).renumbered }) }}
+        </p>
+        <p v-if="importSummary(importPreview).replacedLocal > 0" class="backup-section__hint">
+          {{ t("projects.staleDecisionsReplaced", { count: importSummary(importPreview).replacedLocal }) }}
         </p>
         <p v-if="importPreview.conventionsWithdrawn" class="backup-section__hint">
           {{ t("projects.conventionsWithdrawnOnImport", { count: importPreview.conventionsWithdrawn }) }}

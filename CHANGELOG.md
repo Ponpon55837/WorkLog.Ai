@@ -4,11 +4,17 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.87] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.87.md).
+
 ### Fixed
 
 - Knowledge pages no longer show a cited Session as `source_updated_after_save` when it was only linked from a later Session (`parentSessionId`, `relatedSessionIds`, `work_link_sessions`) or got evidence or a diagram void or restore. Schema 42 adds `sessions.content_updated_at`, which only content changes (title, summary, work summary, files, verification, commit, branch, times, void or restore) advance, and the upgrade clears flags that came from a link, evidence or diagram touch. Exports carry the column and older exports still import. The attention fingerprints for Knowledge pages and Sessions missing metadata use it too, so a link no longer resurfaces a hidden or snoozed item.
 - After the upgrade, hidden or snoozed attention items may resurface once, because the backfill changes some source fingerprints.
 - Importing an export made before this column existed leaves it empty, so those Sessions fall back to `updated_at` until they are edited again.
+- Importing a project file after the other machine rewrote a Session's decisions no longer skips them as `unique` conflicts. A Session's decisions are one set that follows the decisions in its summary, so when the file's decisions match that summary and this machine's do not, the outdated local decisions are replaced (Knowledge and Agent review requests that cite them are kept). A file that is the stale side is kept out of the database instead of being reported as conflicts. The import preview (Web and CLI) and its audit report how many local decisions were replaced, and a backup is taken first. Importing again heals a stale machine; nothing is repaired on upgrade.
+- An import no longer rejects an outstanding-item audit event whose acting Session was permanently deleted. When that Session is in neither the file nor this database, the event is imported as it is; an acting Session from another project, or one that is itself a conflict, is still rejected.
 
 ## [1.6.86] - 2026-11-27
 
