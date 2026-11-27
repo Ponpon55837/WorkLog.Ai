@@ -21,6 +21,12 @@ export function segmentObserverKey(projectRoot: string): string {
   return process.platform === "win32" ? key.toLowerCase() : key;
 }
 
+function evictOldest(entries: Map<string, unknown>, limit: number): void {
+  if (entries.size < limit) return;
+  const oldest = entries.keys().next();
+  if (!oldest.done) entries.delete(oldest.value);
+}
+
 /**
  * Remembers, per project and only in memory, when this MCP server instance first saw a call since the last
  * successful save. That time is a fact the server observed, never an estimate. One Claude Desktop process may serve
@@ -28,6 +34,7 @@ export function segmentObserverKey(projectRoot: string): string {
  */
 export class SegmentObserver {
   private readonly starts = new Map<string, ObservedSegmentStart>();
+  private readonly lastSaves = new Map<string, string>();
 
   public constructor(
     private readonly now: () => Date = () => new Date(),
@@ -41,10 +48,7 @@ export class SegmentObserver {
   public record(projectRoot: string, tool: string, headCommit?: () => string | undefined): void {
     const key = segmentObserverKey(projectRoot);
     if (this.starts.has(key)) return;
-    if (this.starts.size >= this.maxProjects) {
-      const oldest = this.starts.keys().next();
-      if (!oldest.done) this.starts.delete(oldest.value);
-    }
+    evictOldest(this.starts, this.maxProjects);
     let head: string | undefined;
     try {
       head = headCommit?.();
@@ -58,8 +62,17 @@ export class SegmentObserver {
     return this.starts.get(segmentObserverKey(projectRoot));
   }
 
+  /** When this instance last saved in the project, so the next save on this connection counts only later reads. */
+  public lastSaveAt(projectRoot: string): string | undefined {
+    return this.lastSaves.get(segmentObserverKey(projectRoot));
+  }
+
   /** Ends the segment after a successful save so the next call starts a new one. */
   public reset(projectRoot: string): void {
-    this.starts.delete(segmentObserverKey(projectRoot));
+    const key = segmentObserverKey(projectRoot);
+    this.starts.delete(key);
+    this.lastSaves.delete(key);
+    evictOldest(this.lastSaves, this.maxProjects);
+    this.lastSaves.set(key, this.now().toISOString());
   }
 }

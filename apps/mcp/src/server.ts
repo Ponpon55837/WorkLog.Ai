@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -151,6 +152,8 @@ interface StoreToolDefinition<S extends z.ZodType> {
     input: z.infer<S>,
     context: {
       agentClient?: string;
+      connectionId: string;
+      previousSaveAt?: string;
       serverStatus: McpRestartStatus;
       observedStartedAt?: ObservedSegmentStart;
       observedChangedFileChanges?: GitObservedChanges;
@@ -569,6 +572,8 @@ export function createWorkIntelligenceMcpServer(
   registerAgentResources(server);
   const registeredStoreTools = new Map<string, RegisteredStoreTool>();
   const segmentObserver = new SegmentObserver();
+  // One per server process (the launcher's child), so reads of concurrent works by one client name stay apart.
+  const connectionId = randomUUID();
 
   function resolveStore(): StoreResolution {
     if (access) return access.resolve();
@@ -612,6 +617,7 @@ export function createWorkIntelligenceMcpServer(
             auditRead(store, {
               tool: name,
               agentClient,
+              connectionId,
               errorCode: "invalid_input",
               responseChars: countResponseChars(invalidResponse),
             });
@@ -651,8 +657,11 @@ export function createWorkIntelligenceMcpServer(
             isFinalize && !readOnly
               ? await observeFinalizeChangedFiles(store, parsed.data as FinalizeInput, segmentStart?.headCommit, runGit)
               : undefined;
+          const previousSaveAt = isFinalize && observedRoot ? segmentObserver.lastSaveAt(observedRoot) : undefined;
           const context = {
             agentClient,
+            connectionId,
+            ...(previousSaveAt ? { previousSaveAt } : {}),
             serverStatus: restartStatus,
             ...(observedStartedAt ? { observedStartedAt } : {}),
             ...(observedChangedFileChanges ? { observedChangedFileChanges } : {}),
@@ -684,6 +693,7 @@ export function createWorkIntelligenceMcpServer(
             auditRead(store, {
               tool: name,
               agentClient,
+              connectionId,
               result,
               projectId,
               durationMs,
@@ -699,6 +709,7 @@ export function createWorkIntelligenceMcpServer(
             auditRead(store, {
               tool: name,
               agentClient,
+              connectionId,
               projectId,
               durationMs: performance.now() - startedAt,
               errorCode: readErrorCode(error),

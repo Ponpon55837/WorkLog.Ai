@@ -4,7 +4,12 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-11-26
+- 最後更新：2026-11-27
+
+## 1.6.79（同一用戶端同時進行多段工作時，結案回條不再混列 Knowledge）
+
+- 同一個 Agent 用戶端開兩個 MCP 連線同時做兩段工作時，結案回條的 `unreportedKnowledge` 只列該連線自己讀過的 Knowledge。
+- schema 升到 39：`agent_read_audit` 新增 `connection_id` 欄位（只在本機，不匯出）。Agent 不需要重新連線；舊版 MCP 程序的讀取沒有連線識別，不會被計入。詳見 [1.6.79 更新說明](releases/1.6.79.md)。
 
 ## 1.6.78（Agent 固定閱讀量減少約三成）
 

@@ -341,6 +341,10 @@ export type { ContextFocus } from "./context-recall-service.js";
 /** Server-side facts about a finalize call that the caller never supplies through the public input. */
 export type FinalizeSessionContext = {
   agentClient?: string;
+  /** The MCP connection that saved the Session; with it, unreported Knowledge counts only that connection's reads. */
+  connectionId?: string;
+  /** When this connection last saved in the project, before this save; with a connection it starts the work window. */
+  previousSaveAt?: string;
   /** The first call the MCP server saw for this project since its last save; only a fact the server observed. */
   observedStartedAt?: ObservedStart;
   /** What the MCP server saw in Git for changed files the Agent gave no status for; Agent entries always win. */
@@ -2171,6 +2175,9 @@ export class WorkIntelligenceStore {
                   projectId: session.projectId,
                   sessionId: session.id,
                   agentClient: session.agentClient,
+                  ...(context.connectionId
+                    ? { connectionId: context.connectionId, previousSaveAt: context.previousSaveAt }
+                    : {}),
                   startedAt: session.startedAt,
                   completedAt: session.completedAt,
                   excludedIds: (result.knowledgeToReview ?? []).map((hint) => hint.id),

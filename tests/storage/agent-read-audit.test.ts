@@ -92,6 +92,7 @@ describe("agent read audit", () => {
     expect(Object.keys(row!).sort()).toEqual(
       [
         "agent_client",
+        "connection_id",
         "created_at",
         "duration_ms",
         "error_code",
