@@ -105,11 +105,9 @@ Template rules:
 
 ## 6. Comments
 
-- Language: code comments and JSDoc in **English**; user-facing strings live in the JSON catalogs and are referenced by key through `t()` (§6a).
-- Every exported composable function, util with non-obvious behaviour, and every component gets a one-sentence `/** … */` stating purpose or contract.
-- Inline `//` comments explain **why** (a trade-off, a data-contract rule, a browser quirk), never restate the code.
-- Reference the rule source when a comment encodes a domain rule, e.g. `// Missing verification is historical not_supplied, never not_run.`
-- No commented-out code, no TODOs without an owner/issue, no section-divider banners.
+- Follow the comment rule in `worklog-code-layout` §8: no comment by default; keep a short English *why* only where removing it would likely get the code broken (a browser quirk, a data-contract rule).
+- User-facing strings live in the JSON catalogs and are referenced by key through `t()` (§6a); they are not comments.
+- A bespoke control that bypasses a `ui/` primitive is such a case: say why in one line.
 
 ## 6a. Interface language (i18n)
 
@@ -162,6 +160,6 @@ Review checklist:
 - [ ] Import order and SFC order (§3).
 - [ ] No API call outside stores/composables; queries keyed by every parameter they read; mutations invalidate affected prefixes (§4).
 - [ ] `ui/` primitives and `utils/status.ts` used; no inline status colours (§5).
-- [ ] Comments explain why, in English (§6).
+- [ ] No comment unless removing it would likely get the code broken (§6).
 - [ ] No `any`, no stray `!`, explicit return types on exports (§7).
 - [ ] Tokens only, scoped, breakpoints from the set (§8).

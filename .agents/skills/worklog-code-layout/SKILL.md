@@ -1,6 +1,6 @@
 ---
 name: worklog-code-layout
-description: Fixed placement order for code in every Work Intelligence file type — Vue <script setup> sections (imports, types, macros, stores/composables, state, computed, functions, watchers, lifecycle, defineExpose), Pinia setup stores, composables, backend TypeScript modules and classes, and tests — plus the declare-before-use rule. Use whenever writing, moving, or reviewing code in apps/ or packages/ so every file reads in the same order; enforced by pnpm lint.
+description: Fixed placement order for code in every Work Intelligence file type — Vue <script setup> sections (imports, types, macros, stores/composables, state, computed, functions, watchers, lifecycle, defineExpose), Pinia setup stores, composables, backend TypeScript modules and classes, and tests — plus the declare-before-use rule and the comment rule. Use whenever writing, moving, or reviewing code in apps/ or packages/ so every file reads in the same order; enforced by pnpm lint.
 ---
 
 # Work Intelligence code layout
@@ -133,4 +133,15 @@ Keep one exported concept per module; when a file mixes two services, split it (
 
 - Put new code in its section; do not append everything at the bottom.
 - If the file you edit is out of order, reorder it in the same PR only when the change is small; otherwise note it and keep the diff focused.
-- Comments explain *why* and move with the code they describe.
+- Follow the comment rule in §8; a comment you keep moves with the code it describes.
+
+## 8. Comments
+
+Every Agent that reads a file reads its comments too, so comments cost context. Background and design reasons belong in `docs/`, release notes and Knowledge pages, where `work_recall` finds them.
+
+- Write no comment by default. Names, types and test names carry the meaning.
+- Keep one only where removing it would likely make the next reader break the code: a platform or third-party quirk, an external contract value, an ordering, security or concurrency invariant, or a deliberate trade-off that looks like a bug. One or two lines, in English, saying why.
+- Public MCP, REST, IPC and persisted types get a short doc comment only for what the type cannot say: units, ranges, who writes it, stability.
+- Always keep functional markers: shebangs, `/// <reference>`, `eslint-disable*`, `@ts-expect-error` and `@internal` tags, and the reason beside an `as unknown as`.
+- Delete comments that restate the code, section banners, change history, commented-out code, step-by-step narration in tests and long design notes.
+- Agent contract text, tool descriptions and user-visible strings are strings, not comments; this rule does not touch them. Neither does it touch the version comment after a pinned action SHA in `.github` workflows.
