@@ -1465,6 +1465,10 @@ describe("agent review knowledge items migration", () => {
       session("diagram-voided", "2030-01-01T01:00:00.000Z", "2030-01-01T12:00:00.000Z");
       db.exec(`INSERT INTO session_links (id, session_id, related_session_id, relation, source, created_at)
         VALUES ('link-2', 'child', 'rewritten', 'related', 'agent', '2030-01-01T10:00:00.000Z')`);
+      session("parent", "2030-01-01T01:00:00.000Z", "2030-01-01T13:00:00.000Z");
+      session("started-child", "2030-01-01T09:45:00.000Z", "2030-01-01T13:00:00.000Z", "2030-01-01T13:00:00.000Z");
+      db.exec(`INSERT INTO session_links (id, session_id, related_session_id, relation, source, created_at)
+        VALUES ('link-3', 'started-child', 'parent', 'continues', 'agent', '2030-01-01T09:45:00.000Z')`);
       db.exec(`INSERT INTO void_audit (id, target_type, target_id, session_id, project_id, action, reason, occurred_at)
         VALUES ('audit-1', 'evidence', 'evidence-x', 'evidence-voided', 'project-1', 'voided', 'Fixture.', '2030-01-01T11:00:00.000Z')`);
       db.exec(`INSERT INTO session_diagrams
@@ -1498,6 +1502,8 @@ describe("agent review knowledge items migration", () => {
         child: "2030-01-01T05:00:00.000Z",
         evidenced: "2030-01-01T01:00:00.000Z",
         rewritten: "2030-01-01T09:00:00.000Z",
+        parent: "2030-01-01T01:00:00.000Z",
+        "started-child": "2030-01-01T13:00:00.000Z",
         "evidence-voided": "2030-01-01T01:00:00.000Z",
         "diagram-voided": "2030-01-01T01:00:00.000Z",
       });

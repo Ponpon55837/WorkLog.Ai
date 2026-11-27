@@ -1121,7 +1121,7 @@ const MIGRATIONS: SchemaMigration[] = [
   {
     version: 42,
     name: "session-content-updated-at",
-    // NULL means "use updated_at". Only rows whose last touch matches a link, evidence or diagram event get a value,
+    // NULL means "use updated_at". Only rows whose last touch matches a link, a linked Session's own update, evidence or a diagram event get a value,
     // their newest content record. The backfill is not a data change, so the revision and index queues are restored.
     sql: `
       ALTER TABLE sessions ADD COLUMN content_updated_at TEXT;
@@ -1143,6 +1143,10 @@ const MIGRATIONS: SchemaMigration[] = [
       WHERE EXISTS (SELECT 1 FROM session_links l
                     WHERE (l.session_id = sessions.id OR l.related_session_id = sessions.id)
                       AND l.created_at = sessions.updated_at)
+        OR EXISTS (SELECT 1 FROM session_links l
+                   JOIN sessions o ON o.id = CASE WHEN l.session_id = sessions.id THEN l.related_session_id ELSE l.session_id END
+                   WHERE (l.session_id = sessions.id OR l.related_session_id = sessions.id)
+                     AND (o.updated_at = sessions.updated_at OR o.completed_at = sessions.updated_at))
         OR EXISTS (SELECT 1 FROM evidence v WHERE v.session_id = sessions.id AND v.captured_at = sessions.updated_at)
         OR EXISTS (SELECT 1 FROM void_audit a
                    WHERE a.session_id = sessions.id AND a.target_type = 'evidence' AND a.occurred_at = sessions.updated_at)
