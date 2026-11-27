@@ -4,6 +4,22 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.85] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.85.md).
+
+### Added
+
+- `work_save_knowledge_page` accepts `checkedThroughSessionId` with a section update (`upsertSections` and `reviewToken`) and advances the page's checked cursor in the same transaction, with the same rules as `work_mark_knowledge_page_checked`. Without it, the receipt says coverage did not advance. A retry under the same `idempotencyKey` that adds the field still advances the cursor.
+
+### Changed
+
+- A section citing more than 20 `sourceSessionIds` is saved with the newest 20 instead of being refused; the receipt lists the rest in `droppedSourceSessionIds` with a warning. In-progress Sessions are dropped first. The Web editor keeps its 20-source limit.
+- `version_conflict` from `work_save_knowledge_page` carries a fresh `reviewToken` and `changedHeadings`, so the Agent can reapply only its edits. `invalid_review_token` is unchanged.
+- The MCP result of `work_mark_knowledge_page_checked` is a compact receipt (slug, version, status, new Session count and coverage) instead of the whole page.
+- In-progress start records (`verification.status: "in_progress"`) no longer count as new Sessions for Knowledge pages or attention, and cannot be a checked cursor. They count once completed.
+- The Work Intelligence skill asks the Agent to send `changedFileChanges` with finalize when each file's status is known.
+
 ## [1.6.84] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.84.md).
