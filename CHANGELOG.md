@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.93] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.93.md).
+
 ### Added
 
 - Toasts can carry an action button; changes to Open items now take effect immediately and the toast offers 「復原」 for 8 seconds, for one item and for a batch. Undo uses the existing status endpoints with the status the change set as `expectedStatus`, so an item changed elsewhere meanwhile is not overwritten.
@@ -18,7 +22,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 - The cleanup panel's 「Agent 已結案」 list follows the same rules as the main list: compact rows (verdict and reason on the meta line), icon actions named after the item at the end of the row, and the bulk bar only while something is selected. 「選擇其他專案」 only appears for a project the panel chose, so it no longer clears a project filter set before the panel opened, and the intro text has the usual space above the create button.
 - Single-row changes send the row's current status as `expectedStatus` (through the batch endpoint, which already checks it). Reopening offers 「復原」 only when the item was closed by the user, because undoing it would record the user as the closer. After an action removes a row, focus moves to the next row's first action (or the list); selecting everything also drops items that are visible and no longer pending.
 - Icon-only row buttons are named after their item, truncated text has a `title`, and 「選取本頁」 is a real label for its checkbox. The sidebar and tab counts also refresh after a project's status change or deletion.
-- Open item rows are one line (content and meta, actions at the end as icon buttons; a right-aligned second line on narrow screens) and show the status only when the filter is not 「待處理」. The batch toolbar appears only while something is selected.
+- Open item rows are compact (content clamped to two lines and one meta line, actions at the end as icon buttons; a right-aligned second line on narrow screens) and show the status only when the filter is not 「待處理」. The batch toolbar appears only while something is selected.
 - On narrow screens the Open items list scrolls with the page instead of in a fixed 280px box.
 
 ### Removed
