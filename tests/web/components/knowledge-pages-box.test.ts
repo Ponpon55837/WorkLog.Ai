@@ -28,10 +28,10 @@ vi.mock("../../../apps/web/src/components/VirtualList.vue", () => ({
 
 const project = { id: "project-1", name: "Orchard", rootPath: "/work/orchard" } as ProjectRecord;
 
-function page(slug: string, updateRequestedAt?: string): KnowledgePageRecord {
+function page(slug: string, updateRequestedAt?: string, projectId = "project-1"): KnowledgePageRecord {
   return {
-    id: `page-${slug}`,
-    projectId: "project-1",
+    id: `page-${projectId}-${slug}`,
+    projectId,
     slug,
     title: `Page ${slug}`,
     question: `What is ${slug}?`,
@@ -88,15 +88,73 @@ describe("KnowledgePagesBox handoff", () => {
     expect(html.match(new RegExp(`>${t("knowledge.requestUpdate")}<`, "g"))).toHaveLength(1);
   });
 
-  it("uses the only tracked project for a custom page without a filter", async () => {
+  it("keeps the custom page button clickable without a project filter", async () => {
+    const other = { ...project, id: "project-2", name: "Harbor" } as ProjectRecord;
+
     expect(customButton(await render([project], ""))).not.toContain("disabled");
+    expect(customButton(await render([project, other], ""))).not.toContain("disabled");
   });
 
-  it("explains why a custom page needs a project when several are tracked", async () => {
-    const other = { ...project, id: "project-2", name: "Harbor" } as ProjectRecord;
-    const button = customButton(await render([project, other], ""));
+  it("disables the custom page button only when no project is tracked", async () => {
+    const button = customButton(await render([], ""));
 
     expect(button).toContain("disabled");
-    expect(button).toContain(`title="${t("outstanding.chooseAProjectFirst")}"`);
+    expect(button).toContain(`title="${t("projects.noTrackedProjects")}"`);
+  });
+
+  it("groups same-named pages under one label per project when no project is filtered", async () => {
+    const other = { ...project, id: "project-2", name: "Harbor" } as ProjectRecord;
+    pages.value = [page("testing", undefined, "project-1"), page("testing", undefined, "project-2")];
+
+    const html = await render([project, other], "");
+
+    expect(html.indexOf("Harbor")).toBeGreaterThan(-1);
+    expect(html.indexOf("Harbor")).toBeLessThan(html.indexOf("Orchard"));
+    expect(html.match(/class="ui-group-label"/g)).toHaveLength(2);
+    expect(html).toContain(t("knowledge.pageCount", { count: 1 }));
+    expect(html.match(/data-testid="knowledge-page-row"/g)).toHaveLength(2);
+  });
+
+  it("shows no group label for a single project's pages", async () => {
+    pages.value = [page("testing")];
+
+    expect(await render([project], "")).not.toContain('class="ui-group-label"');
+  });
+
+  it("tells projects with the same name apart by their folder", async () => {
+    const other = { ...project, id: "project-2", rootPath: "/other/orchard" } as ProjectRecord;
+    pages.value = [page("testing", undefined, "project-1"), page("testing", undefined, "project-2")];
+
+    const html = await render([project, other], "");
+
+    expect(html).toContain("Orchard · work/orchard");
+    expect(html).toContain("Orchard · other/orchard");
+  });
+
+  it("shows no project groups once a project is filtered", async () => {
+    pages.value = [page("testing")];
+
+    expect(await render()).not.toContain("ui-group-label");
+  });
+
+  it("makes the title of a written page open it and leaves an unwritten page's title plain", async () => {
+    pages.value = [
+      { ...page("written"), version: 1 },
+      { ...page("blank"), version: 0 },
+    ];
+
+    const html = await render();
+
+    expect(html).toContain('class="ui-box-row__link"');
+    expect(html.match(/class="ui-box-row__link"/g)).toHaveLength(1);
+  });
+
+  it("separates meta details with a styled separator instead of text dots", async () => {
+    pages.value = [{ ...page("written"), sourcedThrough: "2030-01-01T00:00:00.000Z" } as KnowledgePageRecord];
+
+    const html = await render();
+
+    expect(html).toContain("knowledge-pages__meta-item");
+    expect(html).not.toContain("·");
   });
 });

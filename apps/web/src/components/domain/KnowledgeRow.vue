@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, useId } from "vue";
 import {
   Archive,
   ArchiveRestore,
@@ -47,12 +47,18 @@ const conventionActorKeys = {
   system: "knowledge.conventionBySystem",
 } as const satisfies Record<NonNullable<KnowledgeRecord["conventionWithdrawal"]>["by"], MessageKey>;
 
+const detailsId = useId();
+
 const expanded = ref(false);
+
+const staleNotes = computed(() => knowledgeStaleNotes(props.item));
+const hasChips = computed(
+  () => props.item.tags.length > 0 || props.item.references.length > 0 || props.item.appliesTo.length > 0,
+);
 const kind = computed(() => knowledgeKindVisual[props.item.kind]);
 const trustBar = computed(() =>
   props.item.evidence ? trustCells(props.item.evidence.confirmed, props.item.evidence.contradicted) : [],
 );
-const staleNotes = computed(() => knowledgeStaleNotes(props.item));
 const conventionEligible = computed(() => props.item.status === "active" && !props.item.review);
 const conventionWithdrawalNote = computed(() => {
   const withdrawal = props.item.conventionWithdrawal;
@@ -146,16 +152,22 @@ const actions = computed(() => [
     </p>
     <p v-if="staleNotes.broadAppliesTo" class="knowledge-row__note">{{ staleNotes.broadAppliesTo }}</p>
     <p v-if="staleNotes.broadChanges" class="knowledge-row__note">{{ staleNotes.broadChanges }}</p>
-    <p :class="['knowledge-row__body', { 'is-expanded': expanded }]">{{ item.body }}</p>
-    <UiButton
-      v-if="item.body.length > 180"
-      variant="link"
-      size="sm"
-      class="knowledge-row__more"
-      @click="expanded = !expanded"
-    >
-      {{ expanded ? t("knowledge.collapse") : t("knowledge.showFullText") }}
-    </UiButton>
+    <div :id="detailsId" class="knowledge-row__details">
+      <p :class="['knowledge-row__body', { 'is-expanded': expanded }]">{{ item.body }}</p>
+      <div v-if="expanded && hasChips" class="knowledge-row__chips">
+        <span v-for="tag in item.tags" :key="`tag-${tag}`" class="knowledge-row__tag">#{{ tag }}</span>
+        <code v-for="reference in item.references" :key="`ref-${reference}`" class="knowledge-row__ref">{{
+          reference
+        }}</code>
+        <code
+          v-for="pattern in item.appliesTo"
+          :key="`applies-${pattern}`"
+          class="knowledge-row__ref"
+          :title="t('knowledge.appliesToPattern', { pattern })"
+          >{{ t("knowledge.appliesTo", { pattern }) }}</code
+        >
+      </div>
+    </div>
     <div class="knowledge-row__meta">
       <span v-if="item.projectName">{{ item.projectName }} · </span>
       <time :datetime="item.updatedAt" :title="formatDate(item.updatedAt)">{{
@@ -190,19 +202,16 @@ const actions = computed(() => [
           t("knowledge.confirmedValidAt", { value: formatRelative(item.lastConfirmedAt) })
         }}</time>
       </template>
-    </div>
-    <div v-if="item.tags.length || item.references.length || item.appliesTo.length" class="knowledge-row__chips">
-      <span v-for="tag in item.tags" :key="`tag-${tag}`" class="knowledge-row__tag">#{{ tag }}</span>
-      <code v-for="reference in item.references" :key="`ref-${reference}`" class="knowledge-row__ref">{{
-        reference
-      }}</code>
-      <code
-        v-for="pattern in item.appliesTo"
-        :key="`applies-${pattern}`"
-        class="knowledge-row__ref"
-        :title="t('knowledge.appliesToPattern', { pattern })"
-        >{{ t("knowledge.appliesTo", { pattern }) }}</code
+      <UiButton
+        variant="link"
+        size="sm"
+        class="knowledge-row__more"
+        :aria-expanded="expanded"
+        :aria-controls="detailsId"
+        @click="expanded = !expanded"
       >
+        {{ expanded ? t("knowledge.collapse") : t("knowledge.showDetails") }}
+      </UiButton>
     </div>
     <template #trailing>
       <UiActionMenu
@@ -256,14 +265,14 @@ const actions = computed(() => [
 
 .knowledge-row__body {
   display: -webkit-box;
-  margin-top: var(--space-2);
+  margin-top: var(--space-1);
   overflow: hidden;
   color: var(--fg);
   font-size: var(--text-sm);
   line-height: 1.6;
   white-space: pre-line;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 1;
 }
 
 .knowledge-row__body.is-expanded {
@@ -271,8 +280,7 @@ const actions = computed(() => [
 }
 
 .knowledge-row__more {
-  align-self: flex-start;
-  margin-top: var(--space-1);
+  margin-inline-start: var(--space-2);
 }
 
 .knowledge-row__trust-bar {

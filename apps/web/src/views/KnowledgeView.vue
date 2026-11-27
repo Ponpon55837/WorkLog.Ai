@@ -500,6 +500,7 @@ onBeforeUnmount(() => {
         <VirtualList
           v-else-if="knowledgeItems.length > 0"
           :items="knowledgeItems"
+          :item-key="(item) => item.id"
           :enabled="true"
           fit-viewport
           fit-viewport-to-panel
@@ -509,6 +510,7 @@ onBeforeUnmount(() => {
         >
           <template #default="{ item }">
             <KnowledgeRow
+              :key="item.id"
               :item="item"
               :convention-count="conventionCounts[item.projectId] ?? 0"
               :convention-full="(conventionCounts[item.projectId] ?? 0) >= KNOWLEDGE_CONVENTION_LIMIT"

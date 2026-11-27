@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import type { ProjectRecord } from "@work-intelligence/core";
 import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
@@ -8,11 +8,12 @@ import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
 import UiField from "../ui/UiField.vue";
 import UiFlash from "../ui/UiFlash.vue";
+import UiSelect from "../ui/UiSelect.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
 import UiTextarea from "../ui/UiTextarea.vue";
 import { t } from "../../i18n";
 
-const props = defineProps<{ open: boolean; project?: ProjectRecord }>();
+const props = defineProps<{ open: boolean; projects: readonly ProjectRecord[]; defaultProjectId?: string }>();
 const emit = defineEmits<{ close: [] }>();
 
 const slugPattern = /^[a-z0-9][a-z0-9-]{1,39}$/;
@@ -21,16 +22,30 @@ const pagesStore = useKnowledgePagesStore();
 const { showToast } = useToast();
 
 const form = ref({ slug: "", title: "", question: "" });
+const projectId = ref("");
 const saving = ref(false);
 const error = ref("");
+
+const project = computed(() => props.projects.find((item) => item.id === projectId.value));
+const projectOptions = computed(() => [
+  { value: "", label: t("knowledge.chooseProject") },
+  ...props.projects.map((item) => ({ value: item.id, label: item.name })),
+]);
+
+function initialProjectId(): string {
+  const preferred = props.projects.find((item) => item.id === props.defaultProjectId);
+  return (preferred ?? (props.projects.length === 1 ? props.projects[0] : undefined))?.id ?? "";
+}
 
 function close(): void {
   if (!saving.value) emit("close");
 }
 
 async function submit(): Promise<void> {
-  const project = props.project;
-  if (!project) return;
+  if (!project.value) {
+    error.value = t("knowledge.chooseProject");
+    return;
+  }
   const slug = form.value.slug.trim();
   if (!slugPattern.test(slug)) {
     error.value = t("knowledge.slugsNeed240Lowercase");
@@ -40,7 +55,7 @@ async function submit(): Promise<void> {
   error.value = "";
   try {
     const result = await pagesStore.requestUpdate({
-      projectRoot: project.rootPath,
+      projectRoot: project.value.rootPath,
       slug,
       title: form.value.title.trim(),
       question: form.value.question.trim(),
@@ -60,10 +75,18 @@ async function submit(): Promise<void> {
 }
 
 watch(
+  () => props.projects,
+  () => {
+    if (projectId.value && !project.value) projectId.value = initialProjectId();
+  },
+);
+
+watch(
   () => props.open,
   (open) => {
     if (open) {
       form.value = { slug: "", title: "", question: "" };
+      projectId.value = initialProjectId();
       error.value = "";
     }
   },
@@ -84,6 +107,9 @@ watch(
   >
     <form id="knowledge-page-request-form" class="page-request" @submit.prevent="submit">
       <UiFlash v-if="error" tone="danger">{{ error }}</UiFlash>
+      <UiField v-if="projects.length > 1" :label="t('knowledge.createInProject')"
+        ><UiSelect v-model="projectId" :options="projectOptions" :label="t('knowledge.createInProject')"
+      /></UiField>
       <UiField :label="t('knowledge.title')"
         ><UiTextInput v-model="form.title" :maxlength="80" required autofocus
       /></UiField>

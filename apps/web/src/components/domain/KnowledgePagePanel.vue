@@ -7,6 +7,7 @@ import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
 import { useSessionsStore } from "../../stores/sessions";
 import { errorMessage, formatDate, formatRelative } from "../../utils/format";
+import { pageTextBlocks } from "../../utils/knowledge-page-text";
 import { knowledgePageReviewReasonLabels, knowledgePageStatusVisual } from "../../utils/status";
 import UiButton from "../ui/UiButton.vue";
 import UiFlash from "../ui/UiFlash.vue";
@@ -17,6 +18,7 @@ import UiSkeleton from "../ui/UiSkeleton.vue";
 import KnowledgePageDiff from "./KnowledgePageDiff.vue";
 import KnowledgePageEditorDialog from "./KnowledgePageEditorDialog.vue";
 import KnowledgePageLimitNotice from "./KnowledgePageLimitNotice.vue";
+import KnowledgePageSources from "./KnowledgePageSources.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
@@ -46,6 +48,11 @@ const previousVersion = computed(() => {
   const earlier = versions.value.filter((item) => item.version < current);
   return earlier.sort((a, b) => b.version - a.version)[0];
 });
+const visibleSections = computed(() =>
+  comparing.value && previousVersion.value
+    ? []
+    : (shown.value?.sections ?? []).map((section) => ({ section, blocks: pageTextBlocks(section.content) })),
+);
 const sourceTitles = computed(() => {
   const titles = new Map(sources.value.map((source) => [source.id, source.title]));
   for (const section of openPage.value?.reviewSections ?? []) {
@@ -184,14 +191,21 @@ watch([() => openPage.value?.id, shownVersion], () => {
     />
 
     <section
-      v-for="(section, index) in comparing && previousVersion ? [] : (shown?.sections ?? [])"
+      v-for="({ section, blocks }, index) in visibleSections"
       :key="`${index}-${section.heading}`"
       class="page-panel__section"
     >
       <h3>{{ section.heading }}</h3>
-      <p :class="{ 'page-panel__insufficient': section.content === KNOWLEDGE_PAGE_INSUFFICIENT }">
-        {{ section.content }}
-      </p>
+      <div v-if="blocks.length > 0" class="page-panel__text">
+        <template v-for="(block, blockIndex) in blocks" :key="blockIndex">
+          <component :is="block.ordered ? 'ol' : 'ul'" v-if="block.kind === 'list'" :start="block.start">
+            <li v-for="(entry, entryIndex) in block.items" :key="entryIndex">{{ entry }}</li>
+          </component>
+          <p v-else :class="{ 'page-panel__insufficient': block.text === KNOWLEDGE_PAGE_INSUFFICIENT }">
+            {{ block.text }}
+          </p>
+        </template>
+      </div>
       <UiFlash
         v-if="reviewSourcesForHeading(section.heading).length > 0"
         tone="danger"
@@ -208,20 +222,12 @@ watch([() => openPage.value?.id, shownVersion], () => {
           </div>
         </div>
       </UiFlash>
-      <div v-if="section.sourceSessionIds.length > 0" class="page-panel__sources">
-        <span class="page-panel__sources-label">{{ t("knowledge.source") }}</span>
-        <UiButton
-          v-for="sessionId in section.sourceSessionIds"
-          :key="sessionId"
-          size="sm"
-          variant="invisible"
-          :icon="ExternalLink"
-          :disabled="!sourceTitles.has(sessionId)"
-          :title="sourceTitles.has(sessionId) ? undefined : t('knowledge.theSourceSessionIsVoided')"
-          @click="openSource(sessionId)"
-          >{{ sourceTitles.get(sessionId) ?? `Session ${sessionId.slice(0, 8)}` }}</UiButton
-        >
-      </div>
+      <KnowledgePageSources
+        v-if="section.sourceSessionIds.length > 0"
+        :session-ids="section.sourceSessionIds"
+        :titles="sourceTitles"
+        @open="openSource"
+      />
     </section>
 
     <section class="page-panel__history" aria-labelledby="knowledge-page-history-title">
@@ -259,8 +265,7 @@ watch([() => openPage.value?.id, shownVersion], () => {
 }
 
 .page-panel__meta,
-.page-panel__actions,
-.page-panel__sources {
+.page-panel__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -282,11 +287,24 @@ watch([() => openPage.value?.id, shownVersion], () => {
   font-weight: 600;
 }
 
-.page-panel__section p {
+.page-panel__text {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 72ch;
   margin-top: var(--space-1);
   font-size: var(--text-sm);
   line-height: 1.7;
-  white-space: pre-line;
+}
+
+.page-panel__text p,
+.page-panel__text ul,
+.page-panel__text ol {
+  margin: 0;
+}
+
+.page-panel__text ul,
+.page-panel__text ol {
+  padding-inline-start: var(--space-6);
 }
 
 .page-panel__review-list {
@@ -303,11 +321,6 @@ watch([() => openPage.value?.id, shownVersion], () => {
 .page-panel__insufficient {
   color: var(--fg-muted);
   font-style: italic;
-}
-
-.page-panel__sources-label {
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
 }
 
 .page-panel__history {

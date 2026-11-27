@@ -7,6 +7,7 @@ import { expect, test, type APIRequestContext, type Locator, type Page } from "@
 import type { ProjectDataExport, SystemAgentConnections } from "../../packages/core/src/index.js";
 import { canonicalizeProjectRoot, WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
 import { nameStartingWith } from "./helpers/accessible-name.js";
+import { saveKnowledgePageAfterReading, withAgentStore } from "./helpers/agent-store.js";
 import { filterMenu } from "./helpers/filter-menu.js";
 import { dayNameIn, dayNamePattern, LANGUAGE_NAMES, textIn, tt, ttPattern } from "./helpers/i18n.js";
 
@@ -17,27 +18,6 @@ const reportDate = new Date().toLocaleDateString("sv-SE");
 type ProjectRecord = { id: string };
 type SessionRecord = { id: string };
 type ApiResult<T> = T & { outcome?: string; reason?: string };
-
-function withAgentStore<T>(task: (store: WorkIntelligenceStore) => T): T {
-  const databasePath = process.env.WORK_INTELLIGENCE_E2E_DB;
-  if (!databasePath) {
-    throw new Error("WORK_INTELLIGENCE_E2E_DB is not set; run the suite through playwright.config.ts.");
-  }
-  const store = new WorkIntelligenceStore(databasePath, { backup: { directory: `${databasePath}-agent-backups` } });
-  try {
-    return task(store);
-  } finally {
-    store.close();
-  }
-}
-
-type KnowledgePageSave = Parameters<WorkIntelligenceStore["saveKnowledgePage"]>[0];
-
-function saveKnowledgePageAfterReading(store: WorkIntelligenceStore, input: KnowledgePageSave) {
-  const context = store.getKnowledgePageContext({ projectRoot: input.projectRoot, slug: input.slug });
-  if (context.outcome !== "knowledge_page_context") throw new Error("Expected the Knowledge page context.");
-  return store.saveKnowledgePage({ ...input, reviewToken: context.reviewToken });
-}
 
 const pageRoutes: ReadonlyArray<readonly [string, string]> = [
   ["/dashboard", tt("nav.workOverview")],
@@ -3318,6 +3298,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(knowledge).toBeVisible();
     await expect(knowledge).toContainText(tt("status.technicalDecision"));
     await expect(knowledge).toContainText(editedBody);
+    await knowledge.getByRole("button", { name: tt("knowledge.showDetails") }).click();
     await expect(knowledge).toContainText("#E2E");
     await expect(knowledge).toContainText("#reviewer-edited");
     await expect(knowledge).toContainText(tt("knowledge.appliesTo", { pattern: "e2e/work-intelligence.spec.ts" }));

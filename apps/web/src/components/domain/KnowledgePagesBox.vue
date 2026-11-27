@@ -20,6 +20,7 @@ import UiButton from "../ui/UiButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFilterChips from "../ui/UiFilterChips.vue";
 import UiFlash from "../ui/UiFlash.vue";
+import UiGroupLabel from "../ui/UiGroupLabel.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
@@ -34,6 +35,7 @@ interface PageRow {
   title: string;
   question: string;
   page?: KnowledgePageRecord;
+  group?: { title: string; count: number };
 }
 
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
@@ -51,9 +53,6 @@ const statusFilter = ref("all");
 
 const projectsById = computed(() => new Map(props.projects.map((project) => [project.id, project])));
 const selectedProject = computed(() => projectsById.value.get(projectId.value));
-const customPageProject = computed(
-  () => selectedProject.value ?? (props.projects.length === 1 ? props.projects[0] : undefined),
-);
 const statusItems = [
   { value: "all", label: t("knowledge.allStatuses") },
   { value: "has_new_data", label: t("common.newDataAvailable") },
@@ -93,6 +92,31 @@ const filteredRows = computed(() =>
     return (row.page?.status ?? "missing") === statusFilter.value;
   }),
 );
+const groupLabels = computed(() => {
+  const ids = [...new Set(filteredRows.value.map((row) => row.projectId))];
+  const names = new Map(ids.map((id) => [id, projectName(id)]));
+  const counts = new Map<string, number>();
+  for (const name of names.values()) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return new Map(
+    ids.map((id) => {
+      const name = names.get(id) ?? "";
+      return [id, (counts.get(name) ?? 0) > 1 ? `${name} · ${projectHint(id)}` : name];
+    }),
+  );
+});
+const listItems = computed<PageRow[]>(() => {
+  if (selectedProject.value || groupLabels.value.size < 2) return filteredRows.value;
+  const ids = [...groupLabels.value.keys()].sort(
+    (a, b) => (groupLabels.value.get(a) ?? "").localeCompare(groupLabels.value.get(b) ?? "") || a.localeCompare(b),
+  );
+  return ids.flatMap((id) => {
+    const members = filteredRows.value.filter((row) => row.projectId === id);
+    const [first, ...rest] = members;
+    return first
+      ? [{ ...first, group: { title: groupLabels.value.get(id) ?? "", count: members.length } }, ...rest]
+      : [];
+  });
+});
 const filterChips = computed(() => {
   const chips: FilterChip[] = [];
   if (projectChip.value) chips.push(projectChip.value);
@@ -101,9 +125,26 @@ const filterChips = computed(() => {
   return chips;
 });
 
+function projectName(id: string): string {
+  return projectsById.value.get(id)?.name ?? t("knowledge.unknownProject");
+}
+
+function projectHint(id: string): string {
+  const root = projectsById.value.get(id)?.rootPath;
+  return root ? root.split(/[\\/]/).filter(Boolean).slice(-2).join("/") : id.slice(0, 8);
+}
+
 function requestLabel(row: PageRow): string {
   if (row.page?.updateRequestedAt) return t("knowledge.pageRequested");
   return row.page ? t("knowledge.requestUpdate") : t("knowledge.requestCreation");
+}
+
+function isOpenable(row: PageRow): boolean {
+  return Boolean(row.page && row.page.version > 0);
+}
+
+function openPage(row: PageRow): void {
+  if (row.page && isOpenable(row)) pagesStore.showPage(row.page.id);
 }
 
 function removeFilter(key: string): void {
@@ -155,8 +196,8 @@ async function requestUpdate(row: PageRow): Promise<void> {
         <UiButton
           size="sm"
           :icon="FilePlus2"
-          :disabled="!customPageProject"
-          :disabled-reason="t('outstanding.chooseAProjectFirst')"
+          :disabled="projects.length === 0"
+          :disabled-reason="t('projects.noTrackedProjects')"
           @click="requestDialogOpen = true"
           >{{ t("knowledge.customKnowledgePage") }}</UiButton
         >
@@ -188,7 +229,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
     />
     <VirtualList
       v-else
-      :items="filteredRows"
+      :items="listItems"
       :enabled="true"
       fit-viewport
       fit-viewport-to-panel
@@ -197,7 +238,10 @@ async function requestUpdate(row: PageRow): Promise<void> {
       :label="t('knowledge.knowledgePageList')"
     >
       <template #default="{ item: row }">
-        <UiBoxRow tag="article" data-testid="knowledge-page-row">
+        <UiGroupLabel v-if="row.group" :summary="t('knowledge.pageCount', { count: row.group.count })">{{
+          row.group.title
+        }}</UiGroupLabel>
+        <UiBoxRow tag="article" :clickable="isOpenable(row)" data-testid="knowledge-page-row" @select="openPage(row)">
           <template #leading><BookMarked :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
           <template #title>{{ row.title }}</template>
           <template #labels>
@@ -209,49 +253,40 @@ async function requestUpdate(row: PageRow): Promise<void> {
             <UiLabel v-if="row.page?.updateRequestedAt" tone="accent">{{ t("knowledge.updateRequested") }}</UiLabel>
           </template>
           <template #meta>
-            <span v-if="!selectedProject"
-              >{{ `${projectsById.get(row.projectId)?.name ?? t("knowledge.unknownProject")} ·` }}
-            </span>
-            <span>{{ row.question }}</span>
-            <span v-if="row.page?.sourcedThrough">
-              {{ t("knowledge.updated", { value: formatRelative(row.page.sourcedThrough) }) }}</span
-            >
+            <span class="knowledge-pages__meta-item">{{ row.question }}</span>
+            <span v-if="row.page?.sourcedThrough" class="knowledge-pages__meta-item">{{
+              t("knowledge.updated", { value: formatRelative(row.page.sourcedThrough) })
+            }}</span>
             <time
               v-if="row.page && (row.page.checkedThrough?.completedAt || row.page.sourcedThrough)"
+              class="knowledge-pages__meta-item"
               :datetime="row.page.checkedThrough?.completedAt ?? row.page.sourcedThrough"
               :title="
                 t('knowledge.checkedThroughValue', {
                   value: formatDate(row.page.checkedThrough?.completedAt ?? row.page.sourcedThrough!),
                 })
               "
-            >
-              {{
+              >{{
                 t("knowledge.checkedThrough", {
                   value: formatRelative(row.page.checkedThrough?.completedAt ?? row.page.sourcedThrough!),
                 })
-              }}
-            </time>
-            <span v-else-if="row.page"> {{ t("knowledge.notCheckedYet") }}</span>
-            <span v-if="row.page && row.page.newSessionCount > 0">
-              {{ t("knowledge.newSessionsToAssess", { newSessionCount: row.page.newSessionCount }) }}</span
+              }}</time
             >
-            <span v-if="row.page?.needsReview">
-              {{
-                t("knowledge.sectionsToCheck", {
-                  value: row.page.reviewSections?.map((section) => section.heading).join(t("common.listSeparator")),
-                })
-              }}</span
-            >
+            <span v-else-if="row.page" class="knowledge-pages__meta-item">{{ t("knowledge.notCheckedYet") }}</span>
+            <span v-if="row.page && row.page.newSessionCount > 0" class="knowledge-pages__meta-item">{{
+              t("knowledge.newSessionsToAssess", { newSessionCount: row.page.newSessionCount })
+            }}</span>
+            <span v-if="row.page?.needsReview" class="knowledge-pages__meta-item">{{
+              t("knowledge.sectionsToCheck", {
+                value: row.page.reviewSections?.map((section) => section.heading).join(t("common.listSeparator")),
+              })
+            }}</span>
           </template>
           <template #trailing>
             <div class="knowledge-pages__actions">
-              <UiButton
-                v-if="row.page && row.page.version > 0"
-                size="sm"
-                :icon="Eye"
-                @click="pagesStore.showPage(row.page.id)"
-                >{{ t("knowledge.view") }}</UiButton
-              >
+              <UiButton v-if="isOpenable(row)" class="hide-sm" size="sm" :icon="Eye" @click="openPage(row)">{{
+                t("knowledge.view")
+              }}</UiButton>
               <UiButton
                 size="sm"
                 :variant="!row.page ? 'primary' : 'default'"
@@ -270,7 +305,8 @@ async function requestUpdate(row: PageRow): Promise<void> {
 
     <KnowledgePageRequestDialog
       :open="requestDialogOpen"
-      :project="customPageProject"
+      :projects="projects"
+      :default-project-id="projectId"
       @close="requestDialogOpen = false"
     />
   </UiBox>
@@ -288,6 +324,11 @@ async function requestUpdate(row: PageRow): Promise<void> {
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-1);
+}
+
+.knowledge-pages__meta-item + .knowledge-pages__meta-item::before {
+  content: "·";
+  margin-inline: var(--space-2);
 }
 
 @media (max-width: 639px) {
