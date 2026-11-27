@@ -156,6 +156,60 @@ describe("server-observed segment start", () => {
   });
 });
 
+describe("start record rewritten by a later process", () => {
+  function startRecordNotes(store: WorkIntelligenceStore, sessionId: string) {
+    return (store.getSessionDetail(sessionId)?.events ?? []).filter((event) => event.details?.field === "startedAt");
+  }
+
+  it("keeps the stored start and its note when a new observation arrives", () => {
+    const { store, finalize } = setup();
+    const startA = hoursAgo(3);
+    const startB = hoursAgo(1);
+    const first = finalize(
+      { idempotencyKey: "restart-1", verification: { status: "in_progress" } },
+      { observedStartedAt: { at: startA, tool: "work_get_context" } },
+    );
+
+    const completed = finalize(
+      { idempotencyKey: "restart-1", summary: "Completed after restart.", verification: { status: "passed" } },
+      { observedStartedAt: { at: startB, tool: "work_recall" } },
+    );
+
+    expect(completed.session.id).toBe(first.session.id);
+    expect(completed.session.startedAt).toBe(startA);
+    expect(completed.startedAtSource).toBeUndefined();
+    const notes = startRecordNotes(store, first.session.id);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({
+      occurredAt: startA,
+      details: { field: "startedAt", source: "server_observed", tool: "work_get_context" },
+    });
+  });
+
+  it("lets an explicit startedAt in the completing finalize win", () => {
+    const { store, finalize } = setup();
+    const explicit = hoursAgo(5);
+    const first = finalize(
+      { idempotencyKey: "restart-2", verification: { status: "in_progress" } },
+      { observedStartedAt: { at: hoursAgo(3), tool: "work_get_context" } },
+    );
+
+    const completed = finalize(
+      {
+        idempotencyKey: "restart-2",
+        summary: "Completed with explicit start.",
+        startedAt: explicit,
+        verification: { status: "passed" },
+      },
+      { observedStartedAt: { at: hoursAgo(1), tool: "work_recall" } },
+    );
+
+    expect(completed.session.startedAt).toBe(explicit);
+    expect(completed.startedAtSource).toBe("reported");
+    expect(startRecordNotes(store, first.session.id)).toHaveLength(0);
+  });
+});
+
 describe("startedAt and changed-files metadata corrections", () => {
   it("keeps a note when startedAt is added or corrected, and nothing when unchanged", () => {
     const { store, finalize } = setup();

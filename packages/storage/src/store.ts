@@ -1830,14 +1830,6 @@ export class WorkIntelligenceStore {
       completedAt,
       input.completedAt || input.startedAt ? undefined : context.observedStartedAt,
     );
-    const startedAt = resolvedStart?.value;
-    const timestampWarnings = [
-      ...suppliedCompletedAtWarnings(input.completedAt),
-      ...(input.startedAt && input.startedAt > completedAt
-        ? [startedAfterCompletedWarning(input.startedAt, completedAt)]
-        : []),
-      ...segmentLengthWarnings(startedAt, completedAt),
-    ];
     const privateTagWarnings = findUnclosedPrivateTags(input);
     const events = [
       ...sanitizedEvents.value,
@@ -1888,7 +1880,19 @@ export class WorkIntelligenceStore {
       const contradiction = findFinalizeRequestContradiction(input, (normalizedWorkSummary?.nextSteps.length ?? 0) > 0);
       if (contradiction) return contradiction;
 
-      const startedAtStored = startedAt ?? rewritten?.startedAt;
+      const keepsStoredStart =
+        resolvedStart?.source === "server_observed" &&
+        rewritten?.startedAt !== undefined &&
+        rewritten.startedAt !== resolvedStart.value;
+      const effectiveStart = keepsStoredStart ? undefined : resolvedStart;
+      const startedAtStored = effectiveStart?.value ?? rewritten?.startedAt;
+      const timestampWarnings = [
+        ...suppliedCompletedAtWarnings(input.completedAt),
+        ...(input.startedAt && input.startedAt > completedAt
+          ? [startedAfterCompletedWarning(input.startedAt, completedAt)]
+          : []),
+        ...segmentLengthWarnings(startedAtStored ?? undefined, completedAt),
+      ];
       const sessionColumns = {
         title: sanitizedTitle.value,
         summary: sanitizedSummary.value,
@@ -1921,7 +1925,14 @@ export class WorkIntelligenceStore {
              WHERE id = @id`,
           )
           .run({ ...sessionColumns, id: sessionId, updatedAt: createdAt });
-        this.db.prepare("DELETE FROM work_events WHERE session_id = ?").run(sessionId);
+        this.db
+          .prepare(
+            keepsStoredStart
+              ? `DELETE FROM work_events WHERE session_id = ?
+                 AND NOT (json_valid(details_json) AND json_extract(details_json, '$.field') = 'startedAt')`
+              : "DELETE FROM work_events WHERE session_id = ?",
+          )
+          .run(sessionId);
         if (sanitizedVerification && !sameVerification(rewritten.verification, sanitizedVerification.value)) {
           this.sessionRecords.insertVerificationUpdate(
             sessionId,
@@ -1978,7 +1989,7 @@ export class WorkIntelligenceStore {
 
       const observedTool = context.observedStartedAt?.tool;
       const startedAtEvents =
-        resolvedStart?.source === "server_observed" && context.observedStartedAt
+        effectiveStart?.source === "server_observed" && context.observedStartedAt
           ? [
               ...events,
               {
@@ -2066,7 +2077,7 @@ export class WorkIntelligenceStore {
         outcome: "finalized",
         duplicate: false,
         session,
-        ...(resolvedStart ? { startedAtSource: resolvedStart.source satisfies StartedAtSource } : {}),
+        ...(effectiveStart ? { startedAtSource: effectiveStart.source satisfies StartedAtSource } : {}),
         redactions: diagramRedactions ? combineRedactionSummaries(redactions, diagramRedactions) : redactions,
         verificationFollowUp: getVerificationFollowUp(session),
         changedFilesFollowUp: input.changedFiles === undefined ? getChangedFilesFollowUp(session) : undefined,

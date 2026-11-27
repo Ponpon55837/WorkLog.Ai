@@ -215,4 +215,37 @@ describe("finalize with server-observed Git changes", () => {
     const next = await finalize(client, payload(root, "observe-9", ["later.ts"]));
     expect(next.session).not.toHaveProperty("startedAtSource");
   });
+
+  it("keeps the first process's observed start when a restarted process completes the start record", async () => {
+    const { client, store, root } = await connect();
+    await client.callTool({
+      name: "work_read",
+      arguments: { operation: "work_get_project_status", arguments: { projectRoot: root } },
+    });
+    const startRecord = await finalize(client, {
+      ...payload(root, "observe-10", [], { verification: { status: "in_progress" as const } }),
+    });
+    const originalStart = store.getSessionById(startRecord.session.id)?.startedAt;
+    expect(originalStart).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const restarted = createWorkIntelligenceMcpServer(store, "9.9.9", LATEST_SCHEMA_VERSION);
+    const restartedClient = new Client({ name: "test-client", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([restarted.connect(serverTransport), restartedClient.connect(clientTransport)]);
+    cleanups.push(() => restartedClient.close());
+    await restartedClient.callTool({
+      name: "work_read",
+      arguments: { operation: "work_get_project_status", arguments: { projectRoot: root } },
+    });
+    const completed = await finalize(restartedClient, payload(root, "observe-10", []));
+
+    expect(completed.session.id).toBe(startRecord.session.id);
+    expect(completed.session).not.toHaveProperty("startedAtSource");
+    expect(store.getSessionById(completed.session.id)?.startedAt).toBe(originalStart);
+    const notes = (store.getSessionDetail(completed.session.id)?.events ?? []).filter(
+      (event) => event.details?.field === "startedAt",
+    );
+    expect(notes).toHaveLength(1);
+  });
 });
