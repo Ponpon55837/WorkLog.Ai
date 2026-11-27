@@ -17,6 +17,7 @@ import type {
   RequestKnowledgeCandidatesResult,
   RecordKnowledgeInput,
   RecordKnowledgeResult,
+  SetKnowledgeConventionResult,
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
 } from "@work-intelligence/core";
@@ -48,6 +49,7 @@ type KnowledgeCandidateRequestInput = { projectRoot: string; refreshProjectRoot?
 export const useKnowledgeStore = defineStore("knowledge", () => {
   const queryCache = useQueryCache();
   const listEnabled = ref(false);
+  const conventionsEnabled = ref(false);
   const knowledgePage = ref(1);
   const knowledgePageSize = ref<ListPageSize>(10);
   const knowledgeQuery = ref("");
@@ -55,6 +57,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const knowledgeKind = ref<KnowledgeKind | "">("");
   const knowledgeProjectId = ref("");
   const knowledgeStatus = ref<KnowledgeStatus>("active");
+  const knowledgeConvention = ref<"" | "only">("");
   const historyKnowledgeId = ref("");
   const historyProjectRoot = ref("");
   const historyEnabled = ref(false);
@@ -68,6 +71,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
       kind: knowledgeKind.value || undefined,
       projectId: knowledgeProjectId.value || undefined,
       status: knowledgeStatus.value,
+      convention: knowledgeConvention.value === "only" ? true : undefined,
       page: knowledgePage.value,
       pageSize: knowledgePageSize.value,
     };
@@ -79,6 +83,12 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     placeholderData: (previousData) => previousData,
     query: ({ signal }): Promise<KnowledgeSearchResult> =>
       useApi().client.searchKnowledge(knowledgeListScope(), signal),
+  });
+  const conventionsQuery = useQuery<KnowledgeSearchResult>({
+    key: () => queryKeys.knowledge.conventions,
+    enabled: conventionsEnabled,
+    query: ({ signal }): Promise<KnowledgeSearchResult> =>
+      useApi().client.searchKnowledge({ status: "active", convention: true, pageSize: 100 }, signal),
   });
   const historyQuery = useQuery({
     key: () => [...queryKeys.knowledge.history, historyKnowledgeId.value, historyProjectRoot.value],
@@ -109,9 +119,24 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
       await Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
+        queryCache.invalidateQueries({ key: queryKeys.knowledge.conventions }),
         queryCache.invalidateQueries({ key: [...queryKeys.knowledge.history, input.knowledgeId] }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search }),
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
+      ]);
+    },
+  });
+  const setConventionMutation = useMutation({
+    mutation: (input: { knowledgeId: string; projectRoot: string; confirmed: boolean }) =>
+      useApi().client.setKnowledgeConvention(input.knowledgeId, {
+        projectRoot: input.projectRoot,
+        confirmed: input.confirmed,
+      }),
+    onSettled: async (_result, _error, input) => {
+      await Promise.allSettled([
+        queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
+        queryCache.invalidateQueries({ key: queryKeys.knowledge.conventions }),
+        queryCache.invalidateQueries({ key: [...queryKeys.knowledge.history, input.knowledgeId] }),
       ]);
     },
   });
@@ -170,6 +195,14 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     const result = listQuery.data.value;
     return result?.outcome === "skipped" ? result.reason : "";
   });
+  const conventionCounts = computed<Record<string, number>>(() => {
+    const counts: Record<string, number> = {};
+    const result = conventionsQuery.data.value;
+    for (const item of result?.outcome === "knowledge" ? result.items : []) {
+      counts[item.projectId] = (counts[item.projectId] ?? 0) + 1;
+    }
+    return counts;
+  });
   const knowledgeHistory = computed<KnowledgeAuditRecord[]>(() =>
     historyQuery.data.value?.outcome === "knowledge_history" ? historyQuery.data.value.history : [],
   );
@@ -221,6 +254,10 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     if (active) appliedKnowledgeQuery.value = knowledgeQuery.value.trim();
   }
 
+  function setConventionsActive(active: boolean): void {
+    conventionsEnabled.value = active;
+  }
+
   function loadKnowledge(): void {
     listEnabled.value = true;
     appliedKnowledgeQuery.value = knowledgeQuery.value.trim();
@@ -236,6 +273,14 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
 
   async function updateKnowledge(input: UpdateKnowledgeInput): Promise<UpdateKnowledgeResult> {
     return await updateKnowledgeMutation.mutateAsync(input);
+  }
+
+  async function setKnowledgeConvention(input: {
+    knowledgeId: string;
+    projectRoot: string;
+    confirmed: boolean;
+  }): Promise<SetKnowledgeConventionResult> {
+    return await setConventionMutation.mutateAsync(input);
   }
 
   async function recordKnowledge(input: RecordKnowledgeInput): Promise<RecordKnowledgeResult> {
@@ -299,14 +344,18 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     knowledgeKind,
     knowledgeProjectId,
     knowledgeStatus,
+    knowledgeConvention,
+    conventionCounts,
     knowledgeLoading,
     knowledgeLoaded,
     knowledgeSkippedRecords,
     knowledgeError,
     setKnowledgeListActive,
+    setConventionsActive,
     loadKnowledge,
     retryKnowledge,
     updateKnowledge,
+    setKnowledgeConvention,
     recordKnowledge,
     knowledgeHistory,
     knowledgeFeedback,

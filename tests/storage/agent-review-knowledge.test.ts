@@ -606,3 +606,67 @@ describe("Overturning Agent verdicts on Knowledge", () => {
     expect(fixture.overturn(id)).toEqual({ outcome: "rejected", reason: "not_agent_reviewed" });
   });
 });
+
+describe("Agent review verdicts and project conventions", () => {
+  const mark = (fixture: ReturnType<typeof setup>, id: string) =>
+    fixture.store.setKnowledgeConvention({ projectRoot: fixture.root, knowledgeId: id, confirmed: true });
+
+  it("withdraws a convention on an archive verdict and tells the Agent", () => {
+    const fixture = setup();
+    const id = staleKnowledge(fixture, "hives");
+    mark(fixture, id);
+    const result = fixture.submit(fixture.open().id, [verdict(id, "archive")]);
+    expect(result.results[0]).toMatchObject({ outcome: "applied", conventionWithdrawn: true });
+    expect(result.warnings).toEqual([expect.stringContaining("project convention")]);
+    expect(fixture.read(id).conventionConfirmedAt).toBeUndefined();
+    expect(fixture.read(id).conventionWithdrawal).toMatchObject({ by: "agent", reason: "archived" });
+  });
+
+  it("withdraws a convention on a supersede verdict and tells the Agent", () => {
+    const fixture = setup();
+    const id = staleKnowledge(fixture, "hives");
+    mark(fixture, id);
+    const result = fixture.submit(fixture.open().id, [
+      verdict(id, "supersede", { knowledge: { title: "Smoke every hive", body: "Smoke every hive first." } }),
+    ]);
+    expect(result.results[0]).toMatchObject({ outcome: "applied", conventionWithdrawn: true });
+    expect(result.warnings).toHaveLength(1);
+    expect(fixture.read(id).conventionWithdrawal).toMatchObject({ by: "system", reason: "superseded" });
+    expect(fixture.read(result.results[0]!.knowledgeId!).conventionConfirmedAt).toBeUndefined();
+  });
+
+  it("keeps a convention on a confirm verdict, with no warning, and the same on replay", () => {
+    const fixture = setup();
+    const id = staleKnowledge(fixture, "hives");
+    mark(fixture, id);
+    const request = fixture.open();
+    const first = fixture.submit(request.id, [verdict(id, "confirm")]);
+    expect(first.warnings).toBeUndefined();
+    expect(fixture.read(id).conventionConfirmedAt).toBeDefined();
+    expect(fixture.submit(request.id, [verdict(id, "confirm")]).duplicate).toBe(true);
+  });
+
+  it("repeats the warning when an archive verdict is replayed", () => {
+    const fixture = setup();
+    const id = staleKnowledge(fixture, "hives");
+    mark(fixture, id);
+    const request = fixture.open();
+    fixture.submit(request.id, [verdict(id, "archive")]);
+    const replay = fixture.submit(request.id, [verdict(id, "archive")]);
+    expect(replay).toMatchObject({ duplicate: true, warnings: [expect.any(String)] });
+  });
+
+  it("withdraws a convention when overturning a confirmation puts the review mark back", () => {
+    const fixture = setup();
+    const id = fixture.record("hives", ["src/hives/**"]);
+    fixture.finalize("contradicting", ["src/hives/one.ts"], { contradictedKnowledgeIds: [id] });
+    fixture.submit(fixture.open().id, [verdict(id, "confirm")]);
+    expect(mark(fixture, id)).toMatchObject({ outcome: "knowledge_updated" });
+
+    fixture.overturn(id);
+    const after = fixture.read(id);
+    expect(after.review).toBeDefined();
+    expect(after.conventionConfirmedAt).toBeUndefined();
+    expect(after.conventionWithdrawal).toMatchObject({ by: "system", reason: "needs_review" });
+  });
+});

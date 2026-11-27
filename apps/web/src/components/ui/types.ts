@@ -13,6 +13,7 @@ export type SelectOption<T extends string | number = string> = {
   tone?: Tone;
   description?: string;
   count?: number;
+  disabled?: boolean;
 };
 
 export const iconProps = { size: 16, "stroke-width": 1.75 } as const;

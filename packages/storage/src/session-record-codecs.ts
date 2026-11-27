@@ -11,6 +11,7 @@ import type {
   KnowledgeAuditRecord,
   KnowledgeKind,
   KnowledgeRecord,
+  KnowledgeConventionWithdrawal,
   KnowledgeReview,
   KnowledgeStatus,
   RawSnapshotRecord,
@@ -85,6 +86,8 @@ export type KnowledgeRow = {
   last_confirmed_session_id?: string | null;
   supersedes_id?: string | null;
   review_json?: string | null;
+  convention_confirmed_at?: string | null;
+  convention_withdrawal_json?: string | null;
 };
 
 export type KnowledgeAuditRow = {
@@ -657,6 +660,16 @@ export function toKnowledge(row: KnowledgeRow): KnowledgeRecord {
     ...(row.supersedes_id ? { supersedesId: row.supersedes_id } : {}),
     ...(row.review_json
       ? { review: parseJson<KnowledgeReview>(row.review_json, { reason: "contradicted", at: "" }) }
+      : {}),
+    ...(row.convention_confirmed_at ? { conventionConfirmedAt: row.convention_confirmed_at } : {}),
+    ...(row.convention_withdrawal_json
+      ? {
+          conventionWithdrawal: parseJson<KnowledgeConventionWithdrawal>(row.convention_withdrawal_json, {
+            at: "",
+            by: "system",
+            reason: "unmarked",
+          }),
+        }
       : {}),
   };
 }

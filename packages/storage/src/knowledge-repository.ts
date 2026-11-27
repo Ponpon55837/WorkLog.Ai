@@ -275,6 +275,9 @@ export class KnowledgeRepository {
       clauses.push("k.kind = ?");
       parameters.push(options.kind);
     }
+    if (options.convention) {
+      clauses.push("k.convention_confirmed_at IS NOT NULL AND k.convention_confirmed_at <> ''");
+    }
     const status = options.status ?? "active";
     if (status) {
       clauses.push("k.status = ?");

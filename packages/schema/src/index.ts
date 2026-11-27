@@ -1346,6 +1346,12 @@ export const updateKnowledgeInputSchema = updateKnowledgeInputSchemaBase.superRe
   }
 });
 
+export const setKnowledgeConventionInputSchema = z.object({
+  projectRoot: z.string().trim().min(1).max(1_000),
+  knowledgeId: z.string().trim().min(1).max(200),
+  confirmed: z.boolean(),
+});
+
 export const knowledgeQuerySchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000).optional(),
   projectId: z.string().trim().min(1).max(200).optional(),
@@ -1356,6 +1362,8 @@ export const knowledgeQuerySchema = z.object({
   page: z.number().int().min(1).max(10_000).default(1),
   pageSize: listPageSizeSchema.default(10),
 });
+
+export const restKnowledgeQuerySchema = knowledgeQuerySchema.extend({ convention: z.literal(true).optional() });
 
 export const mcpKnowledgeQuerySchema = knowledgeQuerySchema.extend({
   view: z
@@ -1534,6 +1542,7 @@ export type UpdateSessionMetadataInput = z.infer<typeof updateSessionMetadataInp
 export type AttachEvidenceInput = z.infer<typeof attachEvidenceInputSchema>;
 export type RecordKnowledgeInput = z.infer<typeof recordKnowledgeInputSchema>;
 export type UpdateKnowledgeInput = z.infer<typeof updateKnowledgeInputSchema>;
+export type SetKnowledgeConventionInput = z.infer<typeof setKnowledgeConventionInputSchema>;
 export type KnowledgeQuery = z.infer<typeof knowledgeQuerySchema>;
 export type KnowledgeHistoryQuery = z.infer<typeof knowledgeHistoryQuerySchema>;
 export type GraphQuery = z.infer<typeof graphQuerySchema>;
@@ -2144,6 +2153,7 @@ export const projectDataColumnDefaults: Partial<
     covered_through_session_id: null,
   },
   knowledge_candidates: { overlaps_json: null, reviewed_by: null, review_reason: null, review_request_id: null },
+  knowledge: { convention_confirmed_at: null, convention_withdrawal_json: null },
 };
 
 export function projectDataColumnValue(

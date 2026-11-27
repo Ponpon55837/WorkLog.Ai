@@ -62,6 +62,7 @@ const EXPECTED_ROUTES = [
   "GET /api/knowledge-pages/:pageId/versions",
   "POST /api/knowledge-pages/update-requests",
   "PATCH /api/knowledge/:knowledgeId",
+  "PUT /api/knowledge/:knowledgeId/convention",
   "PATCH /api/outstanding-items/:itemId",
   "PATCH /api/outstanding-items/batch",
   "GET /api/knowledge/:knowledgeId/history",

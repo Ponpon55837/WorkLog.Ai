@@ -786,6 +786,27 @@ describe("Overturning Agent verdicts", () => {
     });
   });
 
+  it("withdraws a convention of the promoted Knowledge as the user when the verdict is overturned", () => {
+    const fixture = setup();
+    const { decisionIds } = finalize(fixture, "a", ["Alpha decision"]);
+    const request = openReview(fixture);
+    const knowledgeId = submitted(fixture, request.id, [
+      decisionVerdict(decisionIds[0]!, "promote", { knowledge: promoteDraft("Alpha becomes a rule") }),
+    ]).results[0]!.knowledgeId!;
+    expect(
+      fixture.store.setKnowledgeConvention({ projectRoot: fixture.root, knowledgeId, confirmed: true }),
+    ).toMatchObject({ outcome: "knowledge_updated" });
+
+    fixture.store.overturnAgentReview({ projectRoot: fixture.root, itemKind: "decision", itemId: decisionIds[0]! });
+    const row = fixture.db
+      .prepare(
+        "SELECT status, convention_confirmed_at AS flag, convention_withdrawal_json AS withdrawal FROM knowledge WHERE id = ?",
+      )
+      .get(knowledgeId) as { status: string; flag: string | null; withdrawal: string };
+    expect(row).toMatchObject({ status: "archived", flag: null });
+    expect(JSON.parse(row.withdrawal)).toMatchObject({ by: "user", reason: "archived" });
+  });
+
   it("does not report Knowledge for verdicts that created none", () => {
     const fixture = setup();
     const { decisionIds } = finalize(fixture, "a", ["Alpha decision"]);

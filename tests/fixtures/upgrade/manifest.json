@@ -5323,6 +5323,634 @@
           "hash": "199edb594a535353b61ddf4be60c6375cb568885f73601b26fb06476c002ab22"
         }
       }
+    },
+    {
+      "file": "schema-40.sqlite",
+      "schemaVersion": 40,
+      "sourceVersion": "1.6.82",
+      "sourceCommit": "113df4c6078e99e4892ece14423447a199abc983",
+      "generatorVersion": 1,
+      "bytes": 880640,
+      "sha256": "7ffd8b91a496e4f64d08565b64b82f0af5ac5fbfbd682013080959ec03b8f759",
+      "migrationVersions": [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+        31, 32, 33, 34, 35, 36, 37, 38, 39, 40
+      ],
+      "build": {
+        "node": "v22.23.5",
+        "pnpm": "12.23.0"
+      },
+      "containsPrivateBlockRedactions": true,
+      "fingerprint": {
+        "agent_read_audit": {
+          "columns": [
+            "id",
+            "created_at",
+            "tool",
+            "agent_client",
+            "project_id",
+            "outcome",
+            "returned_count",
+            "session_ids_json",
+            "knowledge_ids_json",
+            "omitted_session_count",
+            "omitted_knowledge_count",
+            "duration_ms",
+            "error_code",
+            "response_chars",
+            "connection_id"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "agent_read_audit_records": {
+          "columns": ["audit_id", "record_type", "record_id"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "agent_review_request_items": {
+          "columns": [
+            "id",
+            "request_id",
+            "project_id",
+            "item_kind",
+            "item_id",
+            "source_session_id",
+            "position",
+            "fingerprint",
+            "submission_id",
+            "verdict",
+            "outcome",
+            "reason",
+            "knowledge_id",
+            "decided_at",
+            "overturned_at"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "agent_review_requests": {
+          "columns": [
+            "id",
+            "project_id",
+            "idempotency_key",
+            "status",
+            "requested_at",
+            "started_at",
+            "completed_at",
+            "failure_reason",
+            "item_count",
+            "omitted_count",
+            "completion_pages_json"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "agent_review_submissions": {
+          "columns": [
+            "id",
+            "request_id",
+            "project_id",
+            "idempotency_key",
+            "payload_hash",
+            "results_json",
+            "created_at"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "attention_preferences": {
+          "columns": [
+            "id",
+            "project_id",
+            "kind",
+            "source_id",
+            "source_revision",
+            "state",
+            "snoozed_until",
+            "revision",
+            "updated_at"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "change_revisions": {
+          "columns": ["singleton", "database_id", "data_revision", "audit_revision"],
+          "rows": 1,
+          "hash": "f505d8e1adc269510668dbffaca4ef54acd9bb56753e44f6bb058d3b18f2c6ed"
+        },
+        "database_maintenance_runs": {
+          "columns": [
+            "id",
+            "started_at",
+            "completed_at",
+            "status",
+            "backup_file_name",
+            "indexed_sessions",
+            "indexed_knowledge",
+            "indexed_chunks",
+            "indexed_paths",
+            "failure_code"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence": {
+          "columns": [
+            "id",
+            "session_id",
+            "project_id",
+            "kind",
+            "reference",
+            "summary",
+            "captured_at",
+            "voided_at",
+            "void_reason"
+          ],
+          "rows": 1,
+          "hash": "6005a691f4967df4223c5dea3a0b4e8b47fd712f99577239bdf2b55aeb55b2cc"
+        },
+        "knowledge": {
+          "columns": [
+            "id",
+            "project_id",
+            "session_id",
+            "idempotency_key",
+            "kind",
+            "title",
+            "body",
+            "tags_json",
+            "references_json",
+            "status",
+            "created_at",
+            "updated_at",
+            "applies_to_json",
+            "last_confirmed_at",
+            "last_confirmed_session_id",
+            "supersedes_id",
+            "review_json"
+          ],
+          "rows": 3,
+          "hash": "542da3c896c456d34c3b331170b95cd2f2ee7ec2c133735d3d0b20dc977a9b03"
+        },
+        "knowledge_audit": {
+          "columns": [
+            "id",
+            "knowledge_id",
+            "project_id",
+            "action",
+            "before_json",
+            "after_json",
+            "changed_fields_json",
+            "occurred_at"
+          ],
+          "rows": 3,
+          "hash": "674021f31bdf0cc5f4a5a51d72b82465baa3b76e8d6f065f8fc6500e660f0ec1"
+        },
+        "knowledge_candidate_requests": {
+          "columns": [
+            "id",
+            "project_id",
+            "status",
+            "requested_at",
+            "started_at",
+            "completed_at",
+            "failure_reason",
+            "source_session_ids_json",
+            "candidate_count"
+          ],
+          "rows": 1,
+          "hash": "d3b802e1f5a9501739228a9b35eb99500614bd1e5741d256769711c057fd7abc"
+        },
+        "knowledge_candidates": {
+          "columns": [
+            "id",
+            "request_id",
+            "project_id",
+            "session_id",
+            "kind",
+            "title",
+            "body",
+            "tags_json",
+            "references_json",
+            "applies_to_json",
+            "rationale",
+            "status",
+            "knowledge_id",
+            "created_at",
+            "decided_at",
+            "overlaps_json",
+            "reviewed_by",
+            "review_reason",
+            "review_request_id"
+          ],
+          "rows": 3,
+          "hash": "ec8b835846dd78359c30a43833bd8a18fb2dfdf5d46bee880071dabc31706eec"
+        },
+        "knowledge_feedback": {
+          "columns": ["id", "knowledge_id", "project_id", "session_id", "kind", "occurred_at"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "knowledge_page_deletion_audit": {
+          "columns": ["id", "deleted_at", "page_id", "project_id", "deleted_counts_json"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "knowledge_page_versions": {
+          "columns": [
+            "id",
+            "page_id",
+            "project_id",
+            "version",
+            "title",
+            "question",
+            "sections_json",
+            "author",
+            "idempotency_key",
+            "created_at"
+          ],
+          "rows": 2,
+          "hash": "653ab18e8f483603a35fe0e5e3cefbc6dd428de0bd96ef60b26d32f941a855d9"
+        },
+        "knowledge_pages": {
+          "columns": [
+            "id",
+            "project_id",
+            "slug",
+            "title",
+            "question",
+            "sections_json",
+            "version",
+            "sourced_through",
+            "update_requested_at",
+            "last_author",
+            "created_at",
+            "updated_at",
+            "checked_through_session_id",
+            "covered_through_completed_at",
+            "covered_through_session_id"
+          ],
+          "rows": 1,
+          "hash": "3f5b21ac035790f89d17c67a529d3a1779b582e526c3b6a6675170b739bb0fd5"
+        },
+        "metadata_backfill_requests": {
+          "columns": [
+            "id",
+            "idempotency_key",
+            "scope_type",
+            "project_id",
+            "status",
+            "requested_at",
+            "started_at",
+            "completed_at",
+            "failure_reason",
+            "source_session_ids_json"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "outstanding_cleanup_proposal_evidence": {
+          "columns": [
+            "id",
+            "proposal_id",
+            "project_id",
+            "session_id",
+            "session_updated_at",
+            "session_fingerprint",
+            "session_completed_at"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "outstanding_cleanup_proposals": {
+          "columns": [
+            "id",
+            "request_id",
+            "project_id",
+            "request_item_id",
+            "submission_id",
+            "target_status",
+            "reason",
+            "review_status",
+            "created_at",
+            "decided_at"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "outstanding_cleanup_request_items": {
+          "columns": [
+            "id",
+            "request_id",
+            "project_id",
+            "item_id",
+            "source_session_id",
+            "position",
+            "text",
+            "item_updated_at",
+            "source_updated_at",
+            "source_fingerprint",
+            "source_completed_at",
+            "examined_submission_id"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "outstanding_cleanup_requests": {
+          "columns": ["id", "project_id", "idempotency_key", "status", "requested_at", "completed_at", "item_count"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "outstanding_cleanup_submissions": {
+          "columns": ["id", "request_id", "project_id", "idempotency_key", "payload_hash", "created_at"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "outstanding_item_events": {
+          "columns": [
+            "id",
+            "item_id",
+            "project_id",
+            "from_status",
+            "to_status",
+            "source",
+            "actor_session_id",
+            "created_at",
+            "cleanup_request_id",
+            "cleanup_proposal_id"
+          ],
+          "rows": 13,
+          "hash": "1e5e196e67e77b32fa04599200313125b60a5450a66b9401895db97a0dd1b1d3"
+        },
+        "outstanding_items": {
+          "columns": [
+            "id",
+            "source_session_id",
+            "project_id",
+            "position",
+            "text",
+            "status",
+            "created_at",
+            "updated_at"
+          ],
+          "rows": 12,
+          "hash": "e62accd09d0123b2ca0412d8d7eaf53689aa8d46a336f19a78767b61a06f308c"
+        },
+        "project_data_import_audits": {
+          "columns": [
+            "id",
+            "source_digest",
+            "imported_at",
+            "additions_json",
+            "skipped_json",
+            "conflicts_json",
+            "remapped_paths_json"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "project_deletion_audit": {
+          "columns": ["id", "deleted_at", "project_id", "deleted_counts_json"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "project_location_audit": {
+          "columns": ["id", "changed_at", "project_id", "paths_changed"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "projects": {
+          "columns": [
+            "id",
+            "name",
+            "root_path",
+            "status",
+            "created_at",
+            "updated_at",
+            "last_ingested_at",
+            "repository_url"
+          ],
+          "rows": 2,
+          "hash": "9f8e7b9939484e927e1a0e5c3be267e83cf251238ce0331ea8cfb2e7f885eeb3"
+        },
+        "raw_snapshots": {
+          "columns": ["id", "session_id", "project_id", "kind", "source_path", "content", "captured_at"],
+          "rows": 6,
+          "hash": "e2a31be021459527b1b39b596fe74002a828134070485f2fc89b187fea5626ba"
+        },
+        "related_work_dirty": {
+          "columns": ["session_id", "project_id"],
+          "rows": 6,
+          "hash": "d51fd1178dac1b32d38539cac7183934049c31875c19ddbb6e1eb084862a9109"
+        },
+        "related_work_paths": {
+          "columns": ["doc_id", "project_id", "path", "doc_date"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "report_presentations": {
+          "columns": ["id", "summary_id", "revision", "state_json", "actor", "created_at"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "report_summaries": {
+          "columns": [
+            "id",
+            "request_id",
+            "period",
+            "range_from",
+            "range_to",
+            "project_id",
+            "title",
+            "executive_summary",
+            "themes_json",
+            "highlights_json",
+            "verification_json",
+            "comparison_json",
+            "risks_json",
+            "decisions_json",
+            "next_steps_json",
+            "source_session_ids_json",
+            "generated_by_agent",
+            "generated_by_model",
+            "prompt_version",
+            "created_at",
+            "is_current"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "report_synthesis_requests": {
+          "columns": [
+            "id",
+            "idempotency_key",
+            "scope_type",
+            "project_id",
+            "period",
+            "range_from",
+            "range_to",
+            "status",
+            "requested_at",
+            "started_at",
+            "completed_at",
+            "failure_reason",
+            "source_session_ids_json"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "search_chunks": {
+          "columns": [
+            "id",
+            "doc_type",
+            "doc_id",
+            "project_id",
+            "field",
+            "heading",
+            "content",
+            "weight",
+            "doc_date",
+            "content_hash"
+          ],
+          "rows": 72,
+          "hash": "671aec27f2b90217e3ad790f12168ba2739fadc919c9ac93ecdbd8247f0d627b"
+        },
+        "search_dirty": {
+          "columns": ["doc_type", "doc_id"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "search_fts": {
+          "columns": ["tokens"],
+          "rows": 72,
+          "hash": "3b050477da03eb6076938bae6f1986a263d8e6b09eeacd530e03214df5f69187"
+        },
+        "search_paths": {
+          "columns": ["doc_type", "doc_id", "project_id", "path", "basename", "weight", "doc_date"],
+          "rows": 12,
+          "hash": "4bb6ad582848c14686c68975a545ed9ca470ef51aaf4b5c53c236d085c8fac67"
+        },
+        "session_decisions": {
+          "columns": [
+            "id",
+            "session_id",
+            "project_id",
+            "position",
+            "text",
+            "origin",
+            "review_status",
+            "reviewed_at",
+            "knowledge_id",
+            "reviewed_by",
+            "review_reason",
+            "review_request_id"
+          ],
+          "rows": 6,
+          "hash": "0dc65de3958e64600d962709f13c8ca58b786be6536ce985ed466f5c0146747d"
+        },
+        "session_deletion_audit": {
+          "columns": ["id", "deleted_at", "session_id", "project_id", "deleted_counts_json"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "session_diagrams": {
+          "columns": [
+            "id",
+            "session_id",
+            "project_id",
+            "idempotency_key",
+            "title",
+            "kind",
+            "format_version",
+            "source",
+            "created_at",
+            "voided_at",
+            "void_reason"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "session_links": {
+          "columns": ["id", "session_id", "related_session_id", "relation", "source", "created_at"],
+          "rows": 1,
+          "hash": "884016b51cff296fc60eb1355d48a6dba15038efdc003aab2480ecc59406f56f"
+        },
+        "session_summary_updates": {
+          "columns": [
+            "id",
+            "session_id",
+            "idempotency_key",
+            "mode",
+            "summary",
+            "previous_summary",
+            "resulting_summary",
+            "created_at"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "session_verification_updates": {
+          "columns": ["id", "session_id", "source", "previous_json", "resulting_json", "created_at"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "session_work_summary_updates": {
+          "columns": [
+            "id",
+            "session_id",
+            "idempotency_key",
+            "mode",
+            "work_summary_json",
+            "previous_work_summary_json",
+            "resulting_work_summary_json",
+            "created_at"
+          ],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "sessions": {
+          "columns": [
+            "id",
+            "project_id",
+            "external_session_id",
+            "idempotency_key",
+            "title",
+            "summary",
+            "work_summary_json",
+            "status",
+            "execution_status",
+            "completed_at",
+            "created_at",
+            "commit_sha",
+            "git_branch",
+            "changed_files_json",
+            "changed_files_provenance_json",
+            "changed_file_changes_json",
+            "verification_json",
+            "voided_at",
+            "void_reason",
+            "started_at",
+            "updated_at",
+            "changed_files_confirmed",
+            "redaction_count",
+            "agent_client",
+            "agent_model"
+          ],
+          "rows": 6,
+          "hash": "5c7871c5b0d796979563c6fbd2894da3cc94f577881699dd3ea9048acfda4337"
+        },
+        "void_audit": {
+          "columns": ["id", "target_type", "target_id", "session_id", "project_id", "action", "reason", "occurred_at"],
+          "rows": 0,
+          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "work_events": {
+          "columns": ["id", "session_id", "type", "summary", "details_json", "occurred_at"],
+          "rows": 18,
+          "hash": "d29eeb0491dda454fea1b673af190f5097ea443b80d6d9ed20a411de8e766418"
+        }
+      }
     }
   ]
 }

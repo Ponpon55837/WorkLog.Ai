@@ -29,6 +29,8 @@ const retrievalQuery = "agent context retrieval budget gotcha";
 const RESPONSE_BUDGETS = {
   contextWithoutTask: 16_000,
   contextWithTask: 10_000,
+  contextWithoutTaskAndConventions: 16_700,
+  contextWithTaskAndConventions: 10_700,
   finalizeWithRelatedOutstandingItems: 4_000,
   finalizeReceipt: 2_000,
   startedAtFollowUp: 500,
@@ -228,6 +230,85 @@ describe("synthetic MCP response-size baseline", () => {
     }
     expect(contextWithoutTask.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithoutTask);
     expect(contextWithTask.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
+  });
+
+  it("keeps everything but the conventions block unchanged, however Knowledge backfills the recent list", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const taskArgs = { projectRoot, task: query };
+    const record = (key: string, extra: Record<string, unknown>) => {
+      vi.setSystemTime(Date.now() + 60_000);
+      const recorded = store.recordKnowledge({
+        projectRoot,
+        idempotencyKey: key,
+        kind: "pattern",
+        title: `Agent context retrieval budget ${key}`,
+        body: `${longDecision} ${"Filler detail that keeps the context near its limit. ".repeat(20)}`,
+        tags: ["agent", "context", "retrieval", "budget"],
+        ...extra,
+      });
+      if (recorded.outcome !== "knowledge_recorded") throw new Error("Expected Knowledge.");
+      return recorded.knowledge.id;
+    };
+    for (let index = 0; index < 5; index += 1) record(`stale-${index}`, { appliesTo: ["src/stale/**"] });
+    for (let index = 0; index < 7; index += 1) record(`filler-${index}`, {});
+    const ids = Array.from({ length: 5 }, (_, index) =>
+      record(`convention-${index}`, { title: `${"規則".repeat(35)}${index}`, body: "Fictional convention body." }),
+    );
+    vi.setSystemTime(Date.now() + 60_000);
+    store.finalizeSession({
+      projectRoot,
+      idempotencyKey: "touch-stale",
+      title: "Touch stale",
+      summary: "Changed a file that older Knowledge covers.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: ["src/stale/file.ts"],
+      verification: { status: "passed" },
+    });
+
+    const read = async () => ({
+      noTask: await serializedMcpPayload(client, "work_get_context", { projectRoot }),
+      task: await serializedMcpPayload(client, "work_get_context", taskArgs),
+    });
+    const unflagged = await read();
+    for (const id of ids) {
+      expect(store.setKnowledgeConvention({ projectRoot, knowledgeId: id, confirmed: true }).outcome).toBe(
+        "knowledge_updated",
+      );
+    }
+    const flagged = await read();
+
+    type Shape = {
+      conventions: unknown;
+      relevant?: unknown;
+      omitted?: Array<{ section: string; count: number; ids?: string[]; entries?: Array<{ id: string }> }>;
+      recentKnowledge: Array<{ id: string }>;
+    };
+    const blockLength = (payload: SerializedMcpPayload) =>
+      `,"conventions":${JSON.stringify((payload.value as Shape).conventions)}`.length;
+    const omittedWithout = (payload: SerializedMcpPayload, section: string) =>
+      (payload.value as Shape).omitted?.filter((omission) => omission.section !== section);
+
+    expect(JSON.stringify((unflagged.task.value as Shape).omitted)).toContain("預算限制");
+    for (const [key, limit, base] of [
+      ["noTask", RESPONSE_BUDGETS.contextWithoutTaskAndConventions, RESPONSE_BUDGETS.contextWithoutTask],
+      ["task", RESPONSE_BUDGETS.contextWithTaskAndConventions, RESPONSE_BUDGETS.contextWithTask],
+    ] as const) {
+      expect(unflagged[key].length).toBeLessThanOrEqual(base);
+      expect(flagged[key].length).toBeLessThanOrEqual(limit);
+      expect(flagged[key].length).toBeLessThanOrEqual(unflagged[key].length + blockLength(flagged[key]));
+      expect(blockLength(flagged[key])).toBeLessThanOrEqual(700 + ',"conventions":'.length);
+      expect((flagged[key].value as Shape).relevant).toEqual((unflagged[key].value as Shape).relevant);
+      expect((flagged[key].value as Shape).recentKnowledge.map((item) => item.id)).toEqual(
+        (unflagged[key].value as Shape).recentKnowledge.map((item) => item.id).filter((id) => !ids.includes(id)),
+      );
+      for (const omission of (flagged[key].value as Shape).omitted ?? []) {
+        expect(omission.count).toBeGreaterThanOrEqual((omission.ids?.length ?? 0) + (omission.entries?.length ?? 0));
+        expect(JSON.stringify(omission)).not.toMatch(new RegExp(ids.join("|")));
+      }
+      expect(
+        omittedWithout(flagged[key], "recentKnowledge")?.filter((o) => o.section !== "relevant.knowledge"),
+      ).toEqual(omittedWithout(unflagged[key], "recentKnowledge")?.filter((o) => o.section !== "relevant.knowledge"));
+    }
   });
 
   it("measures context with and without a task, default recall, and default search", async () => {

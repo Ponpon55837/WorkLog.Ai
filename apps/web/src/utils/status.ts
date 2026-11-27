@@ -1,6 +1,7 @@
 import {
   Archive,
   BookOpen,
+  BookmarkCheck,
   Check,
   CircleAlert,
   CircleCheck,
@@ -398,6 +399,8 @@ export function hotspotRiskVisual(hotspot: { sessionCount: number; failedCount: 
   if (rate > 0) return visual("attention", TriangleAlert, "status.hasFailedVerification");
   return visual("success", CircleCheck, "status.neverFailed");
 }
+
+export const knowledgeConventionVisual = visual("accent", BookmarkCheck, "knowledge.convention");
 
 export const knowledgeTrustVisual = {
   possiblyStale: visual("attention", Clock3, "status.possiblyStale"),

@@ -41,7 +41,7 @@ Field definitions and examples: `work-intelligence://agent/work-record-and-repor
 ## Start of work
 
 - After confirming the project is tracked, capture the paths already changed in the worktree (for example, from `git status --short`) as `baselineChangedFiles` and retain that list until finalization.
-- Before planning, read the returned relevant Knowledge, the decisions of related Sessions, and the open items of Sessions that changed the same files. Before editing a file with history, call `work_get_file_history` with 1–3 repository-relative `paths`.
+- Before planning, read the returned relevant Knowledge, the decisions of related Sessions, and the open items of Sessions that changed the same files. Read each `conventions` item (user-confirmed project rules) with `work_get_knowledge_history` and cite its knowledgeId. Before editing a file with history, call `work_get_file_history` with 1–3 repository-relative `paths`.
 - **Error or unexpected behavior**: recall with the key part of the error message (and the file) before debugging from scratch.
 - **Question about past work**: recall with the user's words (`work_recall`; `work_search` for Session-only history), rephrase if some words matched nothing, and give a named period ("上週") as calendar dates.
 - A record the user asks for at task start follows the repair-and-backfill guide.

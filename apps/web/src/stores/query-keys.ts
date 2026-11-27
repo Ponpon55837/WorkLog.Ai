@@ -29,6 +29,7 @@ export const queryKeys = {
   knowledge: {
     list: knowledgeListKey,
     history: ["knowledge", "history"] as const,
+    conventions: ["knowledge", "conventions"] as const,
     candidates: ["knowledge", "candidates"] as const,
     pages: ["knowledge", "pages"] as const,
     pageVersions: ["knowledge", "page-versions"] as const,

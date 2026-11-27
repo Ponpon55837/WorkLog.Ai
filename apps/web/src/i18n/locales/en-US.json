@@ -649,7 +649,29 @@
     "overturnedKnowledgeConfirmationWithdrawn": "Overturned. The Agent's confirmation is withdrawn.",
     "overturnedKnowledgeRestored": "Overturned. The Knowledge is active again.",
     "overturnedKnowledgeRestoredReplacementArchived": "Overturned. The Knowledge the Agent created is archived and the original is active again.",
-    "overturnedKnowledgeReviewedUnchanged": "Overturned, but this Knowledge changed after the Agent processed it, so it was left as it is."
+    "overturnedKnowledgeReviewedUnchanged": "Overturned, but this Knowledge changed after the Agent processed it, so it was left as it is.",
+    "convention": "Project convention",
+    "conventionSet": "Mark as project convention",
+    "conventionUnset": "Remove project convention",
+    "conventionSetDone": "Marked as a project convention; Agents see its title when they start work.",
+    "conventionUnsetDone": "Project convention removed.",
+    "conventionWithCounter": "Project conventions {count}/{limit}",
+    "conventionFilterAll": "All Knowledge",
+    "conventionLimitReached": "This project already has 5 project conventions; remove one first.",
+    "conventionLimitHint": "Limit reached ({count}/{limit}); remove another convention first.",
+    "conventionWithdrawn": "Project convention withdrawn: {reason} ({by}, {when}).",
+    "conventionReconfirm": "Confirm as project convention again",
+    "conventionReasonUnmarked": "removed",
+    "conventionReasonArchived": "archived",
+    "conventionReasonSuperseded": "replaced by a newer version",
+    "conventionReasonNeedsReview": "a Session reported it no longer holds",
+    "conventionReasonAgentEdit": "an Agent changed the title or body",
+    "conventionReasonImportCap": "over the limit of 5 on import",
+    "conventionReasonImportChanged": "an import changed the title or body",
+    "conventionByUser": "you",
+    "conventionByAgent": "an Agent",
+    "conventionBySystem": "the system",
+    "couldNotUpdateConvention": "Could not update the project convention."
   },
   "labels": {
     "agent": "Agent",
@@ -1127,7 +1149,8 @@
     "conflictCategoryDependency": "Dependency",
     "conflictCategoryMissingParent": "Missing from the file",
     "conflictCategoryDeleted": "Deleted on this computer",
-    "restoreInDesktopApp": "Restore a backup from the Data tab of the desktop app; you can also choose a backup file from another location. On a new computer the App finds the project folders that do not exist there, lets you point to where they are now and maps the paths for you, so there is nothing to type. Before restoring, the App backs up the current data automatically."
+    "restoreInDesktopApp": "Restore a backup from the Data tab of the desktop app; you can also choose a backup file from another location. On a new computer the App finds the project folders that do not exist there, lets you point to where they are now and maps the paths for you, so there is nothing to type. Before restoring, the App backs up the current data automatically.",
+    "conventionsWithdrawnOnImport": "{count} project convention is not kept (over the limit of 5 per project, archived, needs review, or the imported copy changed its title or body) and imports as plain Knowledge.|{count} project conventions are not kept (over the limit of 5 per project, archived, need review, or the imported copy changed their title or body) and import as plain Knowledge."
   },
   "reports": {
     "aCustomRangeCanSpan": "A custom range can span at most {days} day.|A custom range can span at most {days} days.",

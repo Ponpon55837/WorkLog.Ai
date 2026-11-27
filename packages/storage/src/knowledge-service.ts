@@ -1,12 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { APPLIES_TO_GLOB_STARS_FIX, isOverComplexAppliesToGlob } from "@work-intelligence/core";
+import {
+  APPLIES_TO_GLOB_STARS_FIX,
+  isOverComplexAppliesToGlob,
+  KNOWLEDGE_CONVENTION_LIMIT,
+} from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import type {
   AgentReviewLaterSession,
   FinalizeSessionInput,
   KnowledgeAuditAction,
   KnowledgeAuditRecord,
+  KnowledgeConventionActor,
+  KnowledgeConventionWithdrawalReason,
   KnowledgeEvidence,
   KnowledgeFeedbackCounts,
   KnowledgeFeedbackKind,
@@ -23,6 +29,7 @@ import type {
   RecordedKnowledgeResult,
   RecordKnowledgeInput,
   RecordKnowledgeResult,
+  SetKnowledgeConventionResult,
   UpdatedKnowledgeResult,
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
@@ -101,6 +108,21 @@ interface FeedbackTargetRow extends KnowledgeRow {
 }
 
 const FEEDBACK_HISTORY_LIMIT = 100;
+
+export const CONVENTION_WITHDRAWN_WARNING =
+  "This Knowledge was a user-confirmed project convention and this change withdrew it. Tell the user; they can confirm it again in the Web UI.";
+
+function withdrawConvention(
+  record: KnowledgeRecord,
+  reason: KnowledgeConventionWithdrawalReason,
+  by: KnowledgeConventionActor,
+  at: string,
+): boolean {
+  if (!record.conventionConfirmedAt) return false;
+  delete record.conventionConfirmedAt;
+  record.conventionWithdrawal = { at, by, reason };
+  return true;
+}
 
 /** A confirmation recorded for a Session that finished before the Knowledge existed does not move the baseline back. */
 function stalenessSince(knowledge: KnowledgeRecord): string {
@@ -304,14 +326,19 @@ export class KnowledgeService {
       if (reviewClears) {
         delete after.review;
       }
+      const conventionWithdrawn = reviewMoves && withdrawConvention(after, "needs_review", "system", completedAt);
       this.db
         .prepare(
-          "UPDATE knowledge SET last_confirmed_at = ?, last_confirmed_session_id = ?, review_json = ? WHERE id = ?",
+          `UPDATE knowledge SET last_confirmed_at = ?, last_confirmed_session_id = ?, review_json = ?,
+             convention_confirmed_at = ?, convention_withdrawal_json = ?
+           WHERE id = ?`,
         )
         .run(
           after.lastConfirmedAt ?? null,
           after.lastConfirmedSessionId ?? null,
           after.review ? JSON.stringify(after.review) : null,
+          after.conventionConfirmedAt ?? null,
+          after.conventionWithdrawal ? JSON.stringify(after.conventionWithdrawal) : null,
           id,
         );
       const auditId = this.insertKnowledgeAudit({
@@ -321,6 +348,7 @@ export class KnowledgeService {
         changedFields: [
           ...(confirmationMoves ? ["lastConfirmedAt"] : []),
           ...(reviewClears || reviewMoves ? ["review"] : []),
+          ...(conventionWithdrawn ? ["convention"] : []),
         ],
         occurredAt: completedAt,
       });
@@ -691,14 +719,25 @@ export class KnowledgeService {
       if (superseded && superseded.status === "active") {
         const before = toKnowledge(superseded);
         const after: KnowledgeRecord = { ...before, status: "archived", updatedAt: createdAt };
+        const conventionWithdrawn = withdrawConvention(after, "superseded", "system", createdAt);
+        if (conventionWithdrawn) warnings.push(CONVENTION_WITHDRAWN_WARNING);
         this.db
-          .prepare("UPDATE knowledge SET status = 'archived', updated_at = ? WHERE id = ?")
-          .run(createdAt, before.id);
+          .prepare(
+            `UPDATE knowledge SET status = 'archived', updated_at = ?,
+               convention_confirmed_at = ?, convention_withdrawal_json = ?
+             WHERE id = ?`,
+          )
+          .run(
+            createdAt,
+            after.conventionConfirmedAt ?? null,
+            after.conventionWithdrawal ? JSON.stringify(after.conventionWithdrawal) : null,
+            before.id,
+          );
         this.insertKnowledgeAudit({
           knowledge: after,
           before,
           action: "archived",
-          changedFields: ["status"],
+          changedFields: ["status", ...(conventionWithdrawn ? ["convention"] : [])],
           occurredAt: createdAt,
         });
       }
@@ -715,7 +754,10 @@ export class KnowledgeService {
     });
   }
 
-  public updateKnowledge(input: UpdateKnowledgeInput): UpdateKnowledgeResult {
+  public updateKnowledge(
+    input: UpdateKnowledgeInput,
+    actor: KnowledgeConventionActor = "agent",
+  ): UpdateKnowledgeResult {
     const decision = this.dependencies.checkProjectRoot(input.projectRoot);
     if (!decision.allowed || !decision.project) {
       return {
@@ -792,6 +834,18 @@ export class KnowledgeService {
         delete next.lastConfirmedSessionId;
         delete next.review;
       }
+      const textEdited =
+        (input.title !== undefined && next.title !== cleanCurrent.title) ||
+        (input.body !== undefined && next.body !== cleanCurrent.body);
+      const conventionReason: KnowledgeConventionWithdrawalReason | undefined =
+        next.status === "archived" && current.status !== "archived"
+          ? "archived"
+          : actor === "agent" && textEdited
+            ? "agent_edit"
+            : undefined;
+      const conventionWithdrawn = conventionReason
+        ? withdrawConvention(next, conventionReason, actor, updatedAt)
+        : false;
       const changedFields = [
         ...(current.kind !== next.kind ? ["kind"] : []),
         ...(current.title !== next.title ? ["title"] : []),
@@ -802,6 +856,7 @@ export class KnowledgeService {
         ...(JSON.stringify(current.appliesTo) !== JSON.stringify(next.appliesTo) ? ["appliesTo"] : []),
         ...(input.confirm ? ["lastConfirmedAt"] : []),
         ...(input.confirm && current.review ? ["review"] : []),
+        ...(conventionWithdrawn ? ["convention"] : []),
       ];
       const action: KnowledgeAuditAction =
         current.status !== next.status ? (next.status === "archived" ? "archived" : "restored") : "updated";
@@ -819,7 +874,9 @@ export class KnowledgeService {
                applies_to_json = @appliesTo,
                last_confirmed_at = @lastConfirmedAt,
                last_confirmed_session_id = @lastConfirmedSessionId,
-               review_json = @review
+               review_json = @review,
+               convention_confirmed_at = @conventionConfirmedAt,
+               convention_withdrawal_json = @conventionWithdrawal
            WHERE id = @id AND project_id = @projectId`,
         )
         .run({
@@ -836,6 +893,8 @@ export class KnowledgeService {
           lastConfirmedAt: next.lastConfirmedAt ?? null,
           lastConfirmedSessionId: next.lastConfirmedSessionId ?? null,
           review: next.review ? JSON.stringify(next.review) : null,
+          conventionConfirmedAt: next.conventionConfirmedAt ?? null,
+          conventionWithdrawal: next.conventionWithdrawal ? JSON.stringify(next.conventionWithdrawal) : null,
         });
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
       const auditId = this.insertKnowledgeAudit({
@@ -857,10 +916,15 @@ export class KnowledgeService {
         outcome: "knowledge_updated",
         knowledge: this.withKnowledgeTrust(next),
         redactions,
-        ...(overComplex.length > 0
+        ...(overComplex.length > 0 || (conventionWithdrawn && actor === "agent")
           ? {
               warnings: [
-                `appliesTo entries at positions ${overComplex.join(", ")} (from 0) never match. ${APPLIES_TO_GLOB_STARS_FIX}`,
+                ...(overComplex.length > 0
+                  ? [
+                      `appliesTo entries at positions ${overComplex.join(", ")} (from 0) never match. ${APPLIES_TO_GLOB_STARS_FIX}`,
+                    ]
+                  : []),
+                ...(conventionWithdrawn && actor === "agent" ? [CONVENTION_WITHDRAWN_WARNING] : []),
               ],
             }
           : {}),
@@ -870,6 +934,106 @@ export class KnowledgeService {
       }
       return updated;
     });
+  }
+
+  public setKnowledgeConvention(input: {
+    projectRoot: string;
+    knowledgeId: string;
+    confirmed: boolean;
+  }): SetKnowledgeConventionResult {
+    const decision = this.dependencies.checkProjectRoot(input.projectRoot);
+    if (!decision.allowed || !decision.project) {
+      return {
+        outcome: "skipped",
+        projectRoot: decision.canonicalRoot,
+        projectStatus: decision.projectStatus,
+        reason: decision.reason ?? "Project recording is not enabled.",
+      };
+    }
+
+    const project = decision.project;
+    return runImmediateSqlTransaction(this.db, (): Exclude<SetKnowledgeConventionResult, KnowledgeSkippedResult> => {
+      const row = this.db
+        .prepare(
+          `SELECT k.*, p.name AS project_name
+           FROM knowledge k JOIN projects p ON p.id = k.project_id
+           WHERE k.id = ? AND k.project_id = ?`,
+        )
+        .get(input.knowledgeId, project.id) as KnowledgeRow | undefined;
+      if (!row) return { outcome: "not_found", knowledgeId: input.knowledgeId };
+
+      const before = toKnowledge(row);
+      const countConventions = () =>
+        (
+          this.db
+            .prepare(
+              `SELECT COUNT(*) AS total FROM knowledge
+               WHERE project_id = ? AND convention_confirmed_at IS NOT NULL AND convention_confirmed_at <> ''
+                 AND status = 'active' AND review_json IS NULL`,
+            )
+            .get(project.id) as { total: number }
+        ).total;
+      if (input.confirmed === Boolean(before.conventionConfirmedAt)) {
+        return {
+          outcome: "knowledge_updated",
+          knowledge: this.withKnowledgeTrust(before),
+          conventionCount: countConventions(),
+        };
+      }
+      if (input.confirmed) {
+        if (before.status !== "active") {
+          return { outcome: "rejected", reason: "not_active", knowledgeId: before.id };
+        }
+        if (before.review) {
+          return { outcome: "rejected", reason: "needs_review", knowledgeId: before.id };
+        }
+        if (countConventions() >= KNOWLEDGE_CONVENTION_LIMIT) {
+          return { outcome: "rejected", reason: "convention_limit_reached", knowledgeId: before.id };
+        }
+      }
+
+      const at = nowIso();
+      const after: KnowledgeRecord = { ...before };
+      if (input.confirmed) {
+        after.conventionConfirmedAt = at;
+        delete after.conventionWithdrawal;
+      } else {
+        withdrawConvention(after, "unmarked", "user", at);
+      }
+      this.db
+        .prepare(
+          "UPDATE knowledge SET convention_confirmed_at = ?, convention_withdrawal_json = ? WHERE id = ? AND project_id = ?",
+        )
+        .run(
+          after.conventionConfirmedAt ?? null,
+          after.conventionWithdrawal ? JSON.stringify(after.conventionWithdrawal) : null,
+          after.id,
+          project.id,
+        );
+      this.insertKnowledgeAudit({
+        knowledge: after,
+        before,
+        action: "updated",
+        changedFields: ["convention"],
+        occurredAt: at,
+      });
+      return {
+        outcome: "knowledge_updated",
+        knowledge: this.withKnowledgeTrust(after),
+        conventionCount: countConventions(),
+      };
+    });
+  }
+
+  public listConventionPointers(projectId: string): Array<{ id: string; title: string }> {
+    return this.db
+      .prepare(
+        `SELECT id, title FROM knowledge
+         WHERE project_id = ? AND convention_confirmed_at IS NOT NULL AND convention_confirmed_at <> ''
+           AND status = 'active' AND review_json IS NULL
+         ORDER BY convention_confirmed_at ASC, id ASC LIMIT ?`,
+      )
+      .all(projectId, KNOWLEDGE_CONVENTION_LIMIT) as Array<{ id: string; title: string }>;
   }
 
   /** Only while it is still the record's latest confirmation: a later one by a person or a Session stands. */
@@ -920,9 +1084,12 @@ export class KnowledgeService {
       if (before.lastConfirmedAt) next.lastConfirmedAt = before.lastConfirmedAt;
       if (baselineSession) next.lastConfirmedSessionId = before.lastConfirmedSessionId;
       if (!current.review && before.review) next.review = before.review;
+      const conventionWithdrawn =
+        !current.review && next.review !== undefined && withdrawConvention(next, "needs_review", "system", updatedAt);
       this.db
         .prepare(
-          `UPDATE knowledge SET updated_at = ?, last_confirmed_at = ?, last_confirmed_session_id = ?, review_json = ?
+          `UPDATE knowledge SET updated_at = ?, last_confirmed_at = ?, last_confirmed_session_id = ?, review_json = ?,
+             convention_confirmed_at = ?, convention_withdrawal_json = ?
            WHERE id = ? AND project_id = ?`,
         )
         .run(
@@ -930,6 +1097,8 @@ export class KnowledgeService {
           next.lastConfirmedAt ?? null,
           next.lastConfirmedSessionId ?? null,
           next.review ? JSON.stringify(next.review) : null,
+          next.conventionConfirmedAt ?? null,
+          next.conventionWithdrawal ? JSON.stringify(next.conventionWithdrawal) : null,
           knowledgeId,
           projectId,
         );
@@ -939,7 +1108,11 @@ export class KnowledgeService {
         knowledge: next,
         before: current,
         action: "updated",
-        changedFields: ["lastConfirmedAt", ...(!current.review && next.review ? ["review"] : [])],
+        changedFields: [
+          "lastConfirmedAt",
+          ...(!current.review && next.review ? ["review"] : []),
+          ...(conventionWithdrawn ? ["convention"] : []),
+        ],
         occurredAt: updatedAt,
       });
       return { knowledge: this.withKnowledgeTrust(next), withdrawn: true };

@@ -96,6 +96,7 @@ import type {
   HandoffImportFailure,
   InsightProvider,
   KnowledgeHistoryQuery,
+  KnowledgeConventionActor,
   KnowledgeHistoryResult,
   KnowledgeQuery,
   KnowledgeQueryResult,
@@ -117,6 +118,7 @@ import type {
   ProjectRecord,
   RecordKnowledgeInput,
   RecordKnowledgeResult,
+  SetKnowledgeConventionResult,
   ReportExportFormat,
   ReportExportResult,
   ReportPeriod,
@@ -663,7 +665,7 @@ export class WorkIntelligenceStore {
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
       checkProjectById: (projectId) => this.checkProjectById(projectId),
       recordKnowledge: (input) => this.recordKnowledge(input),
-      updateKnowledge: (input) => this.updateKnowledge(input),
+      updateKnowledge: (input, actor) => this.updateKnowledge(input, actor),
       pagesCitingSessions: (projectId, sessionIds) => this.knowledgePages.pagesCitingSessions(projectId, sessionIds),
       pendingPages: (projectId) => this.knowledgePages.pendingForProject(projectId),
       withKnowledgeTrustMany: (items) => this.knowledgeService.withKnowledgeTrustMany(items),
@@ -710,6 +712,7 @@ export class WorkIntelligenceStore {
       pendingOutstandingItemsForSessions: (sessionIds) => this.outstandingItems.pendingForSessions(sessionIds),
       hasPendingOutstandingItems: (projectId, excluded) => this.outstandingItems.hasPending(projectId, excluded),
       relatedPendingOutstandingItems: (input) => this.outstandingItems.relatedPending(input),
+      projectConventions: (projectId) => this.knowledgeService.listConventionPointers(projectId),
       knowledgePageDigests: (projectId) => this.knowledgePages.digestsForProject(projectId),
       knowledgePagesForContext: (projectId) => {
         const result = this.knowledgePages.listPages(projectId ? { projectId } : {});
@@ -1519,8 +1522,19 @@ export class WorkIntelligenceStore {
     return this.knowledgeService.recordKnowledge(input);
   }
 
-  public updateKnowledge(input: UpdateKnowledgeInput): UpdateKnowledgeResult {
-    return this.knowledgeService.updateKnowledge(input);
+  public updateKnowledge(
+    input: UpdateKnowledgeInput,
+    actor: KnowledgeConventionActor = "agent",
+  ): UpdateKnowledgeResult {
+    return this.knowledgeService.updateKnowledge(input, actor);
+  }
+
+  public setKnowledgeConvention(input: {
+    projectRoot: string;
+    knowledgeId: string;
+    confirmed: boolean;
+  }): SetKnowledgeConventionResult {
+    return this.knowledgeService.setKnowledgeConvention(input);
   }
 
   public getKnowledgeHistory(input: KnowledgeHistoryQuery): KnowledgeHistoryResult {

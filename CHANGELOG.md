@@ -4,6 +4,17 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.86] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.86.md).
+
+### Added
+
+- Project conventions (#451): in the Web the user can mark up to 5 active Knowledge items per project, without a needs-review flag, as conventions (`PUT /api/knowledge/:id/convention`). Schema 41 adds `knowledge.convention_confirmed_at` and `convention_withdrawal_json`. Marking does not change `updatedAt`. There is no MCP write path.
+- `work_get_context` with a `projectRoot` returns them as `conventions: { readWith, items: [{ id, title }] }` (titles at most 60 characters, the block at most 700). The context is fitted to its usual budget as if there were no conventions, then the block is added and convention ids are removed from `recentKnowledge`, `relevant.supplements` and their omission pointers, so the block never displaces other content; with conventions the response may reach 10,700 / 16,700 characters. The key is omitted when there are none.
+- Archiving, superseding, a contradiction or needs-review report, an Agent edit of the title or body (MCP or Agent review), or a newer imported copy that is archived, needs review or changes the title or body withdraws the flag with its reason; the user has to confirm it again. An Agent action that withdraws one returns a warning asking the Agent to tell the user.
+- Exports carry both columns. An import keeps this machine's choice for existing rows, and new rows keep the flag only within the limit; the import preview (Web and CLI) reports how many are not kept.
+
 ## [1.6.85] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.85.md).

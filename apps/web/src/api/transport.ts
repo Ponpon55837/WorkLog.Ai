@@ -138,7 +138,12 @@ export class ApiTransport {
     return payload;
   }
 
-  public write<T>(path: string, method: "DELETE" | "PATCH" | "POST", body: unknown, signal?: AbortSignal): Promise<T> {
+  public write<T>(
+    path: string,
+    method: "DELETE" | "PATCH" | "POST" | "PUT",
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<T> {
     return this.request<T>(path, { method, body: JSON.stringify(body), signal });
   }
 
