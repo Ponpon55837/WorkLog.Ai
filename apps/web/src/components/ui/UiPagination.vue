@@ -7,7 +7,6 @@ import UiButton from "./UiButton.vue";
 import UiSelect from "./UiSelect.vue";
 import { t } from "../../i18n";
 
-/** The single pagination control: summary, page-size select (10/20/50/100/All) and prev/next. */
 const props = defineProps<{
   pageInfo: PageInfo;
   sizeLabel: string;
@@ -21,7 +20,6 @@ const sizeOptions = computed(
   () => props.pageSizeOptions ?? listPageSizeOptions.map((option) => ({ value: option.value, label: option.label })),
 );
 
-/** Changing page from the footer brings the top of the list back into view instead of leaving the user at the bottom. */
 function goTo(page: number): void {
   emit("page", page);
   const list = root.value?.closest<HTMLElement>(".ui-box");

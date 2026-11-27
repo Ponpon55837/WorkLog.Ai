@@ -6,7 +6,6 @@ import UiSpinner from "./UiSpinner.vue";
 
 const props = withDefaults(
   defineProps<{
-    /** `link` is an inline text link that runs a command (no box, accent colour, underline on hover). */
     variant?: "default" | "primary" | "invisible" | "danger" | "link";
     size?: "md" | "sm";
     icon?: IconComponent;
@@ -14,12 +13,9 @@ const props = withDefaults(
     loading?: boolean;
     disabled?: boolean;
     type?: "button" | "submit";
-    /** Renders a RouterLink styled as a button. */
     to?: RouteLocationRaw;
-    /** Icon-only button: hides the label visually but keeps it for screen readers and the tooltip. */
     iconOnly?: boolean;
     label?: string;
-    /** Keeps the label on one line and ends it with an ellipsis when the button is narrower than its text. */
     truncate?: boolean;
   }>(),
   {

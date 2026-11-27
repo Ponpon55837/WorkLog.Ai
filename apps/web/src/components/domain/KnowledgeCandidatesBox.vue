@@ -28,10 +28,6 @@ import AgentReviewVerdict from "./AgentReviewVerdict.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
-/**
- * Agent-proposed Knowledge waiting for review. Accepting records it as Knowledge; nothing becomes
- * Knowledge without a person's decision here.
- */
 const props = defineProps<{ projects: readonly ProjectRecord[]; projectRoot?: string }>();
 
 const {

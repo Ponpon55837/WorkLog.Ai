@@ -21,7 +21,6 @@ import KnowledgePageRequestDialog from "./KnowledgePageRequestDialog.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
-/** A row is a saved page, or a default page the selected project has not requested yet. */
 interface PageRow {
   key: string;
   projectId: string;
@@ -31,10 +30,6 @@ interface PageRow {
   page?: KnowledgePageRecord;
 }
 
-/**
- * Standing Knowledge pages: new Sessions need assessment, cited-source changes need review, and only changed
- * answers need a rewrite. The Web UI views, edits, filters, and requests updates.
- */
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 const projectId = defineModel<string>("projectId", { required: true });
 

@@ -5,10 +5,6 @@ import { usePopover } from "../../composables/usePopover";
 import type { IconComponent, SelectOption } from "./types";
 import UiSpinner from "./UiSpinner.vue";
 
-/**
- * Dropdown menu. With `v-model` it is a single-select filter (check marks, "applied" trigger state);
- * without it, items are actions and `select` is emitted.
- */
 const props = withDefaults(
   defineProps<{
     label: string;
@@ -16,12 +12,10 @@ const props = withDefaults(
     header?: string;
     icon?: IconComponent;
     align?: "start" | "end";
-    /** Value that means "no filter"; when the model differs the trigger shows as applied. */
     defaultValue?: T;
     variant?: "filter" | "button";
     size?: "md" | "sm";
     hideLabelOnMobile?: boolean;
-    /** Shows a spinner in place of the icon and blocks opening while the chosen action runs. */
     loading?: boolean;
   }>(),
   { align: "start", variant: "filter", size: "md" },

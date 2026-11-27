@@ -104,7 +104,6 @@ const desktopLoginItemMismatched = computed(() =>
   desktopLoginItem.value ? desktopLoginItemMismatch(desktopLoginItem.value) : false,
 );
 
-/** The address the App serves; the committed port, or the one this page was opened on when the App did not report it. */
 const desktopAddress = computed(() => `http://127.0.0.1:${status.value?.desktop?.activePort ?? window.location.port}`);
 const storageRisk = computed(() => status.value?.desktop?.storageRisk);
 const storageRiskTitle = computed(() => {

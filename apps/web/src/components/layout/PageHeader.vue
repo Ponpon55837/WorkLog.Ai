@@ -3,10 +3,6 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { t } from "../../i18n";
 
-/**
- * Compact one-row page title: title and a one-line description share a row with the actions,
- * so the page's data starts right below. The title defaults to the current route meta.
- */
 const props = defineProps<{ title?: string; description?: string }>();
 const route = useRoute();
 const resolvedTitle = computed(() => props.title ?? (route.meta.title ? t(route.meta.title) : ""));

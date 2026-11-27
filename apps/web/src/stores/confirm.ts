@@ -11,7 +11,6 @@ export type ConfirmOptions = {
 
 export type PendingConfirm = ConfirmOptions & { resolve: (confirmed: boolean) => void };
 
-/** The one pending confirmation shown by UiConfirmHost; a new question cancels the previous one. */
 export const useConfirmStore = defineStore("confirm", () => {
   const pending = ref<PendingConfirm | null>(null);
 

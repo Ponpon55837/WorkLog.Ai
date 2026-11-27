@@ -11,7 +11,6 @@ import { ARCHITECTURE_TONE_COUNT, layoutArchitecture } from "../../utils/archite
 import { editorFileUrl } from "../../utils/code-links";
 import { t } from "../../i18n";
 
-/** Read a validated architecture snapshot as grouped cards and authored connections. */
 const props = withDefaults(
   defineProps<{ title: string; source: string; interactive?: boolean; projectRoot?: string }>(),
   { interactive: false, projectRoot: "" },

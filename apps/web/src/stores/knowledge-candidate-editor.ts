@@ -4,7 +4,6 @@ import type { KnowledgeCandidate, KnowledgeKind } from "@work-intelligence/core"
 
 export type CandidateForm = { kind: KnowledgeKind; title: string; body: string; tags: string; appliesTo: string };
 
-/** The "edit before accepting" dialog for a Knowledge candidate: the candidate and its draft. */
 export const useKnowledgeCandidateEditorStore = defineStore("knowledge-candidate-editor", () => {
   const candidateEditor = ref<KnowledgeCandidate | null>(null);
   const candidateForm = ref<CandidateForm>({ kind: "pattern", title: "", body: "", tags: "", appliesTo: "" });

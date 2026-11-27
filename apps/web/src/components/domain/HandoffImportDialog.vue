@@ -16,7 +16,6 @@ import VirtualList from "../VirtualList.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
-/** Import confirmation: shows what will be imported and what is excluded, with reasons. */
 const handoffImportStore = useHandoffImportStore();
 const { handoffImportPreview, handoffImportApplying, handoffImportError, importableHandoffs, selectedHandoffCount } =
   storeToRefs(handoffImportStore);

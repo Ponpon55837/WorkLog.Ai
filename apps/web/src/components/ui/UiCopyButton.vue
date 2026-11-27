@@ -5,7 +5,6 @@ import { useToast } from "../../composables/useToast";
 import UiButton from "./UiButton.vue";
 import { t } from "../../i18n";
 
-/** Shows copied feedback only after a successful write and clears timers when content or ownership changes. */
 const props = withDefaults(
   defineProps<{
     text: string;

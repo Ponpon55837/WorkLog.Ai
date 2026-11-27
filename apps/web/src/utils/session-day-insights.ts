@@ -12,23 +12,17 @@ const DAY_MS = 86_400_000;
 
 export type SessionDaySummary = { total: number; passed: number; failed: number };
 export type SessionDayInsights = {
-  /** Whole-day counts keyed by local calendar date (YYYY-MM-DD). */
   days: ReadonlyMap<string, SessionDaySummary>;
-  /** Knowledge created from each Session, keyed by Session id. */
   createdBySession: ReadonlyMap<string, number>;
 };
 
 export type SessionDayRange = { from: string; to: string };
 
-/** Local calendar date of an ISO timestamp, the same day boundary the grouped list uses. */
 export function localDayOf(value: string): string {
   return toDateInputValue(new Date(value));
 }
 
-/**
- * The calendar range one timeline request needs: from the oldest day on the page to today, so Knowledge created
- * from a Session at any later time is counted. Null when the page is empty or the range exceeds the API limit.
- */
+/** Runs to today, not the newest day on the page, so Knowledge created from a Session at any later time is counted. */
 export function sessionDayRange(completedAts: readonly string[], now = new Date()): SessionDayRange | null {
   if (completedAts.length === 0) return null;
   const days = completedAts.map(localDayOf).sort();

@@ -10,10 +10,6 @@ import UiSkeleton from "../ui/UiSkeleton.vue";
 import { useDashboardStore } from "../../stores/dashboard";
 import { t } from "../../i18n";
 
-/**
- * This week's record, settle and correct loop from real counts only: Sessions saved, Knowledge saved and Knowledge
- * pages written, confirmations and contradictions. Knowledge numbers fall back to a dash when their request fails.
- */
 const store = useDashboardStore();
 const {
   weekReport,
@@ -33,7 +29,6 @@ const headline = computed(() => {
   return t("dashboard.cycleHeadline", { sessions: sessions.value, created });
 });
 
-/** The number, or a dash while it loads or after its request failed (the note lines below appear only with a value). */
 function count(value: number | null | undefined): string {
   return value !== null && value !== undefined ? String(value) : "—";
 }

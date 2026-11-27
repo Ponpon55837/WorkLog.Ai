@@ -21,7 +21,6 @@ const emptyDashboard: DashboardSummary = {
   recentSessions: [],
 };
 
-/** Owns project and dashboard server state plus project mutations. */
 export const useProjectsStore = defineStore("projects", () => {
   const queryCache = useQueryCache();
   const dashboardEnabled = ref(false);
@@ -167,7 +166,6 @@ export const useProjectsStore = defineStore("projects", () => {
     deletionAuditsEnabled.value = active;
   }
 
-  /** Opens the native folder picker and returns its selection for the dialog's local form state. */
   async function pickProjectFolder(): Promise<{ path: string; name: string } | null> {
     const { showToast } = useToast();
     try {
@@ -230,7 +228,6 @@ export const useProjectsStore = defineStore("projects", () => {
     }
   }
 
-  /** Saves or clears (empty string) the https repository URL used for commit links; the API validates it. */
   async function updateProjectRepository(project: ProjectRecord, repositoryUrl: string): Promise<boolean> {
     const { showToast } = useToast();
     try {

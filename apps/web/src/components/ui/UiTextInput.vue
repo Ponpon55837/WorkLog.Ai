@@ -22,9 +22,8 @@ const model = defineModel<string>({ default: "" });
 const describedBy = useFieldDescription();
 const input = ref<HTMLInputElement | null>(null);
 
-// The root is a <span>, not a <label>: inside UiField (a <label> itself) a nested label would become the input's
-// nearest label, leaving it with an empty name. The wrapper still focuses the input so the whole box is clickable,
-// but never steals clicks from slotted prefix/suffix controls.
+// The root is a <span>, not a <label>: inside UiField (a <label>) a nested label would become the input's nearest label and leave it unnamed.
+// The wrapper still focuses the input but never steals clicks from slotted prefix/suffix controls.
 function focusFromWrapper(event: MouseEvent): void {
   const target = event.target as Element | null;
   if (target?.closest("button, a, input, select, textarea, [role='button']")) {

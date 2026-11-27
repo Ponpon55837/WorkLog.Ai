@@ -5,7 +5,6 @@ import { formatCount } from "../../utils/format";
 import UiFlash from "../ui/UiFlash.vue";
 import { t } from "../../i18n";
 
-/** Shows a Knowledge page's size against its limits and, when near them, which sections to move to a custom page. */
 const props = defineProps<{ sections: ReadonlyArray<{ heading: string; content: string }> }>();
 
 const limits = computed(() => knowledgePageLimits(props.sections));

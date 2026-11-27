@@ -3,31 +3,21 @@ import { computed } from "vue";
 import type { Tone } from "./types";
 import { t } from "../../i18n";
 
-/**
- * Grouped vertical bar chart for small deterministic series (≤ ~31 points).
- * Each series is scaled independently so low-volume series stay visible. The full value table below
- * the plot keeps exact counts available without relying on hover tooltips.
- */
+/** Each series is scaled independently so low-volume series stay visible; the value table keeps exact counts. */
 const props = defineProps<{
   labels: readonly string[];
   series: readonly { name: string; tone: Tone; values: readonly number[] }[];
   label: string;
-  /** Show every n-th x label to avoid crowding. */
   labelEvery?: number;
-  /** Shorter plot: no legend or hint, labels may wrap, and the value table folds away until opened. */
   compact?: boolean;
-  /** Print each column's value above its bars (decorative: the value table carries the same numbers). */
   showValues?: boolean;
-  /** Keep the legend in compact mode (needed when the chart has more than one series). */
   legend?: boolean;
-  /** Index of the column to emphasise (its label and value turn bold); callers name it in text as well. */
   highlight?: number;
 }>();
 
 const maxima = computed(() => props.series.map((item) => Math.max(1, ...item.values)));
 const every = computed(() => props.labelEvery ?? Math.max(1, Math.ceil(props.labels.length / 8)));
 
-/** Every n-th label plus the last one, skipping an n-th label that would crowd the last. */
 function showLabel(index: number): boolean {
   const last = props.labels.length - 1;
   return index === last || (index % every.value === 0 && last - index >= Math.ceil(every.value / 2));

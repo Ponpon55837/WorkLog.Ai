@@ -2,10 +2,6 @@
 import { X } from "lucide-vue-next";
 import UiIconButton from "./UiIconButton.vue";
 
-/**
- * Title row for the `header` slot of UiSidePanel: an optional leading item, the title, the panel's
- * actions and a close button. The default slot holds what sits under the title (labels, notes).
- */
 defineProps<{ title: string; closeLabel: string }>();
 
 const emit = defineEmits<{ close: [] }>();

@@ -48,7 +48,6 @@ import { useToast } from "../composables/useToast";
 import type { ListPageSize } from "../utils/labels";
 import { t } from "../i18n";
 
-/** Dev-only catalogue of every ui/ component state (route /__ui). Not linked from navigation. */
 const { showToast } = useToast();
 const text = ref("");
 const select = ref("all");

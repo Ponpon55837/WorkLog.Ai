@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
 
-/**
- * Page-level controls (search, tabs) that stay pinned to the top of the scrolling content while
- * the list below scrolls. Publishes its height as `--page-toolbar-height` so sticky Box headers
- * (`UiBox sticky-header`) stack directly underneath it.
- */
+/** Publishes its height as `--page-toolbar-height` so sticky UiBox headers stack under it. */
 const toolbar = ref<HTMLElement | null>(null);
 let observer: ResizeObserver | undefined;
 

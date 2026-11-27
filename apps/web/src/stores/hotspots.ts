@@ -16,7 +16,6 @@ function periodStart(period: HotspotPeriod, today = new Date()): string | undefi
   return toDateInputValue(start);
 }
 
-/** Owns the graph page's hotspot view: the most changed files or directories of tracked projects. */
 export const useHotspotsStore = defineStore("hotspots", () => {
   const enabled = ref(false);
   const projectId = ref("");

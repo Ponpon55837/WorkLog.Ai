@@ -3,7 +3,6 @@ import { defineAsyncComponent } from "vue";
 import type { SessionDiagramRecord } from "@work-intelligence/core";
 import DiagramSource from "./DiagramSource.vue";
 
-/** Dispatch a saved snapshot to the renderer for its validated kind and version. */
 withDefaults(defineProps<{ diagram: SessionDiagramRecord; interactive?: boolean; projectRoot?: string }>(), {
   interactive: false,
   projectRoot: "",

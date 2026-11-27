@@ -7,7 +7,6 @@ import { verificationOf, verificationStatus } from "./status";
 const MAX_LISTED_FILES = 20;
 const SHORT_SHA_LENGTH = 7;
 
-/** Markdown summary of one Session for pasting into a PR, standup message or handoff doc. */
 export function sessionMarkdown(detail: SessionDetail): string {
   const { session, project } = detail;
   const blocks: string[] = [`# ${session.title}`];

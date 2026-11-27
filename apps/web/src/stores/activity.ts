@@ -8,7 +8,6 @@ import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
-/** Owns the dashboard's work-activity heatmap: Sessions completed per local day over the last year. */
 export const useActivityStore = defineStore("activity", () => {
   const enabled = ref(false);
 
@@ -23,7 +22,6 @@ export const useActivityStore = defineStore("activity", () => {
   });
 
   const days = computed<ActivityDay[]>(() => (query.data.value?.outcome === "activity" ? query.data.value.days : []));
-  /** False until the first answer, so the view shows a skeleton rather than a zero. */
   const activityLoaded = computed(() => query.data.value !== undefined);
   const activityError = computed(() =>
     query.error.value ? errorMessage(query.error.value, t("dashboard.couldNotLoadActivity")) : "",

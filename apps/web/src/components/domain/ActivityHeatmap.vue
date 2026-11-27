@@ -11,7 +11,6 @@ const props = defineProps<{ days: readonly ActivityDay[] }>();
 const emit = defineEmits<{ select: [date: string] }>();
 
 const grid = ref<HTMLElement | null>(null);
-/** Roving tabindex: only this day is in the tab order; arrow keys move it. Null until the user moves. */
 const focusedDate = ref<string | null>(null);
 
 const calendar = computed(() => buildActivityCalendar(new Date(), props.days));
@@ -28,7 +27,6 @@ const monthLabels = computed(() =>
   })),
 );
 const dateFormat = computed(() => new Intl.DateTimeFormat(intlLocale(), { dateStyle: "long" }));
-/** The busiest day in the drawn range; the latest one when several tie. */
 const busiest = computed(() => {
   let best: { date: string; sessions: number } | null = null;
   for (const week of calendar.value.weeks)

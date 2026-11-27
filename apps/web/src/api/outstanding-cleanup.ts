@@ -34,7 +34,6 @@ export interface OutstandingCleanupApi {
   ): Promise<CancelOutstandingCleanupRequestResult>;
 }
 
-/** Uses the same guarded REST routes for project requests and human proposal review. */
 export function createOutstandingCleanupApi(client: ApiTransport): OutstandingCleanupApi {
   return {
     listOutstandingCleanupRequests(input, signal) {

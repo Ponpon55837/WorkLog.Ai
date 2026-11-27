@@ -7,10 +7,6 @@ import { queryKeys } from "./query-keys";
 
 export type KnowledgeKindCountsScope = { projectId: string; status: KnowledgeStatus };
 
-/**
- * How many Knowledge records of each kind a project and status hold, for the Knowledge page's side card.
- * One page-size-1 request per kind (five in all) reads each total; nothing is scanned or estimated.
- */
 export const useKnowledgeKindCountsStore = defineStore("knowledge-kind-counts", () => {
   const scope = ref<KnowledgeKindCountsScope | null>(null);
 
@@ -43,7 +39,6 @@ export const useKnowledgeKindCountsStore = defineStore("knowledge-kind-counts", 
 
   const counts = computed(() => (scope.value ? (query.data.value ?? null) : null));
 
-  /** True while the first answer for the current scope is still loading. */
   const loading = computed(() => scope.value !== null && query.isLoading.value);
 
   return { scope, counts, loading };

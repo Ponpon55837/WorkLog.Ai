@@ -23,10 +23,6 @@ import VirtualList from "../VirtualList.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
-/**
- * Metadata gap scan and the Agent request. The UI only reads stored metadata and creates
- * requests; it never writes guessed changed files or verification.
- */
 const metadataBackfillStore = useMetadataBackfillStore();
 const {
   projectId,
@@ -55,7 +51,6 @@ useActiveRequestWatch({
   onSettled: (_request, status) => {
     if (status === "completed") {
       showToast(t("projects.theAgentFinishedTheMetadata"), "success");
-      // The gap list is a separate scan; rerun it so resolved gaps disappear.
       void previewMetadataBackfill();
     } else if (status === "failed") {
       showToast(t("projects.theMetadataBackfillDidNot"), "danger");

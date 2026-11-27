@@ -16,10 +16,6 @@ function lockScroll(lock: boolean): void {
   document.body.classList.toggle("modal-open", scrollLocks > 0);
 }
 
-/**
- * Overlay a11y contract shared by UiDialog and UiSidePanel: moves focus into the container,
- * keeps Tab inside it, closes on Escape, locks page scroll and restores focus on close.
- */
 export function useFocusTrap(
   container: Ref<HTMLElement | null>,
   active: Ref<boolean>,

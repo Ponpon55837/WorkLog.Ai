@@ -3,12 +3,6 @@ import { computed, onBeforeUnmount, ref, toRef, watch } from "vue";
 import { useFocusTrap } from "../../composables/useFocusTrap";
 import { t } from "../../i18n";
 
-/**
- * Right-hand panel for reading a record. `modal` (default) adds a backdrop, traps focus and locks
- * scroll; `modal=false` docks beside the content so the page stays interactive (Graph node panel).
- * The left edge can be dragged (or moved with the arrow keys) to resize; with `storageKey` the
- * chosen width is remembered per panel.
- */
 const props = withDefaults(
   defineProps<{
     open: boolean;

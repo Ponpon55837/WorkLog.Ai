@@ -4,7 +4,6 @@ import { router } from "../router";
 
 export type QueryCodec<T> = {
   defaultValue: T;
-  /** Returns undefined for values that are not valid for this key. */
   parse: (raw: string) => T | undefined;
   serialize: (value: T) => string;
 };
@@ -52,11 +51,7 @@ function scheduleQueryWrite(key: string, value: string | undefined): void {
   pending[key] = value;
 }
 
-/**
- * Two-way binding between a state ref and one URL query key. Default values are omitted from the
- * URL. The URL wins on setup (deep links); state changes write back with replace(); back/forward
- * navigation updates the state.
- */
+/** The URL wins on setup (deep links); state changes write back with replace(); back/forward updates the state. */
 export function useRouteQuery<T>(key: string, state: Ref<T>, codec: QueryCodec<T>): void {
   const route = useRoute();
   const routeName = route.name;

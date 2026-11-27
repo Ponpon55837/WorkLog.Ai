@@ -15,7 +15,6 @@ import { databaseBackupKindLabels } from "../utils/labels";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
-/** Owns the database backup query, backup mutations, and whole-database export. */
 export const useBackupsStore = defineStore("backups", () => {
   const queryCache = useQueryCache();
   const backupsActive = ref(false);
@@ -83,7 +82,7 @@ export const useBackupsStore = defineStore("backups", () => {
     try {
       await backupsQuery.refetch(true);
     } catch {
-      // Query state exposes load errors to the view.
+      // The query keeps the error and the view renders it.
     }
   }
 
@@ -97,7 +96,6 @@ export const useBackupsStore = defineStore("backups", () => {
     }
   }
 
-  /** Confirms and removes one backup file; the only listed copy receives a stronger warning. */
   async function deleteBackup(backup: DatabaseBackup): Promise<void> {
     const { showToast } = useToast();
     const isLastBackup = backups.value.length === 1;
@@ -128,7 +126,6 @@ export const useBackupsStore = defineStore("backups", () => {
     }
   }
 
-  /** Saves the whole database as one file for moving to another computer. */
   async function exportDatabase(): Promise<void> {
     const { showToast } = useToast();
     databaseExporting.value = true;

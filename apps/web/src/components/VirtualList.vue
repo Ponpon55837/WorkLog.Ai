@@ -24,11 +24,6 @@ const props = withDefaults(
     fitViewport?: boolean;
     fitViewportToPanel?: boolean;
     fillAvailableSpace?: boolean;
-    /**
-     * Caps the list at the space left between its top and the bottom of the page viewport, so a long list
-     * reaches the bottom instead of stopping at `maxHeight`; a short list still shrinks to its content.
-     * Falls back to `maxHeight` when the list starts too low (for example stacked on narrow screens).
-     */
     growToViewport?: boolean;
   }>(),
   {
@@ -275,7 +270,6 @@ function updateFitViewportPanelHeight(): void {
   }
 
   if (fillsAvailableSpace) {
-    // Measure from the list's actual position so the page heading stays visible above it.
     const nextHeight = Math.floor(mainBottom - bottomInset - listTop - trailingHeight - footerHeight - borderBottom);
     if (nextHeight <= 0) {
       fitViewportPanelHeight.value = null;
@@ -288,7 +282,6 @@ function updateFitViewportPanelHeight(): void {
     return;
   }
 
-  // Below the current fold, keep the normal list height so page scrolling can reveal the whole Box.
   const nextHeight = Math.floor(mainBottom - bottomInset - listTop - trailingHeight - footerHeight - borderBottom);
   if (nextHeight <= 0) {
     fitViewportPanelHeight.value = null;
@@ -303,13 +296,11 @@ function updateFitViewportPanelHeight(): void {
   }
 
   fitViewportPanelFillsAvailableSpace.value = footerHeight === 0;
-  // Reserve room for the footer and any note after the list.
   if (fitViewportPanelHeight.value === null || Math.abs(fitViewportPanelHeight.value - nextHeight) > 1) {
     fitViewportPanelHeight.value = nextHeight;
   }
 }
 
-/** Space from the list's top (at page scroll 0) to the page viewport bottom, minus the Box footer and border. */
 function updateGrownMaxHeight(): void {
   const list = viewport.value;
   const main = growMain;

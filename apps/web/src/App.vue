@@ -17,8 +17,6 @@ import { useProjectsStore } from "./stores/projects";
 import { errorMessage as toErrorMessage } from "./utils/format";
 import { locale, t } from "./i18n";
 
-// The global panels and dialogs render nothing until a store opens them, so their code loads as one separate chunk
-// after the first paint instead of weighing down the entry bundle.
 const AppOverlays = defineAsyncComponent(() => import("./components/layout/AppOverlays.vue"));
 
 const router = useRouter();
@@ -84,11 +82,9 @@ watch(appHealthError, (message) => {
 
 onMounted(() => {
   void loadRootData();
-  // The System status page loads the same status itself; starting there, the App's language arrives with it.
   void router.isReady().then(() => {
     if (router.currentRoute.value.name !== "system-status") desktopLanguageStore.loadStatus();
   });
-  // Chunks are fetched once the browser is idle; a panel opened sooner mounts as soon as its chunk arrives.
   if (typeof requestIdleCallback === "function") requestIdleCallback(() => (overlaysReady.value = true));
   else setTimeout(() => (overlaysReady.value = true), 0);
 });

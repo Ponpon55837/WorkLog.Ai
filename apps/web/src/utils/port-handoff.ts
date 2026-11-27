@@ -13,7 +13,7 @@ const EDITOR_KEY = "work-intelligence:editor";
 const PROJECTS_POLICY_DISMISSED_KEY = "wi.projects.policyDismissed";
 const SIDE_PANEL_WIDTH_KEY_PREFIX = "wi.side-panel-width.";
 
-/** The part of `Storage` the handoff needs; browser storage can be missing or blocked, so every access is guarded. */
+/** Browser storage can be missing or blocked, so every access is guarded. */
 type HandoffStorage = Pick<Storage, "getItem" | "setItem">;
 
 /**
@@ -44,7 +44,7 @@ function writeItem(storage: HandoffStorage, key: string, value: string): void {
   }
 }
 
-/** The page's whitelisted preferences as stored in this browser, ready to hand to the App; never includes anything else. */
+/** Only the whitelisted preferences, never anything else stored in this browser. */
 export function readBrowserPreferences(storage: HandoffStorage | undefined): BrowserPreferences {
   if (!storage) return {};
   const widths: Record<string, number> = {};

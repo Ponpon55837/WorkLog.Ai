@@ -12,7 +12,6 @@ import UiTextInput from "../ui/UiTextInput.vue";
 import UiTextarea from "../ui/UiTextarea.vue";
 import { t } from "../../i18n";
 
-/** Creates a custom standing page (its own question) and asks the Agent to write it. */
 const props = defineProps<{ open: boolean; project?: ProjectRecord }>();
 const emit = defineEmits<{ close: [] }>();
 

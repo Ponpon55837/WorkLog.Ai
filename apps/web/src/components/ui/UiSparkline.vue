@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-/** Tiny bar sparkline; the last bar is emphasised. Values are rendered as-is (no smoothing). */
 const props = withDefaults(
   defineProps<{
     values: readonly number[];
     label: string;
-    /** `lg` is the 52px chart for `UiStatCard featured`. */ size?: "md" | "lg";
+    size?: "md" | "lg";
   }>(),
   { size: "md" },
 );

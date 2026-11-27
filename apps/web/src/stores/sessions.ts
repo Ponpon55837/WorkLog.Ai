@@ -55,7 +55,6 @@ function updateFailureMessage(result: { outcome: string; reason?: string }): str
     : (result.reason ?? t("session.couldNotUpdateTheSession"));
 }
 
-/** Owns the filtered Session list query and its URL-backed view state. */
 export const useSessionsStore = defineStore("sessions", () => {
   const queryCache = useQueryCache();
   const selectedSessionId = ref<string | null>(null);
@@ -299,16 +298,12 @@ export const useSessionsStore = defineStore("sessions", () => {
   const sessions = computed(() => sessionsQuery.data.value?.items ?? []);
   const sessionsLoading = computed(() => sessionsQuery.isLoading.value);
   const sessionsLoaded = computed(() => sessionsQuery.data.value !== undefined);
-  /**
-   * The filters the loaded list was actually requested with, or null while the list still shows the previous
-   * answer (placeholder data) or has none. Consumers that compare against the list use this, not the typed filters.
-   */
+  /** Null while the list still shows placeholder data; consumers comparing against the list use this, not the typed filters. */
   const sessionsAppliedScope = computed(() => {
     if (sessionsQuery.isPlaceholderData.value || sessionsQuery.data.value === undefined) return null;
     const { q, projectId, agent, voided } = sessionListScope();
     return { q: q ?? "", projectId: projectId ?? "", agent: agent ?? "", voided };
   });
-  // Records the text search skipped as too large to read; the list notes that its results may be incomplete.
   const sessionsSkippedRecords = computed(() => sessionsQuery.data.value?.searchSkippedRecords ?? 0);
   // Only a list that never loaded shows the error state; a failed refresh keeps the rows already shown.
   const sessionsError = computed(() =>
@@ -365,7 +360,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     try {
       await sessionsQuery.refetch(true);
     } catch {
-      // The query keeps the failure; sessionsError shows it.
+      // The query keeps the error and the view renders it.
     }
   }
 
@@ -410,7 +405,6 @@ export const useSessionsStore = defineStore("sessions", () => {
     return await setSessionVoidMutation.mutateAsync(input);
   }
 
-  /** Permanently deletes a voided Session; the caller confirms first and reports the result. */
   async function deleteSession(sessionId: string): Promise<DeleteSessionResult> {
     return await deleteSessionMutation.mutateAsync(sessionId);
   }

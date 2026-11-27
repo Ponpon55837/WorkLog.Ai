@@ -23,7 +23,6 @@ export interface UsageScanControls {
   all: boolean;
   projectIds: readonly string[];
   range: UsageRange;
-  /** `YYYY-MM-DD` values of the date inputs, used when range is custom. */
   since: string;
   until: string;
   manualFolders: readonly string[];
@@ -42,7 +41,6 @@ const ERROR_KEYS: Record<string, MessageKey> = {
   usage_failed: "usage.errorFailed",
 };
 
-/** Series colors by token kind: input and output are the headline; the two cache kinds are never added to it. */
 export const USAGE_TOKEN_TONES = {
   input: "accent",
   output: "done",
@@ -59,24 +57,19 @@ const AGENT_KEYS = {
 } as const satisfies Record<UsageAgent, MessageKey>;
 
 interface UsageDailyPoint {
-  /** Local `YYYY-MM-DD`. */
   date: string;
   input: number;
   output: number;
 }
 
 interface UsageCompositionRow {
-  /** Parts of the row, each with its share (0..1) of the row total. */
   parts: { kind: keyof UsageTokens; value: number; share: number }[];
   total: number;
 }
 
 interface UsageComposition {
-  /** Row A: uncached input vs output; its total is the headline. */
   counted: UsageCompositionRow;
-  /** Row B: cache read vs cache write; never added to the headline. */
   cache: UsageCompositionRow;
-  /** Cache read divided by the headline, or null when the headline is zero. */
   cacheReadMultiple: number | null;
 }
 
@@ -87,20 +80,17 @@ interface UsageModelRow {
   responses: number;
   tokens: UsageTokens;
   primary: number;
-  /** Headline as a share of all model rows, 0..1. */
   share: number;
 }
 
 interface UsageBlockRow {
   agentLabel: string;
-  /** ISO instants bounding the block. */
   startAt: string;
   endAt: string;
   primary: number;
   primaryPerMinute: number;
   elapsedMs: number;
   remainingMs: number;
-  /** Elapsed share of the whole block, 0..1. */
   progress: number;
 }
 
@@ -117,7 +107,6 @@ function compositionRow(entries: readonly (readonly [keyof UsageTokens, number])
   };
 }
 
-/** The two composition rows, each on its own 100% scale, plus how many times the headline the cache reads are. */
 export function usageComposition(tokens: UsageTokenSummary): UsageComposition {
   return {
     counted: compositionRow([
@@ -138,11 +127,6 @@ function parseLocalDay(day: string): Date | undefined {
   return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
 }
 
-/**
- * One point per local day from the start of the scan range to its end (or `now` for an open end), filling the days
- * the server omits with zeros. Days outside the range that carry usage extend it; a longer range than the cap keeps
- * the most recent days.
- */
 export function fillDailyRange(
   daily: readonly UsageDayItem[],
   range: { since: string | null; until: string | null },
@@ -175,12 +159,10 @@ export function fillDailyRange(
   return points.slice(-MAX_DAILY_DAYS);
 }
 
-/** `MM/DD` axis label of a local `YYYY-MM-DD` date. */
 export function usageDayLabel(date: string): string {
   return date.slice(5).replace("-", "/");
 }
 
-/** Each item with `ratio`, its value relative to the highest value (0..1; 0 when every value is 0). */
 export function withRatio<T extends object>(
   items: readonly T[],
   valueOf: (item: T) => number,
@@ -198,7 +180,6 @@ export function withShare<T extends object>(
   return items.map((item) => ({ ...item, share: total > 0 ? valueOf(item) / total : 0 }));
 }
 
-/** Rows of the model table; the server sorts by headline, share is each row's part of all models. */
 export function usageModelRows(models: readonly UsageModelItem[]): UsageModelRow[] {
   return withShare(
     models.map((model) => ({

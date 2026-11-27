@@ -29,7 +29,6 @@ import {
 } from "../../utils/usage";
 import { t } from "../../i18n";
 
-/** The project picker, range and manual-folder inputs of the Usage page; the draft is the parent's `v-model`. */
 const emit = defineEmits<{ scan: [] }>();
 const controls = defineModel<UsageScanControls>({ required: true });
 

@@ -6,7 +6,6 @@ import { formatFullDate, startOfMonth, toDateInputValue, weekdayLabel } from "..
 import type { DateRange } from "./types";
 import { intlLocale, t } from "../../i18n";
 
-/** The app's only date picker: preset ranges plus a two-click custom range calendar. */
 const props = withDefaults(
   defineProps<{
     label?: string;

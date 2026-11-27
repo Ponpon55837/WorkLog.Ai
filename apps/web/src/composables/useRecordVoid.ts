@@ -58,7 +58,6 @@ function afterChange(message: string): void {
   useToast().showToast(message);
 }
 
-/** Voids the dialog's target; a reason is required so the audit explains why. */
 async function submitVoid(): Promise<void> {
   const target = useRecordVoidStore().voidTarget;
   const reason = useRecordVoidStore().voidReason.trim();
@@ -83,7 +82,6 @@ async function submitVoid(): Promise<void> {
   afterChange(voidedMessages[target.type]);
 }
 
-/** Restores a voided Session or evidence after confirmation; the audit keeps both changes. */
 async function restoreRecord(target: VoidTarget): Promise<void> {
   const confirmed = await confirmAction({
     title: restoreCopy[target.type].title,
@@ -102,10 +100,6 @@ async function restoreRecord(target: VoidTarget): Promise<void> {
   afterChange(restoredMessages[target.type]);
 }
 
-/**
- * Permanently deletes a voided Session after a danger confirmation. The server refuses Sessions that are
- * not voided and writes a pre-deletion backup first; Agents have no equivalent.
- */
 async function deleteVoidedSession(target: VoidTarget): Promise<void> {
   if (target.type !== "session") {
     return;

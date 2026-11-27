@@ -2,10 +2,7 @@ import { nextTick, onBeforeUnmount, ref, watch, type Ref } from "vue";
 
 type Align = "start" | "end";
 
-/**
- * Floating panel anchored to a trigger. The panel is teleported to <body> and positioned with
- * `position: fixed`, so it is never clipped by an `overflow: hidden` Box.
- */
+/** Teleported to <body> with `position: fixed`, so an `overflow: hidden` Box never clips it. */
 export function usePopover(options: { align?: Ref<Align> | Align; width?: number } = {}) {
   const open = ref(false);
   const trigger = ref<HTMLElement | null>(null);

@@ -1,6 +1,5 @@
 import { weekdayLabel } from "./format";
 import { t } from "../i18n";
-/** A bar on the timeline, in milliseconds since the epoch. */
 export interface TimelineSpan {
   start: number;
   end: number;
@@ -8,16 +7,11 @@ export interface TimelineSpan {
 
 export type PackedSpan<T> = T & { row: number };
 
-/**
- * Stacks overlapping bars into as few rows as possible (interval partitioning, as in "meeting rooms II"): bars
- * sorted by start take the row that frees up first, tracked with a min-heap of row end times. O(n log r).
- */
 export function packRows<T extends TimelineSpan>(
   items: readonly T[],
   gap = 0,
 ): { items: PackedSpan<T>[]; rows: number } {
   const sorted = [...items].sort((left, right) => left.start - right.start || left.end - right.end);
-  // Heap of [end time, row], smallest end first.
   const heap: Array<[number, number]> = [];
   const push = (entry: [number, number]) => {
     heap.push(entry);
@@ -62,7 +56,7 @@ export function packRows<T extends TimelineSpan>(
   return { items: packed, rows };
 }
 
-/** Items that intersect [from, to]; `items` must be sorted by start. Binary search skips everything after `to`. */
+/** `items` must be sorted by start. */
 export function visibleSpans<T extends TimelineSpan>(
   items: readonly T[],
   from: number,
@@ -89,10 +83,7 @@ export const DAY_MS = 86_400_000;
 /** Below this many pixels per day the timeline always draws one column per day instead of single Sessions. */
 export const DETAIL_MIN_DAY_WIDTH = 48;
 
-/**
- * The first candidate `fits` accepts, found by binary search; `fits` must be monotone over the ascending
- * candidates (once true, true for every larger one). Returns the last candidate when none fits.
- */
+/** `fits` must be monotone over the ascending candidates; returns the last candidate when none fits. */
 export function smallestFitting(candidates: readonly number[], fits: (candidate: number) => boolean): number {
   let low = 0;
   let high = candidates.length - 1;
@@ -105,7 +96,6 @@ export function smallestFitting(candidates: readonly number[], fits: (candidate:
 }
 
 export interface DayBucket {
-  /** Local midnight of the day. */
   day: number;
   passed: number;
   failed: number;
@@ -124,10 +114,6 @@ export function startOfLocalDay(time: number): number {
   return date.getTime();
 }
 
-/**
- * Counts Sessions per local day and verification result in one pass (hash map by day), for the zoomed-out
- * timeline. Returns only days with Sessions, oldest first.
- */
 export function dayBuckets(sessions: ReadonlyArray<{ completedAt: string; verificationStatus: string }>): DayBucket[] {
   const byDay = new Map<number, DayBucket>();
   for (const session of sessions) {
@@ -146,7 +132,6 @@ export function dayBuckets(sessions: ReadonlyArray<{ completedAt: string; verifi
   return [...byDay.values()].sort((left, right) => left.day - right.day);
 }
 
-/** Start times of every Saturday and Sunday (local days) that begin inside [rangeStart, rangeEnd). */
 export function weekendStarts(rangeStart: number, rangeEnd: number): number[] {
   const starts: number[] = [];
   const cursor = new Date(startOfLocalDay(rangeStart));
@@ -161,15 +146,10 @@ export function weekendStarts(rangeStart: number, rangeEnd: number): number[] {
 export interface AxisTick {
   time: number;
   label: string;
-  /** Month or day boundaries; minor ticks (weeks, hours) are drawn lighter. */
   major: boolean;
 }
 
-/**
- * Axis ticks that stay readable at any zoom: months when a day is only a few pixels wide, Mondays for a
- * week-level view, every day (or every other day) when days are wider, and six-hour marks when very wide.
- * Uses calendar arithmetic, so days stay aligned across daylight-saving changes.
- */
+/** Calendar arithmetic keeps days aligned across daylight-saving changes. */
 export function axisTicks(rangeStart: number, rangeEnd: number, dayWidth: number): AxisTick[] {
   const ticks: AxisTick[] = [];
   const cursor = new Date(startOfLocalDay(rangeStart));

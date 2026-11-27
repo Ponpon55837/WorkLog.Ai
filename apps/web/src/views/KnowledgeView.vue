@@ -132,7 +132,6 @@ const tab = computed<KnowledgeTab>({
     const value = String(route.params.tab ?? "");
     return (knowledgeTabs as readonly string[]).includes(value) ? (value as KnowledgeTab) : "list";
   },
-  // List filters live in the query string; keep them when switching tabs.
   set: (value) =>
     void router.replace({
       name: "knowledge",
@@ -225,7 +224,6 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
   }
 }
 
-// The kind counts follow the project and status filters; they are read only while the list tab is open.
 watch(
   [tab, knowledgeProjectId, knowledgeStatus],
   () => {

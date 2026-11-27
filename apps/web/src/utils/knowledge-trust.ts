@@ -6,10 +6,6 @@ export type TrustCell = "confirmed" | "contradicted";
 /** The most cells one trust bar draws; larger counts are scaled down to fit. */
 const MAX_TRUST_CELLS = 12;
 
-/**
- * One cell per confirmation (confirmed) or contradiction (contradicted). Past `max` cells the two counts are
- * scaled to fit, each keeping at least one cell while it is above zero. The exact numbers are always shown as text.
- */
 export function trustCells(confirmed: number, contradicted: number, max = MAX_TRUST_CELLS): TrustCell[] {
   const total = confirmed + contradicted;
   if (total <= 0) return [];
@@ -27,13 +23,10 @@ export function trustCells(confirmed: number, contradicted: number, max = MAX_TR
 }
 
 export interface KnowledgeStaleNotes {
-  /** Weak-signal note (project-wide breadth) shown beside a broad_applies_to reason; null otherwise. */
   broadAppliesTo: string | null;
-  /** Count of later broad (over 20 files) changes; shown even when the Knowledge is not possibly stale. */
   broadChanges: string | null;
 }
 
-/** Secondary lines for the staleness signals that are weaker than a plain "possibly stale". */
 export function knowledgeStaleNotes(
   item: Pick<KnowledgeRecord, "possiblyStale" | "broadChangesSince">,
 ): KnowledgeStaleNotes {
@@ -53,7 +46,6 @@ export function knowledgeStaleNotes(
   };
 }
 
-/** Localized hint for a save whose appliesTo covers much of the project's recent work; null when nothing to say. */
 export function appliesToBreadthNotice(result: {
   warnings?: string[];
   appliesToBreadth?: { share: number; sessions: number; broad: boolean };

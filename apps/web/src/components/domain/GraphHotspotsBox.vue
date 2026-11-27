@@ -15,7 +15,6 @@ import UiSkeleton from "../ui/UiSkeleton.vue";
 import HotspotList from "./HotspotList.vue";
 import { t } from "../../i18n";
 
-/** The graph page's hotspot view: files or directories many Sessions changed, and how often they failed. */
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 const projectId = defineModel<string>("projectId", { required: true });
 
@@ -43,7 +42,6 @@ function openSession(sessionId: string): void {
   void sessionsStore.openSessionDetail(sessionId, t("graph.couldNotLoadTheSessionThatChangedThis"));
 }
 
-// The graph page keeps the project filter in the URL; the store follows it.
 watch(
   projectId,
   (value) => {

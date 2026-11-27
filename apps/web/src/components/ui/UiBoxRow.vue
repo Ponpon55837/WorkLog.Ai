@@ -1,8 +1,4 @@
 <script setup lang="ts">
-/**
- * One list row inside UiBox. When `clickable`, the title becomes a stretched button so the whole
- * row is a click target while trailing actions stay independently focusable (GitHub pattern).
- */
 withDefaults(defineProps<{ clickable?: boolean; title?: string; meta?: string; tag?: string }>(), {
   clickable: false,
   tag: "div",

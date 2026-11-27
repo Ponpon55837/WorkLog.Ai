@@ -15,7 +15,6 @@ import { useGraphStore } from "../../stores/graph";
 import { graphEdgeKindLabels, graphNodeKindLabels } from "../../utils/labels";
 import { t } from "../../i18n";
 
-/** Docked, non-modal node detail: the graph stays interactive while the panel is open. */
 const graphStore = useGraphStore();
 const {
   graph,
@@ -53,7 +52,6 @@ const targetOptions = computed(() => [
     .sort((left, right) => left.label.localeCompare(right.label)),
 ]);
 
-/** Relation subtitle; avoids "變更檔案 · 變更檔案" and shows the folder for files. */
 function relationDetail(edge: GraphEdge, related: GraphNode): string {
   if (edge.reason) {
     return `${graphEdgeKindLabels[edge.kind]} · ${edge.reason}`;

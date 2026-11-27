@@ -18,12 +18,10 @@ import { useProjectsStore } from "./projects";
 import { useSessionsStore } from "./sessions";
 import { t } from "../i18n";
 
-/** The natural-language request the user pastes into their Agent conversation. */
 export function metadataBackfillInstruction(): string {
   return t("projects.pleaseProcessTheMetadataGaps");
 }
 
-/** Owns metadata-gap scans and Agent requests while the Projects backfill tab is active. */
 export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
   const queryCache = useQueryCache();
   const metadataBackfillActive = ref(false);
@@ -161,7 +159,6 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
     return fetchMetadataBackfillRequest(false);
   }
 
-  /** Re-checks without the loading indicator while an Agent is working on a request. */
   function refreshMetadataBackfillRequest(): Promise<void> {
     return fetchMetadataBackfillRequest(true);
   }

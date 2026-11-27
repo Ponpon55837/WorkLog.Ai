@@ -42,7 +42,7 @@ export const useReportPresentationStore = defineStore("report-presentation", () 
     try {
       await query.refetch(true);
     } catch {
-      /* Reading view owns this error. */
+      // The query keeps the error and the view renders it.
     }
   }
   async function read(id: string): Promise<ReportPresentation> {

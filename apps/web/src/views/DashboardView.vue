@@ -85,7 +85,6 @@ function openSession(session: WorkSessionRecord): void {
   void openSessionDetail(session.id);
 }
 
-/** Opens that day's report, linked the same way the report pages read period and date from the URL. */
 async function openDayReport(date: string): Promise<void> {
   await router.push({ name: "reports", query: { period: "day", date } });
 }

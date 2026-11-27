@@ -1,8 +1,4 @@
 <script setup lang="ts">
-/**
- * Bordered container. `stickyHeader` pins the header while the page scrolls, directly below the
- * page's sticky PageToolbar (offset `--page-toolbar-height`, set by PageToolbar).
- */
 withDefaults(defineProps<{ padded?: boolean; tag?: string; stickyHeader?: boolean }>(), {
   padded: false,
   tag: "section",

@@ -10,16 +10,10 @@ import UiMeter from "../ui/UiMeter.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import { t } from "../../i18n";
 
-/**
- * Knowledge per kind for the selected project and status; counts come from the API, never estimated.
- * Without `counts` the card shows a Skeleton, so the side column keeps its width while the numbers load.
- */
 const props = defineProps<{
   counts?: Record<KnowledgeKind, number>;
   status: KnowledgeStatus;
-  /** A text search narrows the list but not these counts. */
   searchActive?: boolean;
-  /** The kind filter narrows the list but not these counts. */
   kindActive?: boolean;
 }>();
 

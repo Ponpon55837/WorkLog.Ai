@@ -20,7 +20,6 @@ export type Locale = (typeof LOCALES)[number];
 export type MessageParams = Record<string, string | number | boolean | null | undefined>;
 
 type Catalog = { readonly [key: string]: string | Catalog };
-/** Every dotted path to a string in a nested catalog. */
 type KeyPaths<T, Prefix extends string = ""> = {
   [K in keyof T & string]: T[K] extends string ? `${Prefix}${K}` : KeyPaths<T[K], `${Prefix}${K}.`>;
 }[keyof T & string];

@@ -33,7 +33,6 @@ function labelsOf<K extends string>(visuals: Record<K, StatusVisual>): Record<K,
   return labels;
 }
 
-/** Label-only views of the status maps in utils/status.ts (single source of truth). */
 export const statusLabels = labelsOf(trackingStatus);
 export const knowledgeKindLabels = labelsOf(knowledgeKindVisual);
 export const knowledgeStatusLabels = labelsOf(knowledgeStatusVisual);

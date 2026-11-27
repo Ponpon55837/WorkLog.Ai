@@ -264,7 +264,6 @@ function createReportsViewModel() {
   };
 }
 
-/** Coordinates report filters, route state, and query interactions for the Reports view. */
 export function useReportsView(): ReturnType<typeof createReportsViewModel> {
   return createReportsViewModel();
 }

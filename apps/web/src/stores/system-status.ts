@@ -11,7 +11,6 @@ import { databaseInspectionStatus } from "../utils/status";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
-/** Owns the system diagnostics query and its page-scoped request lifecycle. */
 export const useSystemStatusStore = defineStore("system-status", () => {
   const queryCache = useQueryCache();
   const systemStatusActive = ref(false);
@@ -51,11 +50,11 @@ export const useSystemStatusStore = defineStore("system-status", () => {
     try {
       await systemStatusQuery.refetch(true);
     } catch {
-      // Query errors are exposed through systemStatusError for the page to render.
+      // The query keeps the error and the view renders it.
     }
   }
 
-  /** Asks the desktop App to open its Agent setup window (the App writes any config, never this page). */
+  /** The App writes any config, never this page. */
   async function openDesktopAgentSetup(): Promise<void> {
     const { showToast } = useToast();
     try {
@@ -66,10 +65,7 @@ export const useSystemStatusStore = defineStore("system-status", () => {
     }
   }
 
-  /**
-   * Asks the desktop App to open its port settings. The page's whitelisted preferences and current route path (not its query or hash) travel with
-   * the request so the App can restore them at the new address; the App confirms the change itself.
-   */
+  /** The page's whitelisted preferences and current route path (not query or hash) travel with the request so the App can restore them at the new address. */
   async function openDesktopPortSettings(routePath: string): Promise<void> {
     const { showToast } = useToast();
     try {

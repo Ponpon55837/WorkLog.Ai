@@ -3,10 +3,6 @@ import { computed } from "vue";
 import UiSpinner from "./UiSpinner.vue";
 import { t } from "../../i18n";
 
-/**
- * Placeholder shapes for content that is still loading, with a visible "loading" caption so a slow load never
- * reads as an empty page. `label` names what is loading; `quiet` drops the caption inside small panels.
- */
 const props = withDefaults(
   defineProps<{ variant?: "row" | "card" | "text"; count?: number; label?: string; quiet?: boolean }>(),
   { variant: "row", count: 3 },

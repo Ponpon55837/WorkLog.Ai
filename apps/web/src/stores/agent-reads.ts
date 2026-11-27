@@ -14,7 +14,6 @@ function auditPageSize(value: ListPageSize): number {
   return value === "all" ? 100 : value;
 }
 
-/** Owns the passive Agent read audit: the system-status list and the per-Session read history. */
 export const useAgentReadsStore = defineStore("agent-reads", () => {
   const { selectedDetail } = storeToRefs(useSessionsStore());
   const listActive = ref(false);
@@ -41,7 +40,6 @@ export const useAgentReadsStore = defineStore("agent-reads", () => {
         signal,
       ),
   });
-  // Per-tool latency follows the same project and Agent filters; it is not paginated.
   const statsQuery = useQuery<AgentReadStats>({
     key: () => [...queryKeys.agentReads.stats, { projectId: projectId.value, agent: agent.value }],
     enabled: listActive,
@@ -90,7 +88,7 @@ export const useAgentReadsStore = defineStore("agent-reads", () => {
     try {
       await listQuery.refetch(true);
     } catch {
-      // Query errors are exposed through `error` for the box to render.
+      // The query keeps the error and the view renders it.
     }
   }
 
@@ -98,7 +96,7 @@ export const useAgentReadsStore = defineStore("agent-reads", () => {
     try {
       await statsQuery.refetch(true);
     } catch {
-      // Query errors are exposed through `statsError` for the box to render.
+      // The query keeps the error and the view renders it.
     }
   }
 

@@ -6,10 +6,8 @@ import { useApi } from "../composables/useApi";
 import { countKnowledgeEvents, countRevisedPages } from "../utils/dashboard-cycle";
 import { queryKeys } from "./query-keys";
 
-/** Owns full dashboard report totals and the unfiltered app-shell attention count. */
 export const useDashboardStore = defineStore("dashboard", () => {
   const overviewEnabled = ref(false);
-  /** True while the overview's weekly loop is on screen; the Knowledge reads only run then. */
   const cycleEnabled = ref(false);
   const overviewQuery = useQuery({
     key: queryKeys.dashboard.overview,
@@ -69,7 +67,6 @@ export const useDashboardStore = defineStore("dashboard", () => {
       notSupplied: totals?.verification.not_supplied ?? 0,
     };
   });
-  /** Knowledge events this week; null while loading, and when the timeline could not be read. */
   const cycleEvents = computed(() => {
     const data = timelineQuery.data.value;
     return data?.outcome === "timeline" ? countKnowledgeEvents(data.knowledgeEvents) : null;
@@ -77,7 +74,6 @@ export const useDashboardStore = defineStore("dashboard", () => {
   const cycleEventsFailed = computed(
     () => Boolean(timelineQuery.error.value) || timelineQuery.data.value?.outcome === "skipped",
   );
-  /** Knowledge pages written this week; null while loading, and when the page list could not be read. */
   const cycleRevisedPages = computed(() => {
     const data = pagesQuery.data.value;
     const range = weekRange.value;

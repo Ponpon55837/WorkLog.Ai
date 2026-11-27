@@ -31,7 +31,6 @@ import {
 } from "../../utils/status";
 import { t } from "../../i18n";
 
-/** Lets a person create a project cleanup request and review evidence before changing any item. */
 const emit = defineEmits<{ openSession: [sessionId: string] }>();
 const reviewOptions = (Object.keys(outstandingCleanupProposalVisual) as OutstandingCleanupProposalStatus[]).map(
   (value) => ({ value, ...outstandingCleanupProposalVisual[value] }),

@@ -8,10 +8,6 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiTextarea from "../ui/UiTextarea.vue";
 import { t } from "../../i18n";
 
-/**
- * Asks for the reason before voiding a Session or marking evidence as wrong. Voiding is a
- * reversible soft-delete: the record stays readable and every change is audited.
- */
 const { voidTarget, voidReason, voidSaving, voidError, closeVoidDialog, submitVoid } = useRecordVoid();
 
 const copy = {

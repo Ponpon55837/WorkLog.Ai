@@ -11,7 +11,6 @@ import { router } from "../../router";
 import { useSessionsStore } from "../../stores/sessions";
 import { t } from "../../i18n";
 
-/** Reads an existing Session diagram in a wider, addressable panel without changing saved data. */
 const route = useRoute();
 const { selectedDetail } = storeToRefs(useSessionsStore());
 

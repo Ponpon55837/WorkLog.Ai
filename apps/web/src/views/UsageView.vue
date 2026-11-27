@@ -71,7 +71,6 @@ async function copyPreview(): Promise<void> {
   if (await usageStore.copyForAgent()) previewOpen.value = false;
 }
 
-// First open: default to the current project (else all tracked projects) and scan once.
 watch(
   projectsLoaded,
   (loaded) => {

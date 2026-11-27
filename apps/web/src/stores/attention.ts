@@ -8,7 +8,6 @@ import type { ListPageSize } from "../utils/labels";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
-/** Owns scoped attention reads; all source actions remain in their domain workflows. */
 export const useAttentionStore = defineStore("attention", () => {
   const cache = useQueryCache();
   const active = ref(false);
@@ -74,7 +73,7 @@ export const useAttentionStore = defineStore("attention", () => {
     try {
       await query.refetch(true);
     } catch {
-      /* Query owns the visible error. */
+      // The query keeps the error and the view renders it.
     }
   }
   return {

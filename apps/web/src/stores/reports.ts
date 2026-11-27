@@ -23,12 +23,10 @@ import { emptyPageInfo } from "./sessions";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
-/** The natural-language request the user pastes into their Agent conversation. */
 export function reportSynthesisInstruction(): string {
   return t("common.pleaseProcessTheReportSynthesis");
 }
 
-/** A calendar period, or "custom" for the from/to range in reportRange. */
 export type ReportViewPeriod = ReportPeriod | "custom";
 
 type ReportSynthesisInput = {
@@ -42,7 +40,6 @@ type ReportSynthesisInput = {
 
 const MAX_CUSTOM_DAYS = 366;
 
-/** Owns report queries, synthesis mutations, and the reports view state. */
 export const useReportsStore = defineStore("reports", () => {
   const queryCache = useQueryCache();
   const reportsActive = ref(false);
@@ -80,7 +77,6 @@ export const useReportsStore = defineStore("reports", () => {
     return { ...scope, period };
   }
 
-  /** Without a project, only all-project syntheses belong to this report. */
   function synthesisScope(): ReturnType<typeof synthesisRequestScope> & { scopeType?: "all" } {
     const scope = synthesisRequestScope();
     return scope.projectId ? scope : { ...scope, scopeType: "all" };
@@ -371,7 +367,6 @@ export const useReportsStore = defineStore("reports", () => {
     }
   }
 
-  /** Re-checks without the loading indicator while an Agent is working on a request. */
   async function refreshReportSynthesis(): Promise<void> {
     if (!report.value) return;
     try {

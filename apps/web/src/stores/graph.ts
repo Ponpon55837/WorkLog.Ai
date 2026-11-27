@@ -46,7 +46,6 @@ function uniqueById<T extends { id: string }>(items: T[]): T[] {
   return [...uniqueItems.values()];
 }
 
-/** Owns Graph filters, paged REST data, query status, and selected-node state. */
 export const useGraphStore = defineStore("graph", () => {
   const graphActive = ref(false);
   const graphProjectId = ref("");
@@ -60,7 +59,6 @@ export const useGraphStore = defineStore("graph", () => {
   const graphExtraPages = ref<GraphResult[]>([]);
   const graphRequestError = ref("");
   const graphGeneration = ref(0);
-  /** Derived co_changed edges are hidden until the viewer turns them on. */
   const graphShowDerived = ref(false);
   const graphPathEnds = ref<{ from: string; to: string } | null>(null);
 
@@ -155,7 +153,6 @@ export const useGraphStore = defineStore("graph", () => {
     const result = graphPathQuery.data.value;
     return result?.outcome === "skipped" ? result.reason : "";
   });
-  /** Edge ids on the current path, for highlighting. */
   const graphPathEdgeIds = computed(() => new Set(graphPath.value?.steps.map((step) => step.edge.id) ?? []));
   const graphCanLoadMore = computed(() => Boolean(graph.value?.nextCursor));
 

@@ -12,7 +12,6 @@ import { useDashboardStore } from "../../stores/dashboard";
 import { dashboardInsights } from "../../utils/dashboard-insights";
 import { t } from "../../i18n";
 
-/** Renders two deterministic weekly insights with scoped report navigation. */
 const store = useDashboardStore();
 const { weekReport, weekReportLoaded, weekReportFailed } = storeToRefs(store);
 const insight = computed(() =>

@@ -35,7 +35,6 @@ export interface ProjectsApi {
     stagingId: string,
     options: ProjectDataStagedImportOptions,
   ): Promise<ProjectDataImportResult>;
-  /** `keepalive` lets the request outlive the page (used when the page is being left). */
   discardStagedProjectDataImport(stagingId: string, options?: { keepalive?: boolean }): Promise<void>;
   getDashboard(signal?: AbortSignal): Promise<DashboardSummary>;
   listProjects(signal?: AbortSignal): Promise<ProjectListRecord[]>;

@@ -25,7 +25,6 @@ import type { ListPageSize } from "../../utils/labels";
 import { errorMessage, formatDate, formatRelative } from "../../utils/format";
 import { t } from "../../i18n";
 
-/** Dashboard attention pointers with explicit coverage and domain-owned actions. */
 const route = useRoute();
 const store = useAttentionStore();
 const {
@@ -130,8 +129,8 @@ async function changePreference(item: AttentionItem, action: UpdateAttentionPref
   }
 }
 
+// Back/forward restores the complete URL, while a user filter change starts at page one.
 watch([projectId, kind, view, pageSize], () => {
-  // Back/forward restores the complete URL, while a user filter change starts at page one.
   if (
     (route.query.attentionProject ?? "") !== projectId.value ||
     (route.query.attentionKind ?? "") !== kind.value ||

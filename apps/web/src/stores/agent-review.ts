@@ -20,7 +20,6 @@ export type AgentReviewListFilter = "pending" | "agent";
 
 const OPEN_STATUSES: readonly AgentReviewRequest["status"][] = ["pending", "processing", "failed"];
 
-/** Owns the project's Agent review request, the pending/Agent-processed list filter, and overturning an Agent verdict. */
 export const useAgentReviewStore = defineStore("agent-review", () => {
   const queryCache = useQueryCache();
   const active = ref(false);
@@ -92,7 +91,6 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
     },
   });
 
-  // Cancelled requests carry no information for the person, so only the latest live or finished one is shown.
   const latestRequest = computed<AgentReviewRequest | undefined>(() => {
     const result = requestsQuery.data.value;
     const request = result?.outcome === "agent_review_requests" ? result.requests[0] : undefined;

@@ -4,10 +4,6 @@ import { workSummarySectionLabels } from "../../utils/labels";
 import VirtualList from "../VirtualList.vue";
 import { t } from "../../i18n";
 
-/**
- * The five workSummary sections in fixed order. `nextSteps` is shown as 狀態／未結項 and never
- * styled as a recommendation. Legacy Sessions without workSummary still show all five headings.
- */
 defineProps<{ summary?: WorkSummarySections }>();
 </script>
 

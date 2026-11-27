@@ -1,12 +1,6 @@
 <script setup lang="ts">
 import UiStack from "./UiStack.vue";
 
-/**
- * Main column plus a narrower side column. Each column is a UiStack, columns keep their own height
- * (`align-items: start`), and below 960px the side column stacks under the main one.
- * Without an `aside` slot the layout is a single column, so the main column keeps the full width.
- * `asideLabel` turns the side column into a labelled `aside` landmark.
- */
 defineProps<{ asideLabel?: string }>();
 </script>
 

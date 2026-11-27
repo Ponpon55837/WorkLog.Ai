@@ -14,7 +14,6 @@ function sectionItems(text: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-/** Opens the in-place editor for a Session's title, summary, and five-section workSummary. */
 function openSessionEditor(session: WorkSessionRecord): void {
   useSessionEditorStore().sessionEditor = session;
   useSessionEditorStore().sessionEditorForm = toForm(session);

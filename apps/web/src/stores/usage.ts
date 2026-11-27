@@ -9,7 +9,6 @@ import { fillDailyRange, usageErrorMessage, usageSharedRows } from "../utils/usa
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
-/** Owns the usage page's tracked-project list and its on-demand scan; the scan result is never cached across visits. */
 export const useUsageStore = defineStore("usage", () => {
   const queryCache = useQueryCache();
   const usageActive = ref(false);
@@ -45,7 +44,7 @@ export const useUsageStore = defineStore("usage", () => {
     scanResult.value ? fillDailyRange(scanResult.value.daily, scanResult.value.range) : [],
   );
 
-  /** Runs one scan; a newer scan aborts the previous one, and an aborted scan never overwrites the newer result. */
+  /** A newer scan aborts the previous one, and an aborted scan never overwrites the newer result. */
   async function runScan(request: UsageScanRequest): Promise<void> {
     scanController.value?.abort();
     const controller = new AbortController();
@@ -75,7 +74,7 @@ export const useUsageStore = defineStore("usage", () => {
     try {
       await projectsQuery.refetch(true);
     } catch {
-      // Query errors are exposed through projectsError for the page to render.
+      // The query keeps the error and the view renders it.
     }
   }
 

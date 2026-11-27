@@ -2,7 +2,6 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import type { SessionLinkDirection, WorkSessionRecord } from "@work-intelligence/core";
 
-/** The "link Sessions" dialog: the source Session, the search, and the chosen target and relation. */
 export const useSessionLinkDialogStore = defineStore("session-link-dialog", () => {
   const linkSource = ref<WorkSessionRecord | null>(null);
   const linkQuery = ref("");
