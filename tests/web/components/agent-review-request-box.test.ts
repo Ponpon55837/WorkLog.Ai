@@ -9,6 +9,7 @@ import { loadCatalog, locale, t } from "../../../apps/web/src/i18n/index.js";
 // Fictional fixtures only.
 const latestRequest = ref<AgentReviewRequest | undefined>();
 const latestCompletedRequest = ref<AgentReviewRequest | undefined>();
+const hasOpenRequest = ref(false);
 const pages = ref<Array<{ id: string; projectId: string; slug: string }>>([]);
 
 vi.mock("../../../apps/web/src/stores/agent-review", () => ({
@@ -16,7 +17,7 @@ vi.mock("../../../apps/web/src/stores/agent-review", () => ({
     reactive({
       latestRequest,
       latestCompletedRequest,
-      hasOpenRequest: ref(false),
+      hasOpenRequest,
       requestLoaded: ref(true),
       requestError: ref(""),
       skipped: ref(false),
@@ -75,6 +76,7 @@ beforeAll(async () => {
 beforeEach(() => {
   latestRequest.value = undefined;
   latestCompletedRequest.value = undefined;
+  hasOpenRequest.value = false;
   pages.value = [];
 });
 
@@ -119,6 +121,14 @@ describe("AgentReviewRequestBox Knowledge pages step", () => {
     expect(await render()).not.toContain("agent-review-pages");
 
     latestCompletedRequest.value = completed();
+    expect(await render()).not.toContain("agent-review-pages");
+  });
+
+  it("hides the earlier request's pages while a new request is open", async () => {
+    latestCompletedRequest.value = completed([page("architecture", "pending")]);
+    latestRequest.value = { ...completed(), id: "request-2", status: "processing" };
+    hasOpenRequest.value = true;
+
     expect(await render()).not.toContain("agent-review-pages");
   });
 });

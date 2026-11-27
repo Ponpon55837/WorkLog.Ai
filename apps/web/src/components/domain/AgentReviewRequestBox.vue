@@ -44,7 +44,7 @@ const hint = computed(() => {
 });
 const pageRows = computed(() => {
   const request = latestCompletedRequest.value;
-  if (!request?.knowledgePages) return undefined;
+  if (hasOpenRequest.value || !request?.knowledgePages) return undefined;
   const pageIds = new Map(
     pages.value.filter((page) => page.projectId === request.projectId).map((page) => [page.slug, page.id]),
   );
