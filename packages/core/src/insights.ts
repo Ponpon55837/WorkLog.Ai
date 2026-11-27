@@ -67,10 +67,6 @@ export const NOOP_INSIGHT_PROVIDER_DESCRIPTOR = {
   model: "none",
 } as const satisfies InsightProviderDescriptor;
 
-/**
- * Phase 1 placeholder: it never performs egress and deliberately emits no
- * derived signals. Availability is resolved by the future execution guard.
- */
 export class NoopInsightProvider implements InsightProvider {
   public readonly descriptor = NOOP_INSIGHT_PROVIDER_DESCRIPTOR;
 

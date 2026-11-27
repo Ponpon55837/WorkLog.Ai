@@ -22,7 +22,6 @@ export interface AttentionQuery {
   pageSize?: number;
 }
 
-/** A read-only pointer; acting on it always uses the owning domain's existing workflow. */
 export interface AttentionItem {
   id: string;
   kind: AttentionKind;
@@ -63,7 +62,6 @@ export interface AttentionList {
   minimumTotal: number;
   total: number | null;
   pageInfo: PageInfo;
-  /** Suppressed pointers in the examined window; source totals remain unchanged. */
   suppressedCount: number;
 }
 
