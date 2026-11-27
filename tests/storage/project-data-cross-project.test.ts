@@ -443,6 +443,7 @@ function seedWorld(): Seeded {
         review_status: "accepted",
         created_at: createdAt,
         decided_at: createdAt,
+        kind: "resolution",
       }),
     );
     insertRow(

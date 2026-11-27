@@ -3,7 +3,6 @@ import type { PageInfo, ProjectIdSkippedResult, WorkReportPeriod } from "./index
 export const ATTENTION_KINDS = [
   "synthesis",
   "backfill",
-  "cleanup",
   "decision",
   "knowledge",
   "knowledge_page",

@@ -1203,7 +1203,11 @@ function dependencyIssue(
       ) {
         return "清理稽核事件的請求、提案、項目必須屬於同一專案與請求。";
       }
-      if (row.source !== "web" || proposal.reviewStatus !== "accepted" || proposal.targetStatus !== row.to_status) {
+      if (
+        (row.source !== "web" && row.source !== "agent") ||
+        proposal.reviewStatus !== "accepted" ||
+        proposal.targetStatus !== row.to_status
+      ) {
         return "清理稽核事件必須對應已接受且狀態一致的提案。";
       }
     }
@@ -1714,6 +1718,20 @@ function decisionSessionSources(sessions: readonly PlannedRow[]): Map<string, Pr
   return sources;
 }
 
+/** Schema 43 applies cleanup verdicts directly: an older file's unapplied proposals and review state are closed as the migration does. */
+function normalizeLegacyCleanupRows(tables: ProjectDataExport["tables"]): void {
+  tables.outstanding_cleanup_requests = tables.outstanding_cleanup_requests.map((row) =>
+    row.status === "awaiting_review"
+      ? { ...row, status: "completed", completed_at: row.completed_at ?? row.requested_at ?? null }
+      : row,
+  );
+  // Review reminders for these requests no longer exist, and the attention kind was removed with them.
+  tables.attention_preferences = tables.attention_preferences.filter((row) => row.kind !== "cleanup");
+  tables.outstanding_cleanup_proposals = tables.outstanding_cleanup_proposals.map((row) =>
+    row.review_status === "pending" ? { ...row, review_status: "rejected" } : row,
+  );
+}
+
 function makePlan(
   db: DatabaseSync,
   validated: ValidatedProjectDataImport,
@@ -1725,6 +1743,7 @@ function makePlan(
   const sourceRootPaths = new Map(
     selectedBundle.tables.projects.map((project) => [String(project.id), String(project.root_path)]),
   );
+  normalizeLegacyCleanupRows(selectedBundle.tables);
   const remappedPaths = applyPathRemaps(selectedBundle.tables, input.remap ?? []);
   // A repository link from another machine is kept only if it is still a safe https URL.
   for (const row of selectedBundle.tables.projects) {
@@ -1743,6 +1762,7 @@ function makePlan(
   const conflicts: ProjectDataImportConflict[] = [];
   const conflictGroups = new Map<string, ProjectDataImportConflictGroup>();
   let conflictDetailsTruncated = false;
+  let onProposalStored: (row: ProjectDataRow) => void = () => undefined;
   const addPlan = (
     table: ProjectDataTable,
     row: ProjectDataRow,
@@ -1751,6 +1771,9 @@ function makePlan(
     category: ProjectDataImportConflictCategory = "dependency",
   ) => {
     rows[table].push(disposition === "conflict" ? { row, disposition, reason, category } : { row, disposition });
+    if (table === "outstanding_cleanup_proposals" && (disposition === "add" || disposition === "update")) {
+      onProposalStored(row);
+    }
     if (disposition === "conflict") {
       const id = String(row.id).slice(0, MAX_CONFLICT_ID_LENGTH);
       const message = reason ?? "資料衝突。";
@@ -2034,17 +2057,6 @@ function makePlan(
       },
     ]),
   );
-  for (const row of selectedBundle.tables.outstanding_cleanup_proposals) {
-    const sourceProjectId = String(row.project_id);
-    cleanupProposalReferences.set(String(row.id), {
-      requestId: String(row.request_id),
-      projectId: projectIds.get(sourceProjectId) ?? sourceProjectId,
-      requestItemId: String(row.request_item_id),
-      submissionId: String(row.submission_id),
-      targetStatus: String(row.target_status),
-      reviewStatus: String(row.review_status),
-    });
-  }
 
   const importedSessionCompletedAt = new Map(
     selectedBundle.tables.sessions.map((session) => [String(session.id), String(session.completed_at)] as const),
@@ -2062,6 +2074,18 @@ function makePlan(
   const pendingConventionAdds: Array<{ row: ProjectDataRow; projectId: string }> = [];
   const parentOwners = collectParentOwners(db, selectedBundle.tables, projectIds);
   const deletedPageIds = deletedKnowledgePageIds(db, selectedBundle.tables);
+  // An audit event depends on the proposal as it will be stored, so a kept local proposal keeps its local state.
+  onProposalStored = (row) => {
+    const sourceProjectId = String(row.project_id);
+    cleanupProposalReferences.set(String(row.id), {
+      requestId: String(row.request_id),
+      projectId: projectIds.get(sourceProjectId) ?? sourceProjectId,
+      requestItemId: String(row.request_item_id),
+      submissionId: String(row.submission_id),
+      targetStatus: String(row.target_status),
+      reviewStatus: String(row.review_status),
+    });
+  };
   const issueOf = (table: ProjectDataTable, row: ProjectDataRow) =>
     dependencyIssue(
       table,

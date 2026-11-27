@@ -4,6 +4,24 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.89] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.89.md).
+
+### Changed
+
+- Outstanding cleanup verdicts (#482) apply directly, like Agent review. `work_submit_outstanding_cleanup_proposals` changes each item to `completed` or `not_needed` at submission and writes an `outstanding_item_events` row with `source: agent` that links the cleanup request and proposal. Eligibility of every item, source and evidence version is still rechecked in one transaction, so one stale or ineligible verdict rejects the whole submission without writes. The tool names, bookkeeping, reasons and 1-10 evidence Session IDs stay. `POST /api/outstanding-cleanup/requests/:requestId/decisions` and the accept or reject step in the Web are removed; the cleanup panel shows "Agent 已結案" with each reason, evidence and verdict, and the user reopens items one by one or in a batch through the existing batch status route.
+- Schema 43 adds `outstanding_cleanup_proposals.kind` and recreates `trg_outstanding_cleanup_event_scope` (cleanup events must be a `pending` to verdict transition by `web` or `agent` for an accepted proposal of the same request, project, item and status). Proposals still pending are marked `rejected` (`decided_at` stays empty, so an acceptance made on another machine still wins on import) and their items stay pending; requests that were `awaiting_review` become `completed`. Importing an older file applies the same normalization, so a 1.6.87 export with an open review no longer leaves a stuck request. An audit event whose proposal is not accepted locally becomes an import conflict instead of aborting the import. Exports carry `kind`; older exports import with `resolution`. The cleanup events no longer record a Session actor (`actor_session_id` is empty); the request and proposal IDs identify the source.
+- Tighter `nextSteps` wording in the work record contract and the work-intelligence skill: scope exclusions, unverified-platform notes and decisions left to the user are facts for `outcomes` or `verification`. `nextStepsWarnings` flags them with the new categories `scope_exclusion`, `unverified_platform` and `deferred_to_user` (warn-only).
+
+### Added
+
+- Cleanup verdict `acknowledged` (記錄為已知限制) for an item that is no task: it needs a reason and no evidence Session, is stored as `not_needed` and is told apart by `kind: acknowledged`.
+- `work_resolve_outstanding_items` lets a Session close its own pending items it finished later (the resolved list only; superseding still needs an earlier source).
+- The finalize receipt's `relatedOutstandingItems` lists pending items that share an issue reference (`#N`) or version (`x.y.z`) with the Session's title, summary or outcomes first, marked `possiblyDone: true`, as a hint to check them.
+- The attention kind `cleanup` (review reminders for cleanup requests) is removed, since no request waits for review anymore. Old exports that carry such preferences still import; those rows are dropped.
+- Items a Session closed itself with `work_resolve_outstanding_items` report `closedBy: later_session`, so the Web filter that hides items dropped from nextSteps no longer hides them. Reopening in the cleanup panel sends `expectedStatus`, so an item changed in another tab is not overwritten.
+
 ## [1.6.88] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.88.md).

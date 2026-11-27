@@ -71,13 +71,6 @@ describe("attention view state", () => {
       projectId: "p1",
     };
     expect(
-      attentionRoute({ ...base, kind: "cleanup", target: { kind: "cleanup", sourceId: "request", projectId: "p1" } }),
-    ).toEqual({
-      name: "sessions",
-      params: { tab: "outstanding" },
-      query: { itemProject: "p1", cleanup: "review", cleanupRequest: "request" },
-    });
-    expect(
       attentionRoute({
         ...base,
         kind: "synthesis",

@@ -46,7 +46,6 @@ const EXPECTED_ROUTES = [
   "GET /api/outstanding-cleanup/requests/:requestId/context",
   "GET /api/outstanding-cleanup/requests/:requestId/proposals",
   "POST /api/outstanding-cleanup/requests/:requestId/proposals",
-  "POST /api/outstanding-cleanup/requests/:requestId/decisions",
   "POST /api/outstanding-cleanup/requests/:requestId/cancel",
   "POST /api/agent-review-requests",
   "GET /api/agent-review-requests",

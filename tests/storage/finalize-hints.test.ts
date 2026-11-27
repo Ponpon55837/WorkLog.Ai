@@ -189,7 +189,7 @@ describe("outstandingItemWarnings reasons", () => {
     expect(result.outstandingItemWarnings?.reasons).toEqual([{ id: open, list: "resolved", code: "held_by_cleanup" }]);
   });
 
-  it("adds not_earlier to work_resolve_outstanding_items for same-Session and later sources", () => {
+  it("lets a Session resolve its own items and adds not_earlier for later sources", () => {
     const { fixture } = seed();
     const earlyActor = finalize(fixture, "reason-early-actor", ["Own step"], { completedAt: MIDDAY });
     const own = pendingId(fixture, "Own step");
@@ -205,13 +205,13 @@ describe("outstandingItemWarnings reasons", () => {
     expect(later.session.id).toBeTruthy();
     expect(result.outstandingItemWarnings?.reasons).toEqual(
       expect.arrayContaining([
-        { id: own, list: "resolved", code: "not_earlier" },
         { id: laterItem, list: "resolved", code: "not_earlier" },
         { id: "missing-id", list: "superseded", code: "not_found" },
       ]),
     );
-    expect(result.resolvedOutstandingItemIds).toEqual([older]);
-    expect(result.outstandingItemWarnings?.reasons).toHaveLength(3);
+    expect(result.resolvedOutstandingItemIds).toEqual(expect.arrayContaining([own, older]));
+    expect(result.resolvedOutstandingItemIds).toHaveLength(2);
+    expect(result.outstandingItemWarnings?.reasons).toHaveLength(2);
   });
 
   it("is absent when every id applies", () => {

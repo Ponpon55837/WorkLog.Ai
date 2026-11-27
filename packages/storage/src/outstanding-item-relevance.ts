@@ -57,6 +57,22 @@ function countTerms(value: string, terms: readonly string[]): number {
   return count;
 }
 
+const ISSUE_REFERENCE = /(?<![\w&])#(\d{1,7})\b|\/(?:issues|pull)\/(\d{1,7})\b/g;
+const VERSION_REFERENCE = /(?<![\w.])v?(\d{1,3}\.\d{1,3}\.\d{1,3})(?!\w|\.\d)/g;
+
+export function identifiersIn(text: string): Set<string> {
+  const found = new Set<string>();
+  for (const match of text.matchAll(ISSUE_REFERENCE)) found.add(`#${match[1] ?? match[2]}`);
+  for (const match of text.matchAll(VERSION_REFERENCE)) found.add(match[1] as string);
+  return found;
+}
+
+export function sharesIdentifier(text: string, identifiers: ReadonlySet<string>): boolean {
+  if (identifiers.size === 0) return false;
+  for (const identifier of identifiersIn(text)) if (identifiers.has(identifier)) return true;
+  return false;
+}
+
 function compareBinary(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }

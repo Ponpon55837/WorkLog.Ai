@@ -21,8 +21,10 @@ import type {
 import { MAX_OUTSTANDING_ITEM_BATCH_SIZE, OUTSTANDING_ITEM_STATUSES } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import {
+  identifiersIn,
   rankRelatedPendingWithin,
   RELATED_PENDING_UNIT_LIMIT,
+  sharesIdentifier,
   type RelatedPendingCandidate,
 } from "./outstanding-item-relevance.js";
 import { MAX_STORED_CHANGED_FILES_JSON_BYTES } from "./applies-to-match.js";
@@ -38,7 +40,10 @@ export interface OutstandingItemFocus {
   sourceSessionIds?: readonly string[];
   excludeSourceSessionId?: string;
   excludeItemIds?: readonly string[];
+  identifierText?: string;
 }
+
+export type RelatedPendingItem = OutstandingItem & { possiblyDone?: true };
 
 type OutstandingItemRow = {
   id: string;
@@ -90,12 +95,12 @@ const RELATED_PENDING_LIMIT = 5;
 /** About 45 times the largest real project's pending items. */
 const RELATED_PENDING_CANDIDATE_LIMIT = 2_000;
 
-/** Web edits record the Session as actor but are a person's decision, so only source = 'agent' counts as the Session. */
+/** Web edits record the Session as actor but are a person's decision, so only source = 'agent' counts as the Session. A nextSteps removal by the source Session is always not_needed; its own later completion is a resolve like any other Session's. */
 const CLOSED_BY_SQL = `CASE WHEN i.status = 'pending' THEN NULL ELSE (
   SELECT CASE
     WHEN e.cleanup_proposal_id IS NOT NULL THEN 'cleanup_review'
     WHEN e.source = 'migration' THEN 'migration'
-    WHEN e.source = 'agent' AND e.actor_session_id IS i.source_session_id THEN 'source_session'
+    WHEN e.source = 'agent' AND e.actor_session_id IS i.source_session_id AND e.to_status = 'not_needed' THEN 'source_session'
     WHEN e.source = 'agent' THEN 'later_session'
     ELSE 'user' END
   FROM outstanding_item_events e
@@ -229,7 +234,7 @@ export class OutstandingItemService {
     );
   }
 
-  public relatedPending(input: OutstandingItemFocus): { items: OutstandingItem[]; total: number; truncated?: true } {
+  public relatedPending(input: OutstandingItemFocus): { items: RelatedPendingItem[]; total: number; truncated?: true } {
     if (input.projectId) {
       const policy = this.dependencies.checkProjectById(input.projectId);
       if (!policy.allowed || !policy.project) return { items: [], total: 0 };
@@ -251,7 +256,8 @@ export class OutstandingItemService {
     );
     const sources = [...new Set(input.sourceSessionIds ?? [])].slice(0, 20);
     const excludedIds = [...new Set(input.excludeItemIds ?? [])];
-    if (!terms.length && !paths.length && !sources.length) return { items: [], total: 0 };
+    const identifiers = identifiersIn(input.identifierText ?? "");
+    if (!terms.length && !paths.length && !sources.length && identifiers.size === 0) return { items: [], total: 0 };
     const candidates = this.db
       .prepare(
         `${baseSelect(
@@ -300,9 +306,21 @@ export class OutstandingItemService {
       RELATED_PENDING_UNIT_LIMIT,
     );
     const truncated = overLimit || exhausted || overBound;
+    const rankedIds = new Set(ranked.map((row) => row.id));
+    const possiblyDone = new Set(read.filter((row) => sharesIdentifier(row.text, identifiers)).map((row) => row.id));
+    const ordered = possiblyDone.size
+      ? [
+          ...ranked.filter((row) => possiblyDone.has(row.id)),
+          ...read.filter((row) => possiblyDone.has(row.id) && !rankedIds.has(row.id)),
+          ...ranked.filter((row) => !possiblyDone.has(row.id)),
+        ]
+      : ranked;
     return {
-      items: ranked.slice(0, RELATED_PENDING_LIMIT).map(toOutstandingItem),
-      total: ranked.length,
+      items: ordered.slice(0, RELATED_PENDING_LIMIT).map((row) => ({
+        ...toOutstandingItem(row),
+        ...(possiblyDone.has(row.id) ? { possiblyDone: true as const } : {}),
+      })),
+      total: ordered.length,
       ...(truncated ? { truncated: true as const } : {}),
     };
   }
@@ -440,7 +458,7 @@ export class OutstandingItemService {
                 .prepare(
                   `SELECT ci.item_id FROM outstanding_cleanup_requests r
                    JOIN outstanding_cleanup_request_items ci ON ci.request_id = r.id AND ci.project_id = r.project_id
-                   WHERE r.project_id = ? AND r.status IN ('pending', 'awaiting_review')
+                   WHERE r.project_id = ? AND r.status = 'pending'
                      AND ci.source_session_id = ?`,
                 )
                 .all(projectId, sessionId) as Array<{ item_id: string }>
@@ -575,7 +593,7 @@ export class OutstandingItemService {
                 EXISTS (
                   SELECT 1 FROM outstanding_cleanup_requests r
                   JOIN outstanding_cleanup_request_items ci ON ci.request_id = r.id AND ci.project_id = r.project_id
-                  WHERE r.project_id = i.project_id AND r.status IN ('pending', 'awaiting_review')
+                  WHERE r.project_id = i.project_id AND r.status = 'pending'
                     AND ci.item_id = i.id
                 ) AS held
          FROM outstanding_items i
@@ -594,9 +612,9 @@ export class OutstandingItemService {
       if (row.source_voided_at) return "source_voided";
       if (row.held) return "held_by_cleanup";
       const { later } = rejected;
-      const notEarlier =
-        later &&
-        (row.source_session_id === later.actorSessionId || (row.source_completed_at ?? "") >= later.actorCompletedAt);
+      if (!later) return undefined;
+      const own = row.source_session_id === later.actorSessionId;
+      const notEarlier = own ? list === "superseded" : (row.source_completed_at ?? "") >= later.actorCompletedAt;
       return notEarlier ? "not_earlier" : undefined;
     };
     const reasons: OutstandingItemRejectionReason[] = [];
@@ -688,7 +706,7 @@ export class OutstandingItemService {
         sessionId,
         updatedAt,
         "completed",
-        later,
+        { ...later, allowOwn: true },
       );
       const supersession = this.transitionPendingInTransaction(
         nextStepCount > 0 ? supersededRequested.filter((id) => !ambiguous.has(id) && !notNeededBefore.has(id)) : [],
@@ -732,7 +750,7 @@ export class OutstandingItemService {
                 unsupersededIds,
                 reasons,
                 message:
-                  "部分指定項目無效、已處理、跨專案、來源 Session 已作廢、正在整理待審、來源不早於本 Session、來自本 Session 自己、本 Session 未提供 nextSteps 或同時指定完成與取代，因此維持原狀。",
+                  "部分指定項目無效、已處理、跨專案、來源 Session 已作廢、正在整理待審、來源不早於本 Session、要取代本 Session 自己的項目、本 Session 未提供 nextSteps 或同時指定完成與取代，因此維持原狀。",
               },
             }
           : {}),
@@ -774,13 +792,16 @@ export class OutstandingItemService {
     actorSessionId: string,
     updatedAt: string,
     status: "completed" | "not_needed",
-    later?: { actorCompletedAt: string },
+    later?: { actorCompletedAt: string; allowOwn?: boolean },
   ): { resolvedIds: string[]; unresolvedIds: string[] } {
     const requestedIds = [...new Set(itemIds)];
     if (requestedIds.length === 0) return { resolvedIds: [], unresolvedIds: [] };
     const placeholders = requestedIds.map(() => "?").join(", ");
-    // Evidence must be later work by another Session.
-    const laterSql = later ? "AND s.id <> ? AND s.completed_at < ?" : "";
+    const laterSql = later
+      ? later.allowOwn
+        ? "AND (s.id = ? OR s.completed_at < ?)"
+        : "AND s.id <> ? AND s.completed_at < ?"
+      : "";
     const laterParams = later ? [actorSessionId, later.actorCompletedAt] : [];
     const pending = this.db
       .prepare(
@@ -790,7 +811,7 @@ export class OutstandingItemService {
            AND NOT EXISTS (
              SELECT 1 FROM outstanding_cleanup_requests r
              JOIN outstanding_cleanup_request_items ci ON ci.request_id = r.id AND ci.project_id = r.project_id
-             WHERE r.project_id = i.project_id AND r.status IN ('pending', 'awaiting_review')
+             WHERE r.project_id = i.project_id AND r.status = 'pending'
                AND ci.item_id = i.id
            )
            ${laterSql}

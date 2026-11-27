@@ -63,8 +63,6 @@ import type {
   SubmitOutstandingCleanupProposalsResult,
   OutstandingCleanupProposalQuery,
   OutstandingCleanupProposalListResult,
-  DecideOutstandingCleanupProposalsInput,
-  DecideOutstandingCleanupProposalsResult,
   CancelReportSynthesisRequestResult,
   CreateMetadataBackfillRequestInput,
   CreateMetadataBackfillRequestResult,
@@ -1448,12 +1446,6 @@ export class WorkIntelligenceStore {
     return this.outstandingCleanup.submit(input);
   }
 
-  public decideOutstandingCleanupProposals(
-    input: DecideOutstandingCleanupProposalsInput,
-  ): DecideOutstandingCleanupProposalsResult {
-    return this.outstandingCleanup.decide(input);
-  }
-
   public cancelOutstandingCleanupRequest(requestId: string): CancelOutstandingCleanupRequestResult {
     return this.outstandingCleanup.cancel(requestId);
   }
@@ -2144,6 +2136,7 @@ export class WorkIntelligenceStore {
             {
               task: `${session.title} ${session.summary}`.slice(0, 2_000),
               paths: session.changedFiles,
+              identifierText: [session.title, session.summary, ...(session.workSummary?.outcomes ?? [])].join("\n"),
             },
             session.id,
             continuedIds,

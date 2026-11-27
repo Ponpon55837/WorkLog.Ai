@@ -49,6 +49,17 @@ export function undoSchemaMigration(db: DatabaseSync, version: number): void {
     db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(version);
     return;
   }
+  if (version === 43) {
+    const original = schemaMigrationSql(23)?.match(
+      /CREATE TRIGGER trg_outstanding_cleanup_event_scope[\s\S]*END;/,
+    )?.[0];
+    if (!original) throw new RangeError("Missing the schema 23 cleanup audit trigger.");
+    db.exec(`DROP TRIGGER trg_outstanding_cleanup_event_scope;
+    ALTER TABLE outstanding_cleanup_proposals DROP COLUMN kind;
+    ${original}`);
+    db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(version);
+    return;
+  }
   const sql = schemaMigrationSql(version);
   if (!sql) throw new RangeError(`Unknown schema migration: ${version}`);
 

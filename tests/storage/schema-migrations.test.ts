@@ -1514,4 +1514,73 @@ describe("agent review knowledge items migration", () => {
       db.close();
     }
   });
+
+  it("applies cleanup verdicts directly: closes unapplied proposals, finishes review requests and rescopes the audit trigger", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 42);
+      expect(
+        (db.prepare("PRAGMA table_info(outstanding_cleanup_proposals)").all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        ),
+      ).not.toContain("kind");
+      db.exec("PRAGMA foreign_keys = OFF");
+      db.exec(`INSERT INTO projects (id, name, root_path, status, created_at, updated_at)
+        VALUES ('p', 'Orchard', '/fictional/orchard', 'tracked', 't', 't')`);
+      db.exec(`INSERT INTO outstanding_cleanup_requests (id, project_id, idempotency_key, status, requested_at, item_count)
+        VALUES ('r-review', 'p', 'k1', 'awaiting_review', '2030-01-01T00:00:00.000Z', 2),
+               ('r-done', 'p', 'k2', 'completed', '2030-01-02T00:00:00.000Z', 1)`);
+      db.exec(`UPDATE outstanding_cleanup_requests SET completed_at = '2030-01-02T01:00:00.000Z' WHERE id = 'r-done'`);
+      const proposal = db.prepare(`INSERT INTO outstanding_cleanup_proposals
+        (id, request_id, project_id, request_item_id, submission_id, target_status, reason, review_status, created_at, decided_at)
+        VALUES (?, ?, 'p', ?, 's', ?, 'Reason.', ?, '2030-01-01T01:00:00.000Z', ?)`);
+      proposal.run("pending", "r-review", "i1", "completed", "pending", null);
+      proposal.run("accepted", "r-review", "i2", "not_needed", "accepted", "2030-01-01T02:00:00.000Z");
+      proposal.run("rejected", "r-done", "i3", "completed", "rejected", "2030-01-02T02:00:00.000Z");
+
+      applyRuntimeMigrations(db);
+
+      expect(
+        db
+          .prepare(
+            "SELECT id, kind, review_status, decided_at IS NOT NULL AS decided FROM outstanding_cleanup_proposals ORDER BY id",
+          )
+          .all(),
+      ).toEqual([
+        { id: "accepted", kind: "resolution", review_status: "accepted", decided: 1 },
+        { id: "pending", kind: "resolution", review_status: "rejected", decided: 0 },
+        { id: "rejected", kind: "resolution", review_status: "rejected", decided: 1 },
+      ]);
+      expect(
+        db
+          .prepare(
+            "SELECT id, status, completed_at IS NOT NULL AS finished FROM outstanding_cleanup_requests ORDER BY id",
+          )
+          .all(),
+      ).toEqual([
+        { id: "r-done", status: "completed", finished: 1 },
+        { id: "r-review", status: "completed", finished: 1 },
+      ]);
+      expect(db.prepare("SELECT completed_at FROM outstanding_cleanup_requests WHERE id = 'r-done'").get()).toEqual({
+        completed_at: "2030-01-02T01:00:00.000Z",
+      });
+      expect(db.prepare("SELECT completed_at FROM outstanding_cleanup_requests WHERE id = 'r-review'").get()).toEqual({
+        completed_at: "2030-01-01T00:00:00.000Z",
+      });
+      expect(() =>
+        db
+          .prepare(
+            "INSERT INTO outstanding_cleanup_proposals (id, request_id, project_id, request_item_id, submission_id, target_status, kind, reason, review_status, created_at) VALUES ('x', 'r-done', 'p', 'i4', 's', 'completed', 'bogus', 'R', 'accepted', 't')",
+          )
+          .run(),
+      ).toThrow();
+      const trigger = db
+        .prepare("SELECT sql FROM sqlite_master WHERE name = 'trg_outstanding_cleanup_event_scope'")
+        .get() as { sql: string };
+      expect(trigger.sql).toContain("NEW.source NOT IN ('web', 'agent')");
+    } finally {
+      db.close();
+    }
+  });
 });

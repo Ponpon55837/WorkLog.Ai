@@ -168,7 +168,7 @@ test("failed or partial coverage never renders a healthy empty queue @cross-brow
         pageInfo: { ...body.pageInfo, total: 0 },
         groups: [
           { kind: "knowledge", state: "partial", total: null, examined: 200, available: 201 },
-          { kind: "cleanup", state: "failed", total: null, examined: 0, available: 0 },
+          { kind: "decision", state: "failed", total: null, examined: 0, available: 0 },
         ],
       },
     }),

@@ -2,8 +2,6 @@ import type {
   CancelOutstandingCleanupRequestResult,
   CreateOutstandingCleanupRequestInput,
   CreateOutstandingCleanupRequestResult,
-  DecideOutstandingCleanupProposalsInput,
-  DecideOutstandingCleanupProposalsResult,
   OutstandingCleanupProposalListResult,
   OutstandingCleanupProposalQuery,
   OutstandingCleanupRequestListResult,
@@ -24,10 +22,6 @@ export interface OutstandingCleanupApi {
     input: OutstandingCleanupProposalQuery,
     signal?: AbortSignal,
   ): Promise<OutstandingCleanupProposalListResult>;
-  decideOutstandingCleanupProposals(
-    input: DecideOutstandingCleanupProposalsInput,
-    signal?: AbortSignal,
-  ): Promise<DecideOutstandingCleanupProposalsResult>;
   cancelOutstandingCleanupRequest(
     requestId: string,
     signal?: AbortSignal,
@@ -47,15 +41,6 @@ export function createOutstandingCleanupApi(client: ApiTransport): OutstandingCl
       return client.request(
         appendQuery(`/api/outstanding-cleanup/requests/${encodeURIComponent(requestId)}/proposals`, query),
         { signal },
-      );
-    },
-    decideOutstandingCleanupProposals(input, signal) {
-      const { requestId, ...body } = input;
-      return client.write(
-        `/api/outstanding-cleanup/requests/${encodeURIComponent(requestId)}/decisions`,
-        "POST",
-        body,
-        signal,
       );
     },
     cancelOutstandingCleanupRequest(requestId, signal) {

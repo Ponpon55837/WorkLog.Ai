@@ -15,6 +15,7 @@ import {
   FolderGit2,
   FolderX,
   GraduationCap,
+  Info,
   ListOrdered,
   LoaderCircle,
   Replace,
@@ -39,7 +40,6 @@ import type {
   MetadataBackfillRequest,
   OutstandingItemStatus,
   OutstandingCleanupRequestStatus,
-  OutstandingCleanupProposalStatus,
   ProjectStatus,
   ReportSynthesisRequest,
   ReportVerificationStatus,
@@ -364,16 +364,16 @@ export const agentVerdictVisual: Record<AgentVerdictKind, StatusVisual> = {
   supersede: visual("accent", Replace, "status.supersededByAgent"),
 };
 
-export const outstandingCleanupProposalVisual: Record<OutstandingCleanupProposalStatus, StatusVisual> = {
-  pending: visual("attention", CircleDashed, "status.awaitingReview"),
-  accepted: visual("success", Check, "status.accepted"),
-  rejected: visual("neutral", CircleSlash, "common.rejected"),
-};
-
 export const outstandingItemStatusVisual: Record<OutstandingItemStatus, StatusVisual> = {
   pending: visual("attention", CircleDashed, "common.pending"),
   completed: visual("success", CircleCheck, "common.completedStatus"),
   not_needed: visual("neutral", CircleMinus, "common.noLongerNeeded"),
+};
+
+export const outstandingCleanupVerdictVisual: Record<"completed" | "not_needed" | "acknowledged", StatusVisual> = {
+  completed: outstandingItemStatusVisual.completed,
+  not_needed: outstandingItemStatusVisual.not_needed,
+  acknowledged: visual("neutral", Info, "status.acknowledgedLimitation"),
 };
 
 export const knowledgePageStatusVisual: Record<KnowledgePageStatus | "missing", StatusVisual> = {

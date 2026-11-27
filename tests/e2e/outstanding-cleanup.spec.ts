@@ -117,7 +117,7 @@ async function countStatus(request: APIRequestContext, projectId: string, status
   return ((await response.json()) as { pageInfo: { total: number } }).pageInfo.total;
 }
 
-test("reviews cleanup proposals individually and in a batch, preserves rejected items, and opens evidence", async ({
+test("shows applied Agent verdicts, reopens items individually and in a batch, and opens evidence", async ({
   page,
   request,
 }) => {
@@ -126,59 +126,18 @@ test("reviews cleanup proposals individually and in a batch, preserves rejected 
   await submit(request, requestId, fixture.evidenceId);
   const panel = page.getByRole("dialog", { name: tt("outstanding.tidyOpenItems"), exact: true });
   await refreshInBackground(page);
-  await expect(panel.getByRole("button", { name: tt("outstanding.acceptSuggestion"), exact: true })).toHaveCount(4);
-  expect(await countStatus(request, fixture.projectId, "pending")).toBe(4);
-  await panel
-    .getByRole("button", { name: tt("outstanding.rejectSuggestion"), exact: true })
-    .first()
-    .click();
-  await page
-    .getByRole("dialog", { name: tt("outstanding.rejectSuggestions") })
-    .getByRole("button", { name: tt("outstanding.confirmRejection") })
-    .click();
-  await expect(panel.getByRole("button", { name: tt("outstanding.acceptSuggestion"), exact: true })).toHaveCount(3);
-  expect(await countStatus(request, fixture.projectId, "pending")).toBe(4);
-  await panel
-    .getByRole("button", { name: tt("outstanding.acceptSuggestion"), exact: true })
-    .first()
-    .click();
-  await page
-    .getByRole("dialog", { name: tt("outstanding.acceptSuggestions") })
-    .getByRole("button", { name: tt("outstanding.confirmAcceptance") })
-    .click();
-  await expect(panel.getByRole("button", { name: tt("outstanding.acceptSuggestion"), exact: true })).toHaveCount(2);
-  await panel.getByRole("checkbox", { name: tt("outstanding.selectAllSuggestionsOnThis"), exact: true }).check();
-  await page.route("**/api/outstanding-cleanup/requests/*/proposals?*", async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as { proposals: Array<{ reason: string }> };
-    for (const proposal of body.proposals) proposal.reason = "Verified background refresh";
-    // A newer refresh (SSE or the next visibility poll) can cancel this request while it is being fetched; the
-    // page then never reads it, and Playwright reports the route as already handled.
-    await route.fulfill({ response, json: body }).catch((error: unknown) => {
-      if (!(error instanceof Error && error.message.includes("Route is already handled"))) throw error;
-    });
-  });
-  await refreshInBackground(page);
-  await expect(panel.getByText("Verified background refresh", { exact: true }).first()).toBeVisible();
-  await expect(
-    panel.getByRole("checkbox", { name: tt("outstanding.selectAllSuggestionsOnThis"), exact: true }),
-  ).toBeChecked();
-  await page.unroute("**/api/outstanding-cleanup/requests/*/proposals?*");
-  await panel.getByRole("button", { name: tt("outstanding.acceptSelected"), exact: true }).click();
-  await page
-    .getByRole("dialog", { name: tt("outstanding.acceptSuggestions") })
-    .getByRole("button", { name: tt("outstanding.confirmAcceptance") })
-    .click();
-  await expect(panel.getByText(tt("status.cleanupFinished"), { exact: true }).first()).toBeVisible();
-  expect(await countStatus(request, fixture.projectId, "completed")).toBe(3);
+  const reopen = panel.getByRole("button", { name: tt("outstanding.reopen"), exact: true });
+  await expect(reopen).toHaveCount(4);
+  expect(await countStatus(request, fixture.projectId, "completed")).toBe(4);
+  expect(await countStatus(request, fixture.projectId, "pending")).toBe(0);
+  await reopen.first().click();
+  await expect(reopen).toHaveCount(3);
   expect(await countStatus(request, fixture.projectId, "pending")).toBe(1);
-  await panel.getByRole("button", { name: tt("outstanding.reviewStatus"), exact: true }).click();
-  await page.getByRole("menuitemradio", { name: tt("status.accepted"), exact: true }).click();
-  await expect(panel.getByRole("button", { name: tt("outstanding.evidence", { value: 1 }), exact: true })).toHaveCount(
-    3,
-  );
+  await panel.getByRole("checkbox", { name: tt("outstanding.selectAllClosedOnThisPage"), exact: true }).check();
+  await panel.getByRole("button", { name: tt("outstanding.reopenSelected"), exact: true }).click();
+  await expect(reopen).toHaveCount(0);
+  expect(await countStatus(request, fixture.projectId, "pending")).toBe(4);
   await page.reload();
-  await expect(page).toHaveURL(/cleanupReview=accepted/);
   await panel
     .getByRole("button", { name: tt("outstanding.evidence", { value: 1 }), exact: true })
     .first()
@@ -189,7 +148,7 @@ test("reviews cleanup proposals individually and in a batch, preserves rejected 
   );
 });
 
-test("bounds cleanup review lists and keeps focus, accessibility, and mobile overflow usable", async ({
+test("bounds the closed-item list and keeps focus, accessibility, and mobile overflow usable", async ({
   page,
   request,
 }, testInfo) => {
@@ -202,11 +161,11 @@ test("bounds cleanup review lists and keeps focus, accessibility, and mobile ove
   await expect(page).toHaveURL(/cleanupPage=2/);
   await page.reload();
   await expect(page).toHaveURL(/cleanupPage=2/);
-  await expect(panel.getByRole("button", { name: tt("outstanding.acceptSuggestion"), exact: true })).toHaveCount(2);
+  await expect(panel.getByRole("button", { name: tt("outstanding.reopen"), exact: true })).toHaveCount(2);
   await panel.getByRole("button", { name: tt("ui.previousPage"), exact: true }).click();
   for (const width of [1440, 960, 375]) {
     await page.setViewportSize({ width, height: 900 });
-    const list = panel.getByRole("list", { name: tt("outstanding.suggestionList") });
+    const list = panel.getByRole("list", { name: tt("outstanding.closedItemList") });
     await expect(list).toHaveCSS("overflow-y", "auto");
     expect(await list.evaluate((element) => element.clientHeight)).toBeLessThanOrEqual(440);
     expect(await panel.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
@@ -239,47 +198,22 @@ test("bounds cleanup review lists and keeps focus, accessibility, and mobile ove
   await expect(page.getByRole("button", { name: tt("outstanding.tidyOpenItems"), exact: true })).toBeFocused();
 });
 
-test("disables stale acceptance and keeps cancelled proposals as read-only history", async ({ page, request }) => {
+test("keeps a reopened item in the Agent-closed history without a reopen control", async ({ page, request }) => {
   const fixture = await seed(request, 2);
   const requestId = await createViaWeb(page, fixture.projectId);
   await submit(request, requestId, fixture.evidenceId);
   const listed = await request.get(`/api/outstanding-cleanup/requests/${requestId}/proposals`);
   const proposals = (await listed.json()) as { proposals: Array<{ itemId: string }> };
   const first = proposals.proposals[0];
-  if (!first) throw new Error("Expected a fictional proposal.");
+  if (!first) throw new Error("Expected a fictional verdict.");
   expect(
-    (await request.patch(`/api/outstanding-items/${first.itemId}`, { data: { status: "not_needed" } })).ok(),
+    (await request.patch(`/api/outstanding-items/${first.itemId}`, { data: { status: "pending" } })).ok(),
   ).toBeTruthy();
   const panel = page.getByRole("dialog", { name: tt("outstanding.tidyOpenItems"), exact: true });
   await refreshInBackground(page);
-  await expect(panel.getByText(tt("outstanding.itemsSourcesOrEvidenceChanged"), { exact: true })).toBeVisible();
-  await expect(
-    panel.getByRole("button", { name: tt("outstanding.acceptSuggestion"), exact: true }).first(),
-  ).toBeDisabled();
-  await expect(
-    panel.getByRole("button", { name: tt("outstanding.rejectSuggestion"), exact: true }).first(),
-  ).toBeEnabled();
-  await panel.getByRole("checkbox", { name: tt("outstanding.selectAllSuggestionsOnThis"), exact: true }).check();
-  await panel.getByRole("button", { name: tt("outstanding.cancelRequest"), exact: true }).click();
-  await page
-    .getByRole("dialog", { name: tt("outstanding.cancelThisRequest") })
-    .getByRole("button", { name: tt("outstanding.cancelRequest"), exact: true })
-    .click();
-  await expect(
-    panel.getByText(tt("outstanding.theRequestWasCancelledExisting"), { exact: true }).first(),
-  ).toBeVisible();
-  await expect(
-    panel.getByRole("button", { name: tt("outstanding.rejectSuggestion"), exact: true }).first(),
-  ).toBeDisabled();
-  await expect(
-    panel.getByRole("button", { name: tt("outstanding.acceptSuggestion"), exact: true }).first(),
-  ).toBeDisabled();
-  await expect(
-    panel.getByRole("checkbox", { name: tt("outstanding.selectAllSuggestionsOnThis"), exact: true }),
-  ).not.toBeChecked();
-  await expect(panel.getByText(tt("outstanding.selected", { length: 0 }), { exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: tt("outstanding.reopen"), exact: true })).toHaveCount(1);
   expect(await countStatus(request, fixture.projectId, "pending")).toBe(1);
-  expect(await countStatus(request, fixture.projectId, "not_needed")).toBe(1);
+  expect(await countStatus(request, fixture.projectId, "completed")).toBe(1);
   await expect(panel.getByRole("button", { name: tt("outstanding.createRequest"), exact: true })).toBeEnabled();
 });
 

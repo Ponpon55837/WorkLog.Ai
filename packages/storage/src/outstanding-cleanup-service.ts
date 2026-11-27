@@ -4,12 +4,11 @@ import type {
   CancelOutstandingCleanupRequestResult,
   CreateOutstandingCleanupRequestInput,
   CreateOutstandingCleanupRequestResult,
-  DecideOutstandingCleanupProposalsInput,
-  DecideOutstandingCleanupProposalsResult,
   OutstandingCleanupContextQuery,
   OutstandingCleanupContextResult,
   OutstandingCleanupItem,
   OutstandingCleanupProposal,
+  OutstandingCleanupProposalKind,
   OutstandingCleanupProposalListResult,
   OutstandingCleanupProposalQuery,
   OutstandingCleanupRequest,
@@ -17,6 +16,7 @@ import type {
   OutstandingCleanupRequestQuery,
   OutstandingCleanupRequestStatus,
   OutstandingCleanupSession,
+  OutstandingItemStatus,
   PolicyDecision,
   ProjectIdSkippedResult,
   RequestOutstandingCleanupResult,
@@ -24,6 +24,7 @@ import type {
   SubmitOutstandingCleanupProposalsResult,
   VerificationStatus,
 } from "@work-intelligence/core";
+import { OUTSTANDING_CLEANUP_VERDICT_STATUSES } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { createPageInfo } from "./pagination.js";
 import { redactText } from "./secret-redaction.js";
@@ -45,7 +46,6 @@ type RequestRow = {
   item_count: number;
   examined_count: number;
   proposal_count: number;
-  pending_proposal_count: number;
 };
 
 type SnapshotRow = {
@@ -73,6 +73,7 @@ type ProposalRow = {
   request_item_id: string;
   submission_id: string;
   target_status: "completed" | "not_needed";
+  kind: OutstandingCleanupProposalKind;
   reason: string;
   review_status: "pending" | "accepted" | "rejected";
   created_at: string;
@@ -91,8 +92,7 @@ const MAX_SNAPSHOT_ITEMS = 10_000;
 const CONTEXT_BUDGET = 24_000;
 const REQUEST_SELECT = `SELECT r.*, p.name AS project_name,
   (SELECT COUNT(*) FROM outstanding_cleanup_request_items ci WHERE ci.request_id = r.id AND ci.examined_submission_id IS NOT NULL) AS examined_count,
-  (SELECT COUNT(*) FROM outstanding_cleanup_proposals cp WHERE cp.request_id = r.id) AS proposal_count,
-  (SELECT COUNT(*) FROM outstanding_cleanup_proposals cp WHERE cp.request_id = r.id AND cp.review_status = 'pending') AS pending_proposal_count
+  (SELECT COUNT(*) FROM outstanding_cleanup_proposals cp WHERE cp.request_id = r.id AND cp.review_status = 'accepted') AS proposal_count
   FROM outstanding_cleanup_requests r JOIN projects p ON p.id = r.project_id`;
 const SNAPSHOT_SELECT = `SELECT ci.*, i.status AS current_status, i.updated_at AS current_updated_at, i.text AS current_text
   FROM outstanding_cleanup_request_items ci JOIN outstanding_items i ON i.id = ci.item_id AND i.project_id = ci.project_id`;
@@ -111,9 +111,9 @@ function bounded(value: string, limit: number): { text: string; truncated: boole
   return { text: value.slice(0, limit), truncated: value.length > limit };
 }
 
-function validIds(ids: readonly string[], max = 100): boolean {
+function validIds(ids: readonly string[], max = 100, min = 1): boolean {
   return (
-    ids.length > 0 &&
+    ids.length >= min &&
     ids.length <= max &&
     new Set(ids).size === ids.length &&
     ids.every((id) => typeof id === "string" && Boolean(id.trim()) && id === id.trim() && id.length <= 200)
@@ -157,7 +157,6 @@ function toRequest(row: RequestRow): OutstandingCleanupRequest {
     itemCount: row.item_count,
     examinedCount: row.examined_count,
     proposalCount: row.proposal_count,
-    pendingProposalCount: row.pending_proposal_count,
   };
 }
 
@@ -319,7 +318,7 @@ export class OutstandingCleanupService {
       itemPageInfo,
       sessions,
       sessionPageInfo,
-      hint: "逐頁檢查固定項目與之後的來源；截短摘要只是指標，請讀完整 Session 核對成果與 PR。只有明確完成或已被取代才提出附證據 ID 的建議，證據不足只回報已檢查且不提建議。stale 項目不提建議；狀態只能由使用者在 Web 接受後變更。",
+      hint: "逐頁檢查固定項目與之後的來源；截短摘要只是指標，請讀完整 Session 核對成果與 PR。明確完成或已被取代才提交附證據 ID 的 verdict；範圍排除或已知限制、沒有後續動作的項目用 acknowledged（只需理由）。證據不足只回報已檢查、不提交 verdict。stale 項目不提交；verdict 會立即變更項目狀態，使用者可在 Web 重新開啟。",
       truncated:
         request.project_name.length > 160 ||
         items.some((item) => item.textTruncated || item.sourceSessionTitleTruncated) ||
@@ -362,7 +361,7 @@ export class OutstandingCleanupService {
     return {
       outcome: "outstanding_cleanup_proposals",
       request: toRequest(request),
-      proposals: this.proposals(rows, request),
+      proposals: this.proposals(rows),
       pageInfo,
     };
   }
@@ -383,9 +382,7 @@ export class OutstandingCleanupService {
           return { outcome: "outstanding_cleanup_request_created", request: toRequest(request), duplicate: true };
       }
       const active = this.db
-        .prepare(
-          "SELECT id FROM outstanding_cleanup_requests WHERE project_id = ? AND status IN ('pending', 'awaiting_review')",
-        )
+        .prepare("SELECT id FROM outstanding_cleanup_requests WHERE project_id = ? AND status = 'pending'")
         .get(input.projectId) as { id: string } | undefined;
       if (active) return { outcome: "rejected", reason: "active_request_exists", requestId: active.id };
       const pending = this.db
@@ -478,10 +475,10 @@ export class OutstandingCleanupService {
       input.proposals.some(
         (proposal) =>
           !input.examinedItemIds.includes(proposal.itemId) ||
-          !validIds(proposal.evidenceSessionIds, 10) ||
+          !validIds(proposal.evidenceSessionIds, 10, proposal.status === "acknowledged" ? 0 : 1) ||
           !proposal.reason.trim() ||
           proposal.reason.length > 2_000 ||
-          (proposal.status !== "completed" && proposal.status !== "not_needed"),
+          !OUTSTANDING_CLEANUP_VERDICT_STATUSES.includes(proposal.status),
       )
     ) {
       return { outcome: "rejected", reason: "invalid_proposals" };
@@ -551,14 +548,22 @@ export class OutstandingCleanupService {
         )
         .run(submissionId, current.id, current.project_id, input.idempotencyKey, hash, at);
       const insertProposal = this.db.prepare(`INSERT INTO outstanding_cleanup_proposals
-        (id, request_id, project_id, request_item_id, submission_id, target_status, reason, review_status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`);
+        (id, request_id, project_id, request_item_id, submission_id, target_status, kind, reason, review_status, created_at, decided_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'accepted', ?, ?)`);
       const insertEvidence = this.db.prepare(`INSERT INTO outstanding_cleanup_proposal_evidence
         (id, proposal_id, project_id, session_id, session_updated_at, session_fingerprint, session_completed_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`);
+      const updateItem = this.db.prepare(
+        "UPDATE outstanding_items SET status = ?, updated_at = ? WHERE id = ? AND status = 'pending'",
+      );
+      const insertEvent = this.db.prepare(`INSERT INTO outstanding_item_events
+        (id, item_id, project_id, from_status, to_status, source, actor_session_id, created_at, cleanup_request_id, cleanup_proposal_id)
+        VALUES (?, ?, ?, 'pending', ?, 'agent', NULL, ?, ?, ?)`);
       for (const proposal of normalized.proposals) {
         const snapshot = byItem.get(proposal.itemId);
         if (!snapshot) throw new Error("Missing cleanup item");
+        const acknowledged = proposal.status === "acknowledged";
+        const targetStatus = acknowledged ? "not_needed" : proposal.status;
         const proposalId = randomUUID();
         insertProposal.run(
           proposalId,
@@ -566,8 +571,10 @@ export class OutstandingCleanupService {
           current.project_id,
           snapshot.id,
           submissionId,
-          proposal.status,
+          targetStatus,
+          acknowledged ? "acknowledged" : "resolution",
           redactText(proposal.reason).value,
+          at,
           at,
         );
         for (const sessionId of proposal.evidenceSessionIds) {
@@ -583,6 +590,9 @@ export class OutstandingCleanupService {
             source.completed_at,
           );
         }
+        if (Number(updateItem.run(targetStatus, at, proposal.itemId).changes) !== 1)
+          throw new Error("Cleanup item changed during submission");
+        insertEvent.run(randomUUID(), proposal.itemId, current.project_id, targetStatus, at, current.id, proposalId);
       }
       this.db
         .prepare(
@@ -591,70 +601,6 @@ export class OutstandingCleanupService {
         .run(submissionId, current.id, JSON.stringify(input.examinedItemIds));
       this.refreshStatus(current.id, at);
       return this.submissionResult(current.id, submissionId, false);
-    });
-  }
-
-  public decide(input: DecideOutstandingCleanupProposalsInput): DecideOutstandingCleanupProposalsResult {
-    const request = this.request(input.requestId);
-    if (!request) return { outcome: "not_found", requestId: input.requestId };
-    const denied = this.denied(request.project_id);
-    if (denied) return denied;
-    if (!validIds(input.proposalIds) || (input.decision !== "accept" && input.decision !== "reject"))
-      return { outcome: "rejected", reason: "invalid_proposals" };
-    return runImmediateTransaction(this.db, () => {
-      const currentDenied = this.denied(request.project_id);
-      if (currentDenied) return currentDenied;
-      const current = this.request(request.id);
-      if (!current || current.status === "cancelled") return { outcome: "rejected", reason: "request_closed" };
-      const rows = this.db
-        .prepare(
-          "SELECT * FROM outstanding_cleanup_proposals WHERE request_id = ? AND id IN (SELECT value FROM json_each(?))",
-        )
-        .all(current.id, JSON.stringify(input.proposalIds)) as ProposalRow[];
-      const byId = new Map(rows.map((row) => [row.id, row]));
-      const invalid = input.proposalIds.filter((id) => !byId.has(id));
-      if (invalid.length) return { outcome: "rejected", reason: "invalid_proposals", proposalIds: invalid };
-      const target = input.decision === "accept" ? "accepted" : "rejected";
-      const already = rows
-        .filter((row) => row.review_status !== "pending" && row.review_status !== target)
-        .map((row) => row.id);
-      if (already.length) return { outcome: "rejected", reason: "already_decided", proposalIds: already };
-      const pending = rows.filter((row) => row.review_status === "pending");
-      const proposals = this.proposals(pending, current);
-      if (input.decision === "accept") {
-        const stale = proposals.filter((proposal) => proposal.stale).map((proposal) => proposal.id);
-        if (stale.length) return { outcome: "rejected", reason: "stale_proposal", proposalIds: stale };
-      }
-      const at = nowIso();
-      const update = this.db.prepare(
-        "UPDATE outstanding_cleanup_proposals SET review_status = ?, decided_at = ? WHERE id = ? AND review_status = 'pending'",
-      );
-      const itemUpdate = this.db.prepare(
-        "UPDATE outstanding_items SET status = ?, updated_at = ? WHERE id = ? AND status = 'pending'",
-      );
-      const event = this.db.prepare(`INSERT INTO outstanding_item_events
-        (id, item_id, project_id, from_status, to_status, source, actor_session_id, created_at, cleanup_request_id, cleanup_proposal_id)
-        VALUES (?, ?, ?, 'pending', ?, 'web', NULL, ?, ?, ?)`);
-      const proposalById = new Map(proposals.map((proposal) => [proposal.id, proposal]));
-      for (const row of pending) {
-        update.run(target, at, row.id);
-        if (input.decision === "accept") {
-          const proposal = proposalById.get(row.id);
-          if (!proposal) throw new Error("Missing cleanup proposal");
-          itemUpdate.run(row.target_status, at, proposal.itemId);
-          event.run(randomUUID(), proposal.itemId, current.project_id, row.target_status, at, current.id, row.id);
-        }
-      }
-      this.refreshStatus(current.id, at);
-      const updated = this.request(current.id);
-      if (!updated) throw new Error("Missing cleanup request");
-      return {
-        outcome: "outstanding_cleanup_proposals_decided",
-        request: toRequest(updated),
-        proposalIds: [...input.proposalIds],
-        decision: input.decision,
-        duplicate: pending.length === 0,
-      };
     });
   }
 
@@ -710,7 +656,7 @@ export class OutstandingCleanupService {
       .all(requestId, JSON.stringify(ids)) as SnapshotRow[];
   }
 
-  private proposals(rows: ProposalRow[], request: RequestRow): OutstandingCleanupProposal[] {
+  private proposals(rows: ProposalRow[]): OutstandingCleanupProposal[] {
     if (!rows.length) return [];
     const snapshots = this.db
       .prepare(`${SNAPSHOT_SELECT} WHERE ci.id IN (SELECT value FROM json_each(?))`)
@@ -727,28 +673,8 @@ export class OutstandingCleanupService {
       group.push(row);
       evidenceByProposal.set(row.proposal_id, group);
     }
-    const sessions = this.sessions(
-      [...snapshots.map((row) => row.source_session_id), ...evidence.map((row) => row.session_id)],
-      request.project_id,
-    );
     return rows.map((row) => {
       const snapshot = snapshotsById.get(row.request_item_id);
-      const cited = evidenceByProposal.get(row.id) ?? [];
-      const stale =
-        request.status === "cancelled" ||
-        !snapshot ||
-        snapshotIsStale(snapshot, sessions.get(snapshot.source_session_id)) ||
-        !cited.length ||
-        cited.some((proof) => {
-          const source = sessions.get(proof.session_id);
-          return (
-            !snapshot ||
-            !evidenceIsEligible(source, snapshot, request.requested_at) ||
-            sessionVersion(source) !== proof.session_updated_at ||
-            sessionFingerprint(source) !== proof.session_fingerprint ||
-            source.completed_at !== proof.session_completed_at
-          );
-        });
       return {
         id: row.id,
         requestId: row.request_id,
@@ -756,12 +682,13 @@ export class OutstandingCleanupService {
         sourceSessionId: snapshot?.source_session_id ?? "",
         itemText: snapshot?.text ?? "",
         status: row.target_status,
+        kind: row.kind,
         reason: row.reason,
-        evidenceSessionIds: cited.map((proof) => proof.session_id),
+        evidenceSessionIds: (evidenceByProposal.get(row.id) ?? []).map((proof) => proof.session_id),
         reviewStatus: row.review_status,
+        itemStatus: (snapshot?.current_status ?? "pending") as OutstandingItemStatus,
         createdAt: row.created_at,
         ...(row.decided_at ? { decidedAt: row.decided_at } : {}),
-        stale: row.review_status === "pending" && stale,
       };
     });
   }
@@ -793,8 +720,7 @@ export class OutstandingCleanupService {
   private refreshStatus(requestId: string, at: string): void {
     const request = this.request(requestId);
     if (!request || request.status === "cancelled") return;
-    const allExamined = request.examined_count === request.item_count;
-    const status = allExamined ? (request.pending_proposal_count > 0 ? "awaiting_review" : "completed") : "pending";
+    const status = request.examined_count === request.item_count ? "completed" : "pending";
     this.db
       .prepare("UPDATE outstanding_cleanup_requests SET status = ?, completed_at = ? WHERE id = ?")
       .run(status, status === "completed" ? at : null, requestId);

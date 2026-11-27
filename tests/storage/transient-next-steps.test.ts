@@ -4,6 +4,16 @@ import { findTransientNextSteps } from "../../packages/storage/src/transient-nex
 import { bestOfMs, doublingGrowth, scaledLimit } from "../helpers/timing.js";
 
 const POSITIVE_CASES: Array<[TransientNextStepCategory, string]> = [
+  ["scope_exclusion", "未處理：舊版設定頁"],
+  ["scope_exclusion", "不在本 PR 範圍的重構"],
+  ["scope_exclusion", "Rewriting the importer is out of scope"],
+  ["scope_exclusion", "Windows packaging is not in this PR scope"],
+  ["unverified_platform", "Linux 上未實測"],
+  ["unverified_platform", "只在 macOS 上驗證"],
+  ["unverified_platform", "Only tested on macOS"],
+  ["unverified_platform", "Not tested on Windows"],
+  ["deferred_to_user", "依使用者決定暫緩"],
+  ["deferred_to_user", "Deferred by the user until next release"],
   ["uncommitted", "本次修改尚未 commit"],
   ["uncommitted", "還沒commit 就要交接"],
   ["uncommitted", "修改尚未提交"],

@@ -12,7 +12,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 
 `POST /api/work/finalize` 與 MCP finalize 共用驗證：`resolvedOutstandingItemIds` 只接受本次已確認完成的同專案 pending 項目；`supersededOutstandingItemIds` 只用於本次非空 `workSummary.nextSteps` 明確取代的舊項目。同一個 id 不能同時出現在兩個陣列、有 `supersededOutstandingItemIds` 時 `nextSteps` 不能是空的、同一個 Knowledge id 不能同時在 `appliedKnowledgeIds` 與 `contradictedKnowledgeIds`、`startedAt` 與 `completedAt` 都提供時 `startedAt` 不能較晚；違反時回傳 200 與 `{ outcome: "rejected", code, field, ids?, reason, fix }`（`code` 為 `both_lists`、`superseded_without_next_steps`、`knowledge_applied_and_contradicted`、`started_after_completed`），什麼都不寫入，和 `idempotency_conflict` 一樣不是 HTTP 錯誤。已保存過的 `idempotencyKey` 重送不受影響。每個陣列最多 200 個非空 id。狀態、逐筆 actor Session 稽核及 Session 在同一交易寫入；無效、已處理、作廢或跨專案 id 維持原狀並回傳警告，`outstandingItemWarnings.reasons` 逐 id 列出原因代碼。輸入文字有未閉合的 `<private>` 標籤時，結果帶 `privateTagWarnings`（欄位路徑與次數，不含內容）。結果含兩種實際變更 id 與最多五筆 `relatedOutstandingItems` 提示（total／omitted、文字最多 400 字、來源標題 160 字）；提示排除本次新項目，排名不能作為完成證據。REST 回傳完整的 storage 結果（含完整 `session`），另可帶最多三筆 `knowledgeToReview`（appliesTo 直接點名本次變更檔案、由本次才第一次可能過時的 active Knowledge，只是提示）；MCP 則回傳不回顯請求內容的回條。完整規則見 [MCP 收尾說明](mcp-tools.md#work_finalize_session)。
 
-`POST /api/work/finalize` 與 `PATCH /api/sessions/:id/work-summary` 的結果可帶選填的 `nextStepsWarnings`（`{ items: [{ index, category }], message }`，格式同 MCP）。只有儲存的 `nextSteps` 項目看起來是本次工作內的暫時狀態時才出現；`category` 為 `uncommitted`、`not_pushed`、`pending_merge`、`ci_running`、`phase_not_started`。判斷只靠關鍵字，可能誤判；伺服器不會刪除、改寫或拒絕項目。冪等重播（`duplicate`）不會帶這個欄位；work-summary 更新只在請求帶了 `nextSteps` 時才會檢查。
+`POST /api/work/finalize` 與 `PATCH /api/sessions/:id/work-summary` 的結果可帶選填的 `nextStepsWarnings`（`{ items: [{ index, category }], message }`，格式同 MCP）。只有儲存的 `nextSteps` 項目看起來是本次工作內的暫時狀態時才出現；`category` 為 `uncommitted`、`not_pushed`、`pending_merge`、`ci_running`、`phase_not_started`、`scope_exclusion`、`unverified_platform`、`deferred_to_user`（後三類是不需要動作的事實，應寫在 outcomes 或 verification）。判斷只靠關鍵字，可能誤判；伺服器不會刪除、改寫或拒絕項目。冪等重播（`duplicate`）不會帶這個欄位；work-summary 更新只在請求帶了 `nextSteps` 時才會檢查。
 
 ## 錯誤回應與代碼
 
@@ -53,7 +53,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `project_delete_failed` | 500 | 專案刪除交易失敗，既有備份仍保留。 |
 | `session_not_found` | 404 | Session 永久刪除找不到該 Session。 |
 | `session_not_voided` | 409 | 只有已作廢的 Session 可以永久刪除。 |
-| `session_cited_by_pending_cleanup` | 409 | 有待審核的未結項清理建議引用這個 Session 作為證據；先接受或拒絕該建議。 |
+| `session_cited_by_pending_cleanup` | 409 | 有仍待審核的未結項清理建議引用這個 Session 作為證據。升級與匯入會把這類舊建議標為 rejected，正常資料不會再遇到。 |
 | `session_backup_failed` | 503 | Session 刪除前無法建立必要備份。 |
 | `session_delete_failed` | 500 | Session 刪除交易失敗，既有備份仍保留。 |
 | `knowledge_page_not_found` | 404 | 知識頁刪除找不到該頁。 |
@@ -198,7 +198,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 - `GET /api/outstanding-items` 預設只列 `pending` 項目；可用 `status=pending|completed|not_needed`、`projectId`、`page` 與 `pageSize` 篩選及分頁。省略 `projectId` 時只涵蓋目前 tracked 的專案。
 - 每筆資料帶穩定 `id`、文字、狀態、來源 Session id／標題、專案及建立／更新時間。來源 Session 被作廢後不再出現在清單中。
 - `from`／`to` 是來源 Session 完成日期的含首尾日篩選（`YYYY-MM-DD`，伺服器時區）；非法日曆日期或倒置範圍回傳 `400 invalid_input`。MCP 既有清單參數保持不變。
-- 已完成與不再需要的項目帶選填的 `closedBy`，由讓它進入目前狀態的最新稽核事件推得：`source_session`（Agent 更新來源 Session 自己的 nextSteps 時移除）、`later_session`（其他 Session 的 finalize 結案）、`user`（Web 操作，包含在 Web 編輯 Session 工作摘要而移除；雖記錄該 Session 為 actor，但視為人的決定）、`cleanup_review`（接受整理建議）、`migration`（遷移回填）。待處理項目與找不到事件者沒有此欄位。`GET` 可帶 `closedBy`（單一值或逗號分隔的多個值，例如 `later_session,user`）只保留這些結案方式；未知值、重複空值，或搭配 `status=pending` 回傳 `400 invalid_input`。MCP 清單不接受此參數，只回傳欄位。
+- 已完成與不再需要的項目帶選填的 `closedBy`，由讓它進入目前狀態的最新稽核事件推得：`source_session`（Agent 更新來源 Session 自己的 nextSteps 時移除）、`later_session`（其他 Session 的 finalize 結案）、`user`（Web 操作，包含在 Web 編輯 Session 工作摘要而移除；雖記錄該 Session 為 actor，但視為人的決定）、`cleanup_review`（Agent 提交整理判定時直接結案，稽核事件 source 為 `agent`，連到 request 與 proposal；使用者可在 Web 重新開啟）、`migration`（遷移回填）。待處理項目與找不到事件者沒有此欄位。`GET` 可帶 `closedBy`（單一值或逗號分隔的多個值，例如 `later_session,user`）只保留這些結案方式；未知值、重複空值，或搭配 `status=pending` 回傳 `400 invalid_input`。MCP 清單不接受此參數，只回傳欄位。
 - Web 可呼叫 `PATCH /api/outstanding-items/:itemId`，JSON body 為 `{ "status": "completed" }`、`{ "status": "not_needed" }` 或 `{ "status": "pending" }`。狀態轉換會追加稽核事件；恢復為 `pending` 可重新開啟。這個 API 不提供建立或刪除項目的能力。
 - 專案不是 tracked 時回傳 `skipped`；無效的篩選或狀態回傳 `400 invalid_input`。找不到項目回傳 `not_found`，不揭露其他專案是否曾有該項目。
 - `PATCH /api/outstanding-items/batch` body 為 `{ "itemIds": ["id1", "id2"], "status": "completed" }`。ID 必須非空且不重複，每批最多 100；不存在或來源已作廢時整批回傳 `400 invalid_input`。含未啟用記錄的專案時整批 `skipped`，不讀內容、不部分更新。成功回傳 `outstanding_items_updated`，`updatedItemIds` 僅包含實際變更者；相同狀態不新增稽核。
@@ -211,14 +211,13 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | POST | `/api/outstanding-cleanup/requests` | JSON `{projectId,idempotencyKey}`，建立固定 pending 快照 |
 | GET | `/api/outstanding-cleanup/requests` | `projectId?`、`status?`、`page?`、`pageSize?`（1–100） |
 | GET | `/api/outstanding-cleanup/requests/:requestId/context` | `itemPage?`／`sessionPage?`，itemPageSize 1–5、sessionPageSize 1–10 |
-| GET | `/api/outstanding-cleanup/requests/:requestId/proposals` | `reviewStatus?`（pending／accepted／rejected）、page、pageSize（1–100） |
-| POST | `/api/outstanding-cleanup/requests/:requestId/proposals` | `{idempotencyKey,examinedItemIds,proposals}`；path requestId 為準 |
-| POST | `/api/outstanding-cleanup/requests/:requestId/decisions` | `{proposalIds,decision}`，decision 為 accept／reject，1–100 筆 |
-| POST | `/api/outstanding-cleanup/requests/:requestId/cancel` | JSON `{}`；保留建議與未結項 |
+| GET | `/api/outstanding-cleanup/requests/:requestId/proposals` | `reviewStatus?`（accepted 表示已套用；pending 只存在於匯入的舊資料）、page、pageSize（1–100）；每筆帶 `kind`（`resolution`／`acknowledged`）與項目目前的 `itemStatus` |
+| POST | `/api/outstanding-cleanup/requests/:requestId/proposals` | `{idempotencyKey,examinedItemIds,proposals}`；path requestId 為準。每筆 `status` 為 `completed`、`not_needed` 或 `acknowledged`（記錄為已知限制，存成 not_needed，只需理由、不附證據 Session）；提交即直接改變項目狀態並寫稽核事件，任一筆過期或不合格則整批以 409 拒絕、不寫入。沒有接受／拒絕端點；使用者以 `PATCH /api/outstanding-items/batch` 把項目改回 pending 來重新開啟 |
+| POST | `/api/outstanding-cleanup/requests/:requestId/cancel` | JSON `{}`；已套用的判定與未結項狀態維持不變 |
 
-建立與提交成功為 201，policy skipped／not_needed／not_found 為 200；其他讀取與決策成功為 200。相同 key 的建立重試回傳原請求，另一個 key 遇到仍開放請求時回 409。context 無法在保留識別欄位下符合 24,000 字元預算時為 400 `invalid_input`（details.reason 為 `context_too_large`）；格式或 ID／證據不合格為 400 `invalid_input`；stale、already_examined／already_decided、idempotency_conflict、request_closed／active_request_exists 為 409 `conflict`，details 含 reason 與適用的 itemIds／proposalIds／requestId。未知例外固定 500 `internal_error`，不回傳資料庫或 Session 內容。
+建立與提交成功為 201，policy skipped／not_needed／not_found 為 200；其他讀取與決策成功為 200。相同 key 的建立重試回傳原請求，另一個 key 遇到仍開放請求時回 409。context 無法在保留識別欄位下符合 24,000 字元預算時為 400 `invalid_input`（details.reason 為 `context_too_large`）；格式或 ID／證據不合格為 400 `invalid_input`；stale_proposal、already_examined、idempotency_conflict、request_closed／active_request_exists 為 409 `conflict`，details 含 reason 與適用的 itemIds／requestId。未知例外固定 500 `internal_error`，不回傳資料庫或 Session 內容。
 
-接受以單一 immediate transaction 重新核對 snapshot／來源／證據；任一無效則 proposal、item、audit 整批維持原狀。拒絕只修改 reviewStatus，不改未結項；同決策重試不增加稽核。取消不刪除記錄，也不改未結項。所有寫入沿用 JSON、Host／Origin 驗證與無資料 SSE changed 通知。提案欄位及時間範圍見 [MCP 整理契約](mcp-tools.md#未結項整理兩個讀取與一個提交-operation)。
+提交以單一 immediate transaction 重新核對 snapshot／來源／證據；任一無效則 proposal、item、audit 整批維持原狀；同 key 重試不增加稽核。取消不刪除記錄，也不改未結項。所有寫入沿用 JSON、Host／Origin 驗證與無資料 SSE changed 通知。提案欄位及時間範圍見 [MCP 整理契約](mcp-tools.md#未結項整理兩個讀取與一個提交-operation)。
 
 ## Agent 審查請求與推翻
 
@@ -353,13 +352,13 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 
 ## 提醒聚合
 
-`GET /api/attention` 接受 `projectId`、`kind`、`page`（1–100000）、`pageSize`（1–50，預設 20）；未知參數及無效值回 400 `invalid_input`。kind 為 synthesis、backfill、cleanup、decision、knowledge、knowledge_page、outstanding 或 metadata。省略專案時只聚合 tracked 專案；指定不可見專案回 200 `skipped`。全域請求中有任一來源 Session 不存在、作廢或所屬專案不可見，該請求不列出。
+`GET /api/attention` 接受 `projectId`、`kind`、`page`（1–100000）、`pageSize`（1–50，預設 20）；未知參數及無效值回 400 `invalid_input`。kind 為 synthesis、backfill、decision、knowledge、knowledge_page、outstanding 或 metadata。省略專案時只聚合 tracked 專案；指定不可見專案回 200 `skipped`。全域請求中有任一來源 Session 不存在、作廢或所屬專案不可見，該請求不列出。
 
 回應 `outcome: attention` 包含 `items`、`groups`、`minimumTotal`、`total` 及 `pageInfo`。item 是有界來源指標：穩定 tuple ID、kind／sourceId／projectId、最多 500 字標題、reason、可用數量、updatedAt、sourceRevision 與固定種類 target；沒有任意 URL、workspace root、來源全文或內部例外。查看或聚合都不結案，原領域依既有契約處理審閱／確認／取消。
 
 每類最多 200 筆來源窗口；`groups` 分別回 state（complete／partial／failed）、examined、available 與精確 matching total（未知時 null）。pending 未結項與 metadata 缺口按專案各提供一個入口，count 為該專案項目／Sessions 數；聚合 total 計提醒與專案入口數，並非全專案問題數。Knowledge／知識頁由原服務計算可信度，窗口外未知時只保留 minimumTotal 下限。某類失敗不回錯誤正文，其他類仍可查閱；所有類精確數量已知時 total 才為數字。pageInfo 是可查閱窗口的分頁，不等於全來源匹配數量。
 
-總覽 URL 使用 attentionProject、attentionKind、attentionPage、attentionSize。Knowledge 的來源深連結為 `/knowledge/list?project=<id>&knowledge=<id>`，知識頁使用 knowledgePage，補填頁 `/projects/backfill?project=<id>&backfillRequest=<id>`；原未結項整理的 cleanupRequest 入口保持不變。尚未加入稍後、不顯示或一般解除提醒的寫入 API。
+總覽 URL 使用 attentionProject、attentionKind、attentionPage、attentionSize。Knowledge 的來源深連結為 `/knowledge/list?project=<id>&knowledge=<id>`，知識頁使用 knowledgePage，補填頁 `/projects/backfill?project=<id>&backfillRequest=<id>`；整理請求不再出現在提醒中（cleanupRequest 只用於整理側面板）。尚未加入稍後、不顯示或一般解除提醒的寫入 API。
 
 ### 相關工作提示
 
