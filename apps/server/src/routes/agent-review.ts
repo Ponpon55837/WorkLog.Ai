@@ -85,6 +85,11 @@ export const agentReviewRoutes: Route[] = [
     ),
   },
   {
+    method: "GET",
+    pattern: "/api/agent-review-pending",
+    handler: ({ response, store }) => sendJson(response, 200, store.listAgentReviewPending()),
+  },
+  {
     method: "POST",
     pattern: "/api/agent-review-requests/:requestId/cancel",
     handler: reviewRoute(

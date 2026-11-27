@@ -10,6 +10,7 @@ import type {
   AgentReviewKnowledgePage,
   AgentReviewLaterSession,
   AgentReviewPageState,
+  AgentReviewPendingListResult,
   AgentReviewRequest,
   AgentReviewRequestPage,
   AgentReviewRequestListResult,
@@ -185,6 +186,23 @@ const CONTEXT_HINT =
   "已有結果、stale 或已被審查的項目不需處理。verdict 直接生效，使用者之後可以推翻。";
 const REQUEST_SELECT = `SELECT r.*, p.name AS project_name
   FROM agent_review_requests r JOIN projects p ON p.id = r.project_id`;
+
+/** An item a person once overturned stays in their queue, so a later request never hands it to an Agent again. */
+function notOverturned(kind: AgentReviewItemKind, alias: string): string {
+  return `AND NOT EXISTS (
+         SELECT 1 FROM agent_review_request_items i
+         WHERE i.project_id = ${alias}.project_id AND i.item_kind = '${kind}' AND i.item_id = ${alias}.id
+           AND i.overturned_at IS NOT NULL)`;
+}
+
+function decisionWhere(projectRef: string): string {
+  return `d.project_id = ${projectRef} AND d.origin = 'agent_autonomous' AND d.review_status = 'pending'
+      AND s.voided_at IS NULL ${notOverturned("decision", "d")}`;
+}
+
+function candidateWhere(projectRef: string): string {
+  return `c.project_id = ${projectRef} AND c.status = 'proposed' ${notOverturned("candidate", "c")}`;
+}
 
 function parseStoredPages(json: string | null): AgentReviewKnowledgePage[] | undefined {
   if (json === null) return undefined;
@@ -426,6 +444,39 @@ export class AgentReviewService {
       outcome: "agent_review_requests",
       requests: this.withKnowledgePages(this.toRequests(rows), rows),
       pageInfo,
+    };
+  }
+
+  /** Counts what a request would hand an Agent per tracked project, without the fingerprints and rows a snapshot builds. */
+  public listPending(): AgentReviewPendingListResult {
+    const counts = this.db
+      .prepare(
+        `SELECT p.id, p.name,
+           (SELECT COUNT(*) FROM session_decisions d JOIN sessions s ON s.id = d.session_id
+             WHERE ${decisionWhere("p.id")}) AS decision_count,
+           (SELECT COUNT(*) FROM knowledge_candidates c WHERE ${candidateWhere("p.id")}) AS candidate_count
+         FROM projects p WHERE p.status = 'tracked' ORDER BY p.name COLLATE NOCASE, p.id`,
+      )
+      .all() as Array<{ id: string; name: string; decision_count: number; candidate_count: number }>;
+    const knowledgeCounts = new Map<string, number>();
+    for (const { row } of this.knowledgeInDoubt(undefined, notOverturned("knowledge", "k"))) {
+      knowledgeCounts.set(row.project_id, (knowledgeCounts.get(row.project_id) ?? 0) + 1);
+    }
+    return {
+      outcome: "agent_review_pending",
+      projects: counts.flatMap((row) => {
+        const knowledgeCount = knowledgeCounts.get(row.id) ?? 0;
+        if (row.decision_count + row.candidate_count + knowledgeCount === 0) return [];
+        return [
+          {
+            projectId: row.id,
+            projectName: row.name,
+            decisionCount: row.decision_count,
+            candidateCount: row.candidate_count,
+            knowledgeCount,
+          },
+        ];
+      }),
     };
   }
 
@@ -696,36 +747,29 @@ export class AgentReviewService {
     });
   }
 
-  /** An item a person once overturned stays in their queue, so a later request never hands it to an Agent again. */
   private snapshot(projectId: string): {
     items: Array<{ kind: AgentReviewItemKind; id: string; sessionId: string | null; fingerprint: string }>;
     omitted: number;
   } {
-    const notOverturned = (kind: AgentReviewItemKind, alias: string): string =>
-      `AND NOT EXISTS (
-         SELECT 1 FROM agent_review_request_items i
-         WHERE i.project_id = ${alias}.project_id AND i.item_kind = '${kind}' AND i.item_id = ${alias}.id
-           AND i.overturned_at IS NOT NULL)`;
-    const decisionWhere = `d.project_id = ? AND d.origin = 'agent_autonomous' AND d.review_status = 'pending'
-      AND s.voided_at IS NULL ${notOverturned("decision", "d")}`;
-    const candidateWhere = `c.project_id = ? AND c.status = 'proposed' ${notOverturned("candidate", "c")}`;
+    const decisionFilter = decisionWhere("?");
+    const candidateFilter = candidateWhere("?");
     const count = (sql: string): number => (this.db.prepare(sql).get(projectId) as { count: number }).count;
     const decisionTotal = count(
-      `SELECT COUNT(*) AS count FROM session_decisions d JOIN sessions s ON s.id = d.session_id WHERE ${decisionWhere}`,
+      `SELECT COUNT(*) AS count FROM session_decisions d JOIN sessions s ON s.id = d.session_id WHERE ${decisionFilter}`,
     );
-    const candidateTotal = count(`SELECT COUNT(*) AS count FROM knowledge_candidates c WHERE ${candidateWhere}`);
+    const candidateTotal = count(`SELECT COUNT(*) AS count FROM knowledge_candidates c WHERE ${candidateFilter}`);
     const decisions = this.db
       .prepare(
         `SELECT d.*, s.voided_at AS session_voided_at, s.completed_at AS session_completed_at
          FROM session_decisions d JOIN sessions s ON s.id = d.session_id
-         WHERE ${decisionWhere}
+         WHERE ${decisionFilter}
          ORDER BY s.completed_at ASC, d.session_id ASC, d.position ASC LIMIT ?`,
       )
       .all(projectId, MAX_SNAPSHOT_ITEMS) as DecisionRow[];
     const candidates = this.db
       .prepare(
         `SELECT c.*, NULL AS project_name, NULL AS session_title FROM knowledge_candidates c
-         WHERE ${candidateWhere} ORDER BY c.created_at ASC, c.id ASC LIMIT ?`,
+         WHERE ${candidateFilter} ORDER BY c.created_at ASC, c.id ASC LIMIT ?`,
       )
       .all(projectId, Math.max(MAX_SNAPSHOT_ITEMS - decisions.length, 0)) as CandidateRow[];
     const knowledge = this.knowledgeInDoubt(projectId, notOverturned("knowledge", "k"));
@@ -752,15 +796,17 @@ export class AgentReviewService {
     return { items, omitted: decisionTotal + candidateTotal + knowledge.length - items.length };
   }
 
-  private knowledgeInDoubt(projectId: string, notOverturned: string): TrustedKnowledge[] {
+  /** Without a project, every tracked project's Knowledge is read and trusted in one batch. */
+  private knowledgeInDoubt(projectId: string | undefined, notOverturned: string): TrustedKnowledge[] {
     const rows = this.db
       .prepare(
         `SELECT k.*, p.name AS project_name FROM knowledge k JOIN projects p ON p.id = k.project_id
-         WHERE k.project_id = ? AND k.status = 'active' AND (k.applies_to_json <> '[]' OR k.review_json IS NOT NULL)
+         WHERE ${projectId ? "k.project_id = ?" : "p.status = 'tracked'"} AND k.status = 'active'
+           AND (k.applies_to_json <> '[]' OR k.review_json IS NOT NULL)
            ${notOverturned}
          ORDER BY k.created_at ASC, k.id ASC`,
       )
-      .all(projectId) as KnowledgeRow[];
+      .all(...(projectId ? [projectId] : [])) as KnowledgeRow[];
     return this.trusted(rows).filter(({ record }) => isKnowledgeInDoubt(record));
   }
 

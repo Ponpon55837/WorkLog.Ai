@@ -217,6 +217,30 @@ test("keeps a reopened item in the Agent-closed history without a reopen control
   await expect(panel.getByRole("button", { name: tt("outstanding.createRequest"), exact: true })).toBeEnabled();
 });
 
+test("shows the Agent command while a request waits and cancels it from the handoff block", async ({
+  page,
+  request,
+}) => {
+  const fixture = await seed(request, 1);
+  await createViaWeb(page, fixture.projectId);
+  const panel = page.getByRole("dialog", { name: tt("outstanding.tidyOpenItems"), exact: true });
+  const handoff = panel.getByRole("region", { name: tt("outstanding.cleanupHandoffMessage") });
+  const createButton = panel.getByRole("button", { name: tt("outstanding.createRequest"), exact: true });
+
+  await expect(handoff).toContainText(tt("outstanding.cleanupCommand"));
+  await expect(handoff).toContainText(tt("outstanding.cleanupHandoffMessage"));
+  await expect(handoff.getByRole("button", { name: tt("common.copyAgentInstruction") })).toBeVisible();
+  await expect(createButton).toHaveCount(0);
+
+  await handoff.getByRole("button", { name: tt("outstanding.cancelRequest"), exact: true }).click();
+  await page
+    .getByRole("dialog", { name: tt("outstanding.cancelThisRequest") })
+    .getByRole("button", { name: tt("outstanding.cancelRequest"), exact: true })
+    .click();
+  await expect(handoff).toHaveCount(0);
+  await expect(createButton).toBeEnabled();
+});
+
 test("keeps request creation usable during a background list refresh @cross-browser", async ({ page, request }) => {
   const fixture = await seed(request, 1);
   await page.goto(`/sessions/outstanding?itemProject=${fixture.projectId}`);

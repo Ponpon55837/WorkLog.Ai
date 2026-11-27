@@ -56,7 +56,7 @@ describe("outstanding cleanup store", () => {
     await vi.waitFor(() => expect(store.requestsLoaded).toBe(true));
     let releaseRead: (value: unknown) => void = () => undefined;
     harness.setResponder((input) =>
-      input.url.pathname === "/api/outstanding-cleanup/requests"
+      input.url.pathname === "/api/outstanding-cleanup/requests" && !input.url.searchParams.has("status")
         ? new Promise((resolve) => {
             releaseRead = resolve;
           })
@@ -73,6 +73,30 @@ describe("outstanding cleanup store", () => {
     releaseRead({ outcome: "outstanding_cleanup_requests", requests: [], pageInfo });
     await vi.waitFor(() => expect(store.requestsLoaded).toBe(true));
     expect(store.requests).toEqual([]);
+  });
+  it("exposes the request waiting for the Agent and cancels it by id", async () => {
+    const waiting = { ...requestRecord, id: "cleanup-2", status: "pending" };
+    harness.setResponder((input) => {
+      if (input.url.pathname === "/api/outstanding-cleanup/requests" && input.method === "GET")
+        return { outcome: "outstanding_cleanup_requests", requests: [waiting, requestRecord], pageInfo };
+      if (input.url.pathname === "/api/outstanding-cleanup/requests/cleanup-2/cancel")
+        return {
+          outcome: "outstanding_cleanup_request_cancelled",
+          request: { ...waiting, status: "cancelled" },
+          duplicate: false,
+        };
+      return responder(input);
+    });
+    const items = useOutstandingItemsStore();
+    items.projectId = "project-1";
+    const store = useOutstandingCleanupStore();
+    store.setActive(true);
+    await vi.waitFor(() => expect(store.activeRequest?.id).toBe("cleanup-2"));
+    expect(harness.calls.some((call) => call.url.searchParams.get("status") === "pending")).toBe(true);
+
+    await store.cancelRequest("cleanup-2");
+
+    expect(harness.count("/api/outstanding-cleanup/requests/cleanup-2/cancel", "POST")).toBe(1);
   });
   it("requires one project, always reads applied verdicts, caps All at 100 and reopens closed items", async () => {
     const store = useOutstandingCleanupStore();

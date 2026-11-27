@@ -4,6 +4,8 @@ import { defineStore } from "pinia";
 import type {
   AgentReviewedKnowledge,
   AgentReviewedKnowledgeListResult,
+  AgentReviewPendingListResult,
+  AgentReviewPendingProject,
   AgentReviewRequest,
   AgentReviewRequestListResult,
   CreateAgentReviewRequestInput,
@@ -27,13 +29,31 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
   const projectId = ref("");
   const knowledgeActive = ref(false);
   const projectRoot = ref<string | undefined>();
-  const createKey = ref("");
+  const createKeys = new Map<string, string>();
 
   const requestsQuery = useQuery<AgentReviewRequestListResult>({
     key: () => [...queryKeys.agentReview.requests, { projectId: projectId.value }],
     enabled: () => active.value && Boolean(projectId.value),
     query: ({ signal }) =>
       useApi().client.listAgentReviewRequests({ projectId: projectId.value, page: 1, pageSize: 1 }, signal),
+  });
+  const openRequestsQuery = useQuery<AgentReviewRequest[]>({
+    key: () => [...queryKeys.agentReview.requests, "open", "with-failed"],
+    enabled: active,
+    query: async ({ signal }) => {
+      const { client } = useApi();
+      const lists = await Promise.all(
+        OPEN_STATUSES.map((status) => client.listAgentReviewRequests({ status, page: 1, pageSize: 20 }, signal)),
+      );
+      return lists
+        .flatMap((list) => (list.outcome === "agent_review_requests" ? list.requests : []))
+        .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt));
+    },
+  });
+  const pendingQuery = useQuery<AgentReviewPendingListResult>({
+    key: () => queryKeys.agentReview.pending,
+    enabled: active,
+    query: ({ signal }) => useApi().client.listAgentReviewPending(signal),
   });
   const completedRequestQuery = useQuery<AgentReviewRequestListResult>({
     key: () => [...queryKeys.agentReview.requests, { projectId: projectId.value, status: "completed" }],
@@ -60,7 +80,7 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
     onSuccess: () =>
       Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
-        queryCache.invalidateQueries({ key: queryKeys.agentReview.requests }),
+        queryCache.invalidateQueries({ key: queryKeys.agentReview.root }),
       ]),
   });
   const cancelMutation = useMutation({
@@ -68,7 +88,7 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
     onSuccess: () =>
       Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
-        queryCache.invalidateQueries({ key: queryKeys.agentReview.requests }),
+        queryCache.invalidateQueries({ key: queryKeys.agentReview.root }),
       ]),
   });
   const overturnMutation = useMutation({
@@ -78,7 +98,7 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
       // Refreshes can be superseded by SSE; their errors do not undo the committed overturn.
       await Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
-        queryCache.invalidateQueries({ key: queryKeys.agentReview.requests }),
+        queryCache.invalidateQueries({ key: queryKeys.agentReview.root }),
         queryCache.invalidateQueries({ key: queryKeys.sessionDecisions.list }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.candidates }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
@@ -103,6 +123,18 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
   });
   const hasOpenRequest = computed(() =>
     Boolean(latestRequest.value && OPEN_STATUSES.includes(latestRequest.value.status)),
+  );
+  const openRequests = computed(() => openRequestsQuery.data.value ?? []);
+  const openRequestsLoaded = computed(() => openRequestsQuery.data.value !== undefined);
+  const pendingProjects = computed<AgentReviewPendingProject[]>(() => pendingQuery.data.value?.projects ?? []);
+  const pendingLoaded = computed(() => pendingQuery.data.value !== undefined);
+  const openRequestsError = computed(() =>
+    openRequestsQuery.error.value
+      ? errorMessage(openRequestsQuery.error.value, t("knowledge.couldNotLoadAgentReview"))
+      : "",
+  );
+  const pendingError = computed(() =>
+    pendingQuery.error.value ? errorMessage(pendingQuery.error.value, t("knowledge.couldNotLoadAgentReview")) : "",
   );
   const requestLoaded = computed(() => requestsQuery.data.value !== undefined);
   const requestError = computed(() =>
@@ -133,8 +165,11 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
       : "",
   );
 
+  async function reloadOverview(): Promise<void> {
+    await Promise.allSettled([openRequestsQuery.refetch(true), pendingQuery.refetch(true)]);
+  }
+
   function setScope(nextProjectId: string, nextProjectRoot: string | undefined): void {
-    if (projectId.value !== nextProjectId) createKey.value = "";
     projectId.value = nextProjectId;
     projectRoot.value = nextProjectRoot;
   }
@@ -148,10 +183,11 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
   }
 
   /** A retry after a failed attempt reuses the key, so the server never opens two requests for one click. */
-  async function createRequest() {
-    createKey.value ||= crypto.randomUUID();
-    const result = await createMutation.mutateAsync({ projectId: projectId.value, idempotencyKey: createKey.value });
-    createKey.value = "";
+  async function createRequest(targetProjectId: string) {
+    const idempotencyKey = createKeys.get(targetProjectId) ?? crypto.randomUUID();
+    createKeys.set(targetProjectId, idempotencyKey);
+    const result = await createMutation.mutateAsync({ projectId: targetProjectId, idempotencyKey });
+    createKeys.delete(targetProjectId);
     return result;
   }
 
@@ -171,6 +207,13 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
     latestRequest,
     latestCompletedRequest,
     hasOpenRequest,
+    openRequests,
+    openRequestsLoaded,
+    pendingProjects,
+    pendingLoaded,
+    openRequestsError,
+    pendingError,
+    reloadOverview,
     requestLoaded,
     requestError,
     skipped,

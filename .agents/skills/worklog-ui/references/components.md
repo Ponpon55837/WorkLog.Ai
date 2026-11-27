@@ -18,7 +18,7 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 
 | Component | API |
 |---|---|
-| `UiButton` | `variant: default (surface + border) \| primary (solid accent, `--fg-on-accent` text) \| invisible \| danger \| link`, `size: md \| sm`, `icon`, `trailingIcon`, `loading`, `disabled`, `type`, `to` (renders RouterLink), `iconOnly` + `label`, `truncate`. `variant="link"` is an inline accent-coloured text link that runs a command (inherits the surrounding font size, underline on hover); never hand-roll a link-styled `<button>`. |
+| `UiButton` | `variant: default (surface + border) \| primary (solid accent, `--fg-on-accent` text) \| invisible \| danger \| link`, `size: md \| sm`, `icon`, `trailingIcon`, `loading`, `disabled`, `disabledReason` (tooltip; disabled is neutral grey, loading keeps its color), `type`, `to` (renders RouterLink), `iconOnly` + `label`, `truncate`. `variant="link"` is an inline accent-coloured text link that runs a command (inherits the surrounding font size, underline on hover); never hand-roll a link-styled `<button>`. |
 | `UiIconButton` | Required `icon`, `label`; `variant` (default `invisible`), `size`, `loading`, `disabled`. |
 | `UiCopyButton` | `text`, `label`, `successMessage`, `variant`, `size`, `iconOnly`. Toast + check-mark feedback. |
 | `UiTextInput` | `v-model`, `icon`, `type: text \| search \| date`, `placeholder`, `label`, `size`, `mono`, `maxlength`, `required`, `autofocus`. Slots `prefix`, `suffix`. |
@@ -76,6 +76,7 @@ All overlays use `useFocusTrap` (focus in, Tab trapped, Esc closes, scroll lock,
 
 | Component | Notes |
 |---|---|
+| `AgentHandoffNotice` | Handoff step of an Agent flow: `title`, `status`, `message`, `command` (UiCommandBlock + copy), `cancelLabel` + `cancel` event, slots `default` and `actions`. Use it for every flow that waits on the Agent; toasts only say the request was created. |
 | `StatusLabel` | `status: StatusVisual` from `utils/status.ts`, `showIcon`, `text`. |
 | `SessionRow` | `session`, `showSummary`; emits `open`. Verification icon, title, Labels, `project · relative time · first outcome`. `data-testid="session-row"`. |
 | `SessionPanel` | Global; read-only except the header 編輯摘要 action, which opens `SessionSummaryEditorDialog` (title, summary + five workSummary sections, one item per line), and, on a voided Session, the 還原 / 永久刪除 actions in its voided Flash (permanent delete asks a danger `confirmAction`). `?session=<id>` deep link, J/K via `setSessionSequence`, summary → meta → `WorkSummarySections` → Changed files → Git (only when present) → Evidence → Knowledge → Events → Handoff snapshot. |
@@ -86,7 +87,7 @@ All overlays use `useFocusTrap` (focus in, Tab trapped, Esc closes, scroll lock,
 | `KnowledgeRow` | `item`; emits `action: edit \| history \| toggle-status \| source`. |
 | `KnowledgeEditorDialog`, `KnowledgeHistoryPanel` | Global; driven by `useKnowledge`. |
 | `SessionSummaryEditorDialog` | Global; driven by `useSessionEditor`. Title input + summary textarea + one textarea per workSummary section (one item per line, `nextSteps` hint forbids plans). Saves only changed fields: title via the title endpoint, summary via replace, sections via patch, each with a fresh idempotency key; then reloads the Session detail and requests an app refresh. |
-| `MetadataBackfillSection` | Scan, gap stats (three gap kinds), gap rows, Agent request card. |
+| `MetadataBackfillSection` | Scan, gap stats (three gap kinds), gap rows, Agent request via `AgentHandoffNotice`. |
 | `HandoffImportDialog` | Import preview with eligible/excluded reasons; global. |
 | `AddProjectDialog` | `v-model:open`. |
 | `GraphNodePanel` | Docked non-modal SidePanel (460px default, resizable) that overlays the graph instead of pushing it; its reported width is passed to `GraphCanvas` as `overlayWidth`. Relation rows re-select the related node. |

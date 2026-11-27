@@ -1,6 +1,7 @@
 import type {
   AgentReviewItemKind,
   AgentReviewedKnowledgeListResult,
+  AgentReviewPendingListResult,
   AgentReviewRequestListResult,
   AgentReviewRequestQuery,
   CancelAgentReviewRequestResult,
@@ -13,6 +14,7 @@ import { appendQuery, type ApiTransport } from "./transport";
 
 export interface AgentReviewApi {
   listAgentReviewRequests(input: AgentReviewRequestQuery, signal?: AbortSignal): Promise<AgentReviewRequestListResult>;
+  listAgentReviewPending(signal?: AbortSignal): Promise<AgentReviewPendingListResult>;
   createAgentReviewRequest(
     input: CreateAgentReviewRequestInput,
     signal?: AbortSignal,
@@ -33,6 +35,9 @@ export function createAgentReviewApi(client: ApiTransport): AgentReviewApi {
   return {
     listAgentReviewRequests(input, signal) {
       return client.request(appendQuery("/api/agent-review-requests", { ...input }), { signal });
+    },
+    listAgentReviewPending(signal) {
+      return client.request("/api/agent-review-pending", { signal });
     },
     createAgentReviewRequest(input, signal) {
       return client.write("/api/agent-review-requests", "POST", input, signal);

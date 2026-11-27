@@ -90,7 +90,8 @@ async function submitKnowledgeCandidateForReview(
   const candidates = page.getByTestId("knowledge-candidates");
   await candidates.getByRole("button", { name: tt("knowledge.synthesizeCandidates") }).click();
   await page.getByRole("menuitem", { name: "Browser Regression Fixture" }).click();
-  await expect(candidates).toContainText(ttPattern("knowledge.hasSessionsWaitingForThe", { value: "" }));
+  await expect(candidates.getByTestId("knowledge-candidates-open-request")).toBeVisible();
+  await expect(candidates).toContainText(tt("knowledge.candidateRequestCommand"));
 
   const candidateId = withAgentStore((store) => {
     const context = store.getKnowledgeCandidateContext({ projectRoot });
@@ -795,18 +796,31 @@ test.describe("Work Intelligence browser regression", () => {
 
     await page.goto("/knowledge/decisions");
     const box = page.getByTestId("agent-review-request");
-    await expect(box.getByRole("button", { name: tt("knowledge.askAgentToReview") })).toBeDisabled();
-    await expect(box).toContainText(tt("knowledge.agentReviewChooseProject"));
+    const projectName = "Browser Regression Fixture";
+    const ask = box.getByRole("button", { name: tt("knowledge.agentReviewAskProjectLabel", { project: projectName }) });
+    await expect(ask).toBeEnabled();
+    await expect(box).toContainText(ttPattern("knowledge.agentReviewPendingCounts", { decisionCount: 2 }));
+    await ask.click();
+
+    const openRequest = box.getByTestId("agent-review-open-request").filter({ hasText: projectName });
+    await expect(openRequest).toContainText(tt("status.agentReviewPending"));
+    await expect(box).toContainText(tt("knowledge.agentReviewCommand"));
+    await expect(box.getByRole("button", { name: tt("common.copyAgentInstruction") })).toBeVisible();
+    await expect(
+      openRequest.getByRole("button", { name: tt("knowledge.agentReviewCancelLabel", { project: projectName }) }),
+    ).toBeVisible();
+    await expect(ask).toHaveCount(0);
 
     await filterMenu(box, tt("common.project")).click();
-    await page.getByRole("menuitemradio", { name: "Browser Regression Fixture" }).click();
-    const ask = box.getByRole("button", { name: tt("knowledge.askAgentToReview") });
-    await expect(ask).toBeEnabled();
-    await ask.click();
+    await page.getByRole("menuitemradio", { name: projectName }).click();
     const status = page.getByTestId("agent-review-request-status");
     await expect(status).toContainText(tt("status.agentReviewPending"));
-    await expect(box).toContainText(tt("knowledge.agentReviewAskYourAgent"));
-    await expect(ask).toBeDisabled();
+    await expect(status).toContainText(tt("knowledge.agentReviewOpenMessage"));
+    const filteredAsk = box.getByRole("button", {
+      name: ttPattern("knowledge.agentReviewAskProject", { project: projectName }),
+    });
+    await expect(filteredAsk).toBeDisabled();
+    await expect(filteredAsk).toHaveAttribute("title", tt("knowledge.agentReviewReasonOpen"));
 
     const decisionId = withAgentStore((store) => {
       const context = store.getAgentReviewContext({ projectRoot });
@@ -828,6 +842,8 @@ test.describe("Work Intelligence browser regression", () => {
 
     await expect(status).toContainText(tt("status.agentReviewCompleted"), { timeout: 15_000 });
     await expect(status).toContainText(ttPattern("knowledge.agentReviewTotals", { applied: 1, skipped: 0 }));
+    await expect(status).toContainText(tt("knowledge.agentReviewDoneMessage"));
+    await expect(status.getByRole("button", { name: tt("common.copyAgentInstruction") })).toHaveCount(0);
 
     const panel = page.getByTestId("agent-decision-review");
     await expect(panel.getByTestId("agent-decision-item").filter({ hasText: "E2E review: keep" })).toHaveCount(0);
@@ -933,6 +949,49 @@ test.describe("Work Intelligence browser regression", () => {
     await restoredPanel.getByRole("button", { name: ttPattern("knowledge.version", { version: 1 }) }).click();
     await expect(restoredPanel).toContainText(tt("knowledge.viewingVersion", { shownVersion: 1 }));
     await expect(restoredPanel).toContainText("Build the shared packages first.");
+  });
+
+  test("asks the Agent to update a Knowledge page, then shows it as requested with the command to say", async ({
+    page,
+    request,
+  }) => {
+    const slug = `e2e-handoff-${process.pid}`;
+    withAgentStore((store) => {
+      store.requestKnowledgePageUpdate({
+        projectRoot,
+        slug,
+        title: "E2E handoff page",
+        question: "What does the handoff page answer?",
+      });
+      const saved = saveKnowledgePageAfterReading(store, {
+        projectRoot,
+        slug,
+        idempotencyKey: `e2e-handoff-page-${process.pid}`,
+        sections: [{ heading: "Handoff", content: "資料不足", sourceSessionIds: [] }],
+      });
+      if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the handoff page to save.");
+    });
+
+    await page.goto("/knowledge/pages");
+    await expect(page.getByTestId("knowledge-pages-handoff")).toHaveCount(0);
+    const row = page.getByTestId("knowledge-page-row").filter({ hasText: "E2E handoff page" });
+    await row.getByRole("button", { name: tt("knowledge.requestUpdate"), exact: true }).click();
+
+    await expect(page.getByText(tt("knowledge.pageUpdateRequested", { title: "E2E handoff page" }))).toBeVisible();
+    const requested = row.getByRole("button", { name: tt("knowledge.pageRequested"), exact: true });
+    await expect(requested).toBeDisabled();
+    await expect(requested).toHaveAttribute("title", tt("knowledge.pageRequestedReason"));
+    await expect(row.getByRole("button", { name: tt("knowledge.requestUpdate"), exact: true })).toHaveCount(0);
+    const handoff = page.getByTestId("knowledge-pages-handoff");
+    await expect(handoff).toContainText(tt("knowledge.pagesCommand"));
+    await expect(handoff.getByRole("button", { name: tt("common.copyAgentInstruction") })).toBeVisible();
+
+    const listed = await request.get("/api/knowledge-pages", { params: { projectRoot } });
+    const pages = ((await listed.json()) as { items: Array<{ id: string; slug: string }> }).items;
+    const created = pages.find((item) => item.slug === slug);
+    expect(
+      (await request.delete(`/api/knowledge-pages/${created?.id}`, { data: { confirm: true } })).ok(),
+    ).toBeTruthy();
   });
 
   test("deletes a custom Knowledge page after confirming its versions and never offers it for a default page", async ({
@@ -2895,8 +2954,11 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto("/knowledge/candidates");
     const candidates = page.getByTestId("knowledge-candidates");
     await candidates.getByRole("button", { name: tt("knowledge.synthesizeCandidates") }).click();
+    await expect(page.getByRole("menu")).toContainText(tt("knowledge.chooseAProjectToSynthesize"));
     await page.getByRole("menuitem", { name: "Browser Regression Fixture" }).click();
-    await expect(candidates).toContainText(ttPattern("knowledge.hasSessionsWaitingForThe", { value: "" }));
+    await expect(candidates.getByTestId("knowledge-candidates-open-request")).toBeVisible();
+    await expect(candidates).toContainText(tt("knowledge.candidateRequestCommand"));
+    await expect(candidates.getByRole("button", { name: tt("common.copyAgentInstruction") })).toBeVisible();
 
     withAgentStore((store) => {
       const context = store.getKnowledgeCandidateContext({ projectRoot });
@@ -2983,6 +3045,8 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto("/projects/backfill");
     await page.getByRole("button", { name: tt("projects.scanMetadataGaps") }).click();
     await expect(page.getByRole("button", { name: tt("projects.cancelBackfill") })).toBeVisible();
+    await expect(page.getByText(tt("projects.pleaseProcessTheMetadataGaps"))).toBeVisible();
+    await expect(page.getByRole("button", { name: tt("common.copyAgentInstruction") })).toBeVisible();
 
     const requests = await request.get("/api/backfill/metadata-requests");
     const pending = ((await requests.json()) as { requests: Array<{ id: string; status: string }> }).requests.find(

@@ -4,6 +4,7 @@ import { useRoute } from "vue-router";
 import { ListChecks } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import type { OutstandingCleanupProposal } from "@work-intelligence/core";
+import AgentHandoffNotice from "./AgentHandoffNotice.vue";
 import StatusLabel from "./StatusLabel.vue";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
@@ -48,7 +49,7 @@ const {
   proposals,
   proposalPageInfo,
   selectedRequest,
-  hasActiveRequest,
+  activeRequest,
   loading,
   proposalsLoading,
   error,
@@ -76,7 +77,10 @@ const allSelected = computed({
     selectedIds.value = selected ? closedProposals.value.slice(0, 100).map((proposal) => proposal.itemId) : [];
   },
 });
-const canCancel = computed(() => selectedRequest.value?.status === "pending");
+const createDisabledReason = computed(() => {
+  if (!requestsLoaded.value) return t("common.loading");
+  return skipped.value ? t("outstanding.trackingIsNotEnabledFor") : undefined;
+});
 
 function close(): void {
   panelMode.value = "";
@@ -135,7 +139,7 @@ async function reopen(itemIds: string[]): Promise<void> {
     busy.value = false;
   }
 }
-async function cancelRequest(): Promise<void> {
+async function cancelRequest(id: string): Promise<void> {
   if (
     busy.value ||
     !(await confirmAction({
@@ -148,7 +152,7 @@ async function cancelRequest(): Promise<void> {
     return;
   busy.value = true;
   try {
-    await cleanupStore.cancelRequest();
+    await cleanupStore.cancelRequest(id);
     showToast(t("outstanding.requestCancelled"), "success");
   } catch (error) {
     showToast(errorMessage(error, t("outstanding.couldNotCancelTheRequest")), "danger");
@@ -197,9 +201,14 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
 
 <template>
   <div class="outstanding-cleanup__entry">
-    <UiButton size="sm" :icon="ListChecks" :disabled="!projectId" @click="panelMode = 'review'">{{
-      t("outstanding.tidyOpenItems")
-    }}</UiButton>
+    <UiButton
+      size="sm"
+      :icon="ListChecks"
+      :disabled="!projectId"
+      :disabled-reason="t('outstanding.chooseAProjectFirst')"
+      @click="panelMode = 'review'"
+      >{{ t("outstanding.tidyOpenItems") }}</UiButton
+    >
     <span v-if="!projectId" class="outstanding-cleanup__hint">{{ t("outstanding.chooseAProjectFirst") }}</span>
   </div>
   <UiSidePanel :open="isOpen" :label="t('outstanding.tidyOpenItems')" :width="720" @close="close">
@@ -211,17 +220,30 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
       />
     </template>
     <div class="outstanding-cleanup__body">
-      <p class="outstanding-cleanup__hint">
-        {{ t("outstanding.askTheAgentToTidy") }}
-      </p>
-      <div class="outstanding-cleanup__actions">
-        <UiButton
-          variant="primary"
-          :disabled="busy || !requestsLoaded || skipped || hasActiveRequest"
-          @click="createRequest"
-          >{{ t("outstanding.createRequest") }}</UiButton
-        >
-      </div>
+      <AgentHandoffNotice
+        v-if="activeRequest"
+        class="outstanding-cleanup__handoff"
+        :status="outstandingCleanupRequestVisual[activeRequest.status]"
+        :message="t('outstanding.cleanupHandoffMessage')"
+        :command="t('outstanding.cleanupCommand')"
+        :cancel-label="t('outstanding.cancelRequest')"
+        :cancel-disabled="busy"
+        @cancel="cancelRequest(activeRequest.id)"
+      />
+      <template v-else>
+        <p class="outstanding-cleanup__hint">
+          {{ t("outstanding.askTheAgentToTidy") }}
+        </p>
+        <div class="outstanding-cleanup__actions">
+          <UiButton
+            variant="primary"
+            :disabled="busy || Boolean(createDisabledReason)"
+            :disabled-reason="createDisabledReason"
+            @click="createRequest"
+            >{{ t("outstanding.createRequest") }}</UiButton
+          >
+        </div>
+      </template>
       <UiFlash v-if="skipped" tone="accent">{{ t("outstanding.trackingIsNotEnabledFor") }}</UiFlash>
       <UiFlash v-if="error" tone="danger">{{ error }}</UiFlash>
       <UiBox>
@@ -282,9 +304,6 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
             })
           }}</span>
           <span>{{ t("outstanding.itemsWithoutASuggestionStay") }}</span>
-          <UiButton v-if="canCancel" size="sm" :disabled="busy" @click="cancelRequest">{{
-            t("outstanding.cancelRequest")
-          }}</UiButton>
         </div>
         <div
           v-if="closedProposals.length"
@@ -379,6 +398,9 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
   padding: var(--space-4);
 }
 .outstanding-cleanup__body > .outstanding-cleanup__actions {
+  margin-bottom: var(--space-4);
+}
+.outstanding-cleanup__handoff {
   margin-bottom: var(--space-4);
 }
 .outstanding-cleanup__hint {

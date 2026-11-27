@@ -12,6 +12,8 @@ const props = withDefaults(
     trailingIcon?: IconComponent;
     loading?: boolean;
     disabled?: boolean;
+    /** Shown as the tooltip and description while the button is disabled, so a greyed button says why. */
+    disabledReason?: string;
     type?: "button" | "submit";
     to?: RouteLocationRaw;
     iconOnly?: boolean;
@@ -25,12 +27,19 @@ const props = withDefaults(
   },
 );
 
+const isDisabled = computed(() => Boolean(props.disabled) && !props.loading);
 const classes = computed(() => [
   "ui-button",
   `ui-button--${props.variant}`,
   `ui-button--${props.size}`,
-  { "ui-button--icon-only": props.iconOnly, "ui-button--truncate": props.truncate },
+  {
+    "ui-button--icon-only": props.iconOnly,
+    "ui-button--truncate": props.truncate,
+    "ui-button--disabled": isDisabled.value,
+    "ui-button--loading": props.loading,
+  },
 ]);
+const tooltip = computed(() => (isDisabled.value && props.disabledReason ? props.disabledReason : undefined));
 </script>
 
 <template>
@@ -47,7 +56,8 @@ const classes = computed(() => [
     :class="classes"
     :disabled="disabled || loading"
     :aria-busy="loading || undefined"
-    :title="iconOnly ? label : undefined"
+    :aria-description="tooltip"
+    :title="tooltip ?? (iconOnly ? label : undefined)"
   >
     <UiSpinner v-if="loading" :size="14" />
     <component :is="icon" v-else-if="icon" v-bind="iconProps" aria-hidden="true" />
@@ -95,7 +105,26 @@ const classes = computed(() => [
 
 .ui-button:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+}
+
+.ui-button--loading {
+  opacity: 0.6;
+}
+
+.ui-button.ui-button--disabled {
+  border-color: var(--border-muted);
+  background: var(--bg-muted);
+  color: var(--fg-subtle);
+}
+
+.ui-button.ui-button--disabled :deep(.lucide) {
+  color: var(--fg-subtle);
+}
+
+.ui-button.ui-button--disabled.ui-button--invisible,
+.ui-button.ui-button--disabled.ui-button--link {
+  border-color: transparent;
+  background: transparent;
 }
 
 .ui-button :deep(.lucide) {

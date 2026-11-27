@@ -82,8 +82,7 @@ const COMMAND_SPOTS = new Set([
   "components/ui/UiCopyButton.vue",
   "components/domain/BackupSection.vue",
   "components/domain/FirstRunChecklist.vue",
-  "components/domain/SynthesisCard.vue",
-  "components/domain/MetadataBackfillSection.vue",
+  "components/domain/AgentHandoffNotice.vue",
   "views/SystemStatusView.vue",
   "views/UiShowcaseView.vue",
 ]);

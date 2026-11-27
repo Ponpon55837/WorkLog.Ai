@@ -406,9 +406,7 @@ export const useReportsStore = defineStore("reports", () => {
       useToast().showToast(
         reportSynthesisSummary.value
           ? t("reports.reSynthesisRequestedThePrevious")
-          : t("reports.theReportRequestWasCreated", {
-              instruction: reportSynthesisInstruction(),
-            }),
+          : t("reports.theReportRequestWasCreated"),
       );
     } catch (error) {
       reportSynthesisActionError.value = errorMessage(error, t("reports.couldNotCreateTheReport"));

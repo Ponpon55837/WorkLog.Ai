@@ -22,6 +22,13 @@ let harness: ReturnType<typeof createStoreHarness>;
 let requestStatus = "pending";
 
 function responder({ url, method }: StoreRequest): unknown {
+  if (url.pathname === "/api/agent-review-pending")
+    return {
+      outcome: "agent_review_pending",
+      projects: [
+        { projectId: "project-1", projectName: "Orchard", decisionCount: 2, candidateCount: 1, knowledgeCount: 2 },
+      ],
+    };
   if (url.pathname === "/api/agent-review-requests" && method === "GET")
     return {
       outcome: "agent_review_requests",
@@ -51,11 +58,11 @@ describe("agent review store", () => {
     await vi.waitFor(() => expect(store.requestLoaded).toBe(true));
     expect(store.latestRequest?.id).toBe("review-1");
     expect(store.hasOpenRequest).toBe(true);
-    expect(harness.calls[0]?.url.search).toBe("?projectId=project-1&page=1&pageSize=1");
+    expect(harness.calls.some((call) => call.url.search === "?projectId=project-1&page=1&pageSize=1")).toBe(true);
 
     requestStatus = "cancelled";
     store.setScope("project-1", "/work/orchard");
-    await store.createRequest();
+    await store.createRequest("project-1");
     await vi.waitFor(() => expect(store.latestRequest).toBeUndefined());
   });
 
@@ -74,10 +81,75 @@ describe("agent review store", () => {
     expect(store.latestCompletedRequest?.knowledgePages).toEqual([]);
   });
 
-  it("does not query without a single project", () => {
+  it("does not query a single project's latest request without one", async () => {
     const store = useAgentReviewStore();
     store.setActive(true);
-    expect(harness.count("/api/agent-review-requests")).toBe(0);
+    await vi.waitFor(() => expect(store.pendingLoaded).toBe(true));
+    expect(harness.calls.some((call) => call.url.searchParams.has("projectId"))).toBe(false);
+  });
+
+  it("lists pending items per project and every open request without choosing a project", async () => {
+    harness.setResponder((input) => {
+      const status = input.url.searchParams.get("status");
+      if (input.url.pathname !== "/api/agent-review-requests" || input.method !== "GET") return responder(input);
+      const requests =
+        status === "pending"
+          ? [{ ...request, id: "review-1", requestedAt: "2026-10-01T00:00:00Z" }]
+          : status === "failed"
+            ? [
+                {
+                  ...request,
+                  id: "review-2",
+                  projectId: "project-2",
+                  status: "failed",
+                  requestedAt: "2026-10-02T00:00:00Z",
+                },
+              ]
+            : [];
+      return { outcome: "agent_review_requests", requests, pageInfo };
+    });
+    const store = useAgentReviewStore();
+    store.setActive(true);
+    await vi.waitFor(() => expect(store.openRequests).toHaveLength(2));
+    expect(store.openRequests.map((item) => item.id)).toEqual(["review-2", "review-1"]);
+    expect(store.pendingProjects).toEqual([expect.objectContaining({ projectId: "project-1", decisionCount: 2 })]);
+    expect(
+      harness.calls
+        .filter((call) => call.url.searchParams.has("status"))
+        .map((call) => call.url.searchParams.get("status"))
+        .sort(),
+    ).toEqual(["failed", "pending", "processing"]);
+  });
+
+  it("refreshes the pending counts after a request is created or cancelled", async () => {
+    const store = useAgentReviewStore();
+    store.setActive(true);
+    await vi.waitFor(() => expect(store.pendingLoaded).toBe(true));
+    const loads = harness.count("/api/agent-review-pending");
+
+    await store.createRequest("project-1");
+    await vi.waitFor(() => expect(harness.count("/api/agent-review-pending")).toBeGreaterThan(loads));
+    const afterCreate = harness.count("/api/agent-review-pending");
+
+    await store.cancelRequest("review-1");
+    await vi.waitFor(() => expect(harness.count("/api/agent-review-pending")).toBeGreaterThan(afterCreate));
+  });
+
+  it("keeps one idempotency key per project while a create is retried", async () => {
+    const store = useAgentReviewStore();
+    harness.setResponder((input) => {
+      if (input.method === "POST") throw new Error("offline");
+      return responder(input);
+    });
+    await expect(store.createRequest("project-1")).rejects.toThrow();
+    await expect(store.createRequest("project-2")).rejects.toThrow();
+    await expect(store.createRequest("project-1")).rejects.toThrow();
+    const keys = harness.calls
+      .filter((call) => call.method === "POST")
+      .map((call) => call.body as { projectId: string; idempotencyKey: string });
+    expect(keys[0]?.idempotencyKey).toBe(keys[2]?.idempotencyKey);
+    expect(keys[1]?.idempotencyKey).not.toBe(keys[0]?.idempotencyKey);
+    expect(keys.map((key) => key.projectId)).toEqual(["project-1", "project-2", "project-1"]);
   });
 
   it("reuses the idempotency key until a request is created", async () => {
@@ -87,9 +159,9 @@ describe("agent review store", () => {
       if (input.method === "POST") throw new Error("offline");
       return responder(input);
     });
-    await expect(store.createRequest()).rejects.toThrow();
+    await expect(store.createRequest("project-1")).rejects.toThrow();
     harness.setResponder(responder);
-    await store.createRequest();
+    await store.createRequest("project-1");
     const keys = harness.calls
       .filter((call) => call.method === "POST")
       .map((call) => (call.body as { idempotencyKey: string }).idempotencyKey);

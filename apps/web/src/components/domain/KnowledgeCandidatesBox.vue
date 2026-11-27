@@ -4,6 +4,7 @@ import { RouterLink, type RouteLocationRaw } from "vue-router";
 import { storeToRefs } from "pinia";
 import { Check, ExternalLink, Info, Pencil, Sparkles, X } from "lucide-vue-next";
 import type { KnowledgeCandidate, KnowledgeCandidateOverlap, ProjectRecord } from "@work-intelligence/core";
+import type { SelectOption } from "../ui/types";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
 import { useAgentReviewActions } from "../../composables/useAgentReviewActions";
 import { useKnowledgeCandidates } from "../../composables/useKnowledgeCandidates";
@@ -13,8 +14,9 @@ import { useKnowledgeStore } from "../../stores/knowledge";
 import { useSessionsStore } from "../../stores/sessions";
 import { formatPercent, formatRelative } from "../../utils/format";
 import { knowledgeCandidateOverlapLabels } from "../../utils/labels";
-import { knowledgeKindVisual } from "../../utils/status";
-import ProjectFilterMenu from "./ProjectFilterMenu.vue";
+import { knowledgeKindVisual, requestStatus } from "../../utils/status";
+import AgentHandoffNotice from "./AgentHandoffNotice.vue";
+import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
@@ -77,19 +79,38 @@ useActiveRequestWatch({
 });
 
 const isAgentView = computed(() => filter.value === "agent");
+const openRows = computed(() =>
+  isAgentView.value
+    ? []
+    : openCandidateRequests.value.map((request) => ({
+        request,
+        remaining:
+          candidateBacklog.value.find((entry) => entry.projectId === request.projectId)?.highValueSessions ?? 0,
+      })),
+);
 const backlogRows = computed(() => {
   if (!candidatesLoaded.value || isAgentView.value) return [];
   return candidateBacklog.value.flatMap((entry) => {
     const project = props.projects.find((item) => item.id === entry.projectId);
-    if (!project) return [];
-    const open = openCandidateRequests.value.find((request) => request.projectId === entry.projectId);
-    return [{ projectId: project.id, name: project.name, highValue: entry.highValueSessions, open }];
+    const isOpen = openCandidateRequests.value.some((request) => request.projectId === entry.projectId);
+    return project && !isOpen
+      ? [{ projectId: project.id, name: project.name, highValue: entry.highValueSessions }]
+      : [];
   });
 });
-const unlistedRequests = computed(() =>
-  isAgentView.value
-    ? []
-    : openCandidateRequests.value.filter((request) => !backlogRows.value.some((row) => row.open === request)),
+const organizeItems = computed<SelectOption<string>[]>(() =>
+  props.projects
+    .filter((project) => !props.projectRoot || project.rootPath === props.projectRoot)
+    .map((project) => {
+      const highValue = candidateBacklog.value.find((entry) => entry.projectId === project.id)?.highValueSessions;
+      const isOpen = openCandidateRequests.value.some((request) => request.projectId === project.id);
+      return {
+        value: project.id,
+        label: project.name,
+        ...(highValue !== undefined ? { count: t("knowledge.candidateBacklogCount", { n: highValue }) } : {}),
+        ...(isOpen ? { disabled: true, description: t("knowledge.candidateMenuOpen") } : {}),
+      };
+    }),
 );
 const shownCandidates = computed(() => (isAgentView.value ? reviewedCandidates.value : candidates.value));
 const shownLoaded = computed(() => (isAgentView.value ? reviewedCandidatesLoaded.value : candidatesLoaded.value));
@@ -134,80 +155,75 @@ function onRequest(projectId: string): void {
       />
       <div class="knowledge-candidates__tools">
         <AgentReviewFilter v-model="filter" />
-        <ProjectFilterMenu
+        <UiActionMenu
           v-if="!isAgentView"
           :label="t('knowledge.synthesizeCandidates')"
           :header="t('knowledge.chooseAProjectToSynthesize')"
+          :items="organizeItems"
           variant="button"
           size="sm"
           align="end"
-          :include-all="false"
           @select="onRequest"
         />
       </div>
     </template>
     <UiFlash v-if="shownError" tone="danger">{{ shownError }}</UiFlash>
-    <UiFlash
-      v-for="request in unlistedRequests"
-      :key="request.id"
-      :tone="request.status === 'failed' ? 'attention' : 'accent'"
-    >
-      {{
-        t("knowledge.hasSessionsWaitingForThe", {
-          projectName: request.projectName,
-          length: request.sourceSessionIds.length,
-          value: request.status === "failed" ? t("knowledge.interruptedLastTimeCanBe") : "",
-        })
-      }}
-      <template #actions>
-        <UiButton
-          size="sm"
-          :disabled="candidateRequesting"
-          :aria-label="t('knowledge.candidateRequestStopLabel', { project: request.projectName ?? '' })"
-          @click="cancelCandidateRequest(request)"
-          >{{ t("knowledge.candidateRequestStop") }}</UiButton
-        >
-      </template>
-    </UiFlash>
+    <div v-if="openRows.length" class="knowledge-candidates__handoff" data-testid="knowledge-candidates-handoff">
+      <AgentHandoffNotice
+        :title="t('knowledge.candidateRequestsTitle')"
+        :message="t('knowledge.candidateRequestMessage')"
+        :command="t('knowledge.candidateRequestCommand')"
+      >
+        <ul class="knowledge-candidates__backlog-list">
+          <li
+            v-for="{ request, remaining } in openRows"
+            :key="request.id"
+            data-testid="knowledge-candidates-open-request"
+          >
+            <StatusLabel :status="requestStatus[request.status]" />
+            <span>
+              {{
+                remaining > 0
+                  ? t("knowledge.candidateBacklogOpen", {
+                      project: request.projectName,
+                      length: request.sourceSessionIds.length,
+                      n: remaining,
+                    })
+                  : t("knowledge.candidateRequestWaiting", {
+                      project: request.projectName,
+                      length: request.sourceSessionIds.length,
+                    })
+              }}
+              <template v-if="request.status === 'failed'">{{ t("knowledge.interruptedLastTimeCanBe") }}</template>
+            </span>
+            <UiButton
+              size="sm"
+              :disabled="candidateRequesting"
+              :aria-label="t('knowledge.candidateRequestStopLabel', { project: request.projectName ?? '' })"
+              @click="cancelCandidateRequest(request)"
+              >{{ t("knowledge.candidateRequestStop") }}</UiButton
+            >
+          </li>
+        </ul>
+      </AgentHandoffNotice>
+    </div>
     <section v-if="backlogRows.length" class="knowledge-candidates__backlog" data-testid="knowledge-candidates-backlog">
       <h3 class="knowledge-candidates__backlog-title">{{ t("knowledge.candidateBacklogTitle") }}</h3>
       <p>{{ t("knowledge.candidateBacklogHint") }}</p>
       <p>{{ t("knowledge.candidateBacklogExplainer") }}</p>
       <ul class="knowledge-candidates__backlog-list">
         <li v-for="row in backlogRows" :key="row.projectId" data-testid="knowledge-candidates-backlog-row">
-          <template v-if="row.open">
-            <span>
-              {{
-                t("knowledge.candidateBacklogOpen", {
-                  project: row.name,
-                  length: row.open.sourceSessionIds.length,
-                  n: row.highValue,
-                })
-              }}
-              <template v-if="row.open.status === 'failed'">{{ t("knowledge.interruptedLastTimeCanBe") }}</template>
-            </span>
-            <UiButton
-              size="sm"
-              :disabled="candidateRequesting"
-              :aria-label="t('knowledge.candidateRequestStopLabel', { project: row.name })"
-              @click="cancelCandidateRequest(row.open)"
-              >{{ t("knowledge.candidateRequestStop") }}</UiButton
-            >
-          </template>
-          <template v-else>
-            <span class="knowledge-candidates__backlog-project">{{ row.name }}</span>
-            <span>{{ t("knowledge.candidateBacklogCount", { n: row.highValue }) }}</span>
-            <UiButton
-              size="sm"
-              :disabled="candidateRequesting"
-              :aria-label="t('knowledge.organizeProjectLabel', { project: row.name })"
-              @click="onRequest(row.projectId)"
-              >{{ t("knowledge.organizeProject") }}</UiButton
-            >
-          </template>
+          <span class="knowledge-candidates__backlog-project">{{ row.name }}</span>
+          <span>{{ t("knowledge.candidateBacklogCount", { n: row.highValue }) }}</span>
+          <UiButton
+            size="sm"
+            :disabled="candidateRequesting"
+            :aria-label="t('knowledge.organizeProjectLabel', { project: row.name })"
+            @click="onRequest(row.projectId)"
+            >{{ t("knowledge.organizeProject") }}</UiButton
+          >
         </li>
       </ul>
-      <p v-if="backlogRows.some((row) => row.open)">{{ t("knowledge.candidateRequestAskAgent") }}</p>
     </section>
     <UiSkeleton v-if="!shownLoaded && !shownError" :count="2" :label="t('knowledge.loadingKnowledgeCandidates')" />
     <p v-else-if="isAgentView && shownCandidates.length === 0" class="knowledge-candidates__empty">
@@ -318,6 +334,11 @@ function onRequest(projectId: string): void {
 <style scoped>
 .knowledge-candidates {
   margin-bottom: var(--space-4);
+}
+
+.knowledge-candidates__handoff {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-muted);
 }
 
 .knowledge-candidates__tools {

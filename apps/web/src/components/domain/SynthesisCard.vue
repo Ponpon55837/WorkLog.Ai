@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
-import { History, RotateCcw, Sparkles, Trash2, X } from "lucide-vue-next";
+import { History, RotateCcw, Sparkles, Trash2 } from "lucide-vue-next";
 import type { WorkReportPeriod, ReportSummary } from "@work-intelligence/core";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
 import { useToast } from "../../composables/useToast";
@@ -12,13 +12,13 @@ import { requestStatus } from "../../utils/status";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
-import UiCommandBlock from "../ui/UiCommandBlock.vue";
 import UiDisclosure from "../ui/UiDisclosure.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
+import AgentHandoffNotice from "./AgentHandoffNotice.vue";
 import StatusLabel from "./StatusLabel.vue";
 import SynthesisPresentation from "./SynthesisPresentation.vue";
 import { t } from "../../i18n";
@@ -138,19 +138,18 @@ function versionMeta(version: ReportSummary): string {
         :label="t('reports.loadingSynthesis')"
       />
 
-      <div
+      <AgentHandoffNotice
         v-if="reportSynthesisLoaded && !reportSynthesisError && (!summary || isActive || canRetry)"
-        class="synthesis__pending"
+        :message="pendingMessage"
+        :command="isActive ? reportSynthesisInstruction() : undefined"
+        :success-message="t('reports.naturalLanguageSynthesisInstructionCopied')"
+        :cancel-label="isActive ? t('reports.cancelThisCleanup') : undefined"
+        :cancel-loading="reportSynthesisCancelling"
+        @cancel="cancelReportSynthesisRequest"
       >
-        <p>{{ pendingMessage }}</p>
         <p v-if="request?.failureReason" class="synthesis__failure">{{ request.failureReason }}</p>
         <p v-if="summary && isActive" class="synthesis__note">{{ t("reports.thePreviousSynthesisIsKept") }}</p>
-        <UiCommandBlock
-          v-if="isActive"
-          :text="reportSynthesisInstruction()"
-          :success-message="t('reports.naturalLanguageSynthesisInstructionCopied')"
-        />
-        <div class="synthesis__actions">
+        <template #actions>
           <UiButton
             v-if="canRetry"
             variant="primary"
@@ -170,16 +169,8 @@ function versionMeta(version: ReportSummary): string {
           >
             {{ summary ? t("reports.reSynthesizeThisReport") : t("reports.askAgentToSynthesizeThis") }}
           </UiButton>
-          <UiButton
-            v-if="isActive"
-            variant="danger"
-            :icon="X"
-            :loading="reportSynthesisCancelling"
-            @click="cancelReportSynthesisRequest"
-            >{{ t("reports.cancelThisCleanup") }}</UiButton
-          >
-        </div>
-      </div>
+        </template>
+      </AgentHandoffNotice>
 
       <template v-if="summary">
         <SynthesisPresentation
@@ -300,18 +291,18 @@ function versionMeta(version: ReportSummary): string {
   flex: none;
 }
 
+.synthesis__failure,
+.synthesis__note {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
 .synthesis__failure {
   color: var(--danger);
 }
 
 .synthesis__note {
   color: var(--fg-muted);
-}
-
-.synthesis__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
 }
 
 .synthesis__footer {
