@@ -63,6 +63,20 @@ describe("AppSidebar", () => {
     expect(link(html, "outstanding")).not.toContain("ui-counter");
   });
 
+  it("shows the pending decisions and candidates count on the Work knowledge entry", async () => {
+    const html = await render("/", { knowledge: { value: 9 } });
+
+    expect(link(html, "knowledge")).toContain(t("common.workKnowledge"));
+    expect(link(html, "knowledge")).toContain("9");
+    expect(link(html, "knowledge")).toContain('href="/knowledge"');
+  });
+
+  it("leaves the Work knowledge entry without a counter while nothing waits for review", async () => {
+    const html = await render("/", { knowledge: { value: 0 } });
+
+    expect(link(html, "knowledge")).not.toContain("ui-counter");
+  });
+
   it("opens the Open items tab from its shortcut target", () => {
     const item = navItems.find((candidate) => candidate.name === "outstanding");
 

@@ -128,7 +128,7 @@ function overlapLabel(overlap: KnowledgeCandidateOverlap): string {
 
 // Opens the matched Knowledge in the list's history panel, scoped to the candidate's own project.
 function overlapKnowledgeLink(candidate: KnowledgeCandidate, overlap: KnowledgeCandidateOverlap): RouteLocationRaw {
-  return { name: "knowledge", query: { project: candidate.projectId, knowledge: overlap.id } };
+  return { name: "knowledge", params: { tab: "list" }, query: { project: candidate.projectId, knowledge: overlap.id } };
 }
 
 function onRequest(projectId: string): void {

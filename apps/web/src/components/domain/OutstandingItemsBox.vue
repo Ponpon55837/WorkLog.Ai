@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { Check, CircleSlash, ListChecks, RotateCcw } from "lucide-vue-next";
 import type { OutstandingItem, OutstandingItemStatus, PageInfo } from "@work-intelligence/core";
 import OutstandingCleanupPanel from "./OutstandingCleanupPanel.vue";
@@ -17,11 +17,14 @@ import UiFilterChips from "../ui/UiFilterChips.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiPagination from "../ui/UiPagination.vue";
+import UiSelectionBar from "../ui/UiSelectionBar.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import type { FilterChip } from "../ui/types";
+import { useFocusRestore } from "../../composables/useFocusRestore";
 import { useMediaQuery } from "../../composables/useMediaQuery";
 import { useProjectChip } from "../../composables/useProjectChip";
+import { useRowSelection } from "../../composables/useRowSelection";
 import { useToast } from "../../composables/useToast";
 import { useOutstandingItemsStore, type OutstandingClosedFilter } from "../../stores/outstanding-items";
 import { errorMessage, formatDate, formatDateRangeText, formatRelative } from "../../utils/format";
@@ -49,28 +52,24 @@ const closedFilter = defineModel<OutstandingClosedFilter>("closedFilter", { requ
 const outstandingItemsStore = useOutstandingItemsStore();
 const { showToast } = useToast();
 const narrow = useMediaQuery("(max-width: 639px)");
+const { selectedIds, allSelected, clearSelection, selectItem, dropFromSelection } = useRowSelection(
+  () => props.items.filter((item) => item.status === "pending").map((item) => item.id),
+  { onClear: resetSelectionScope },
+);
+const { boxRef, listRef, restoreFocus, settleFocus } = useFocusRestore({
+  rowIdAttribute: "data-item-id",
+  actionSelector: ".outstanding-items__actions button",
+});
 
 const projectChip = useProjectChip(projectId);
 
-const boxRef = ref<ComponentPublicInstance | null>(null);
-const listRef = ref<ComponentPublicInstance | null>(null);
 const changingItemIds = ref<string[]>([]);
-const selectedIds = ref<string[]>([]);
 const selectedAcrossPages = ref(false);
 const selectingAll = ref(false);
 const batchBusy = ref(false);
 let selectionEpoch = 0;
 let selectAbort: AbortController | undefined;
-let pendingFocus: { nextItemId?: string } | undefined;
 
-const pendingItems = computed(() => props.items.filter((item) => item.status === "pending"));
-const allSelected = computed({
-  get: () => pendingItems.value.length > 0 && pendingItems.value.every((item) => selectedIds.value.includes(item.id)),
-  set: (selected: boolean) => {
-    if (selected) selectedIds.value = pendingItems.value.map((item) => item.id);
-    else clearSelection();
-  },
-});
 const canSelectAllMatching = computed(
   () => allSelected.value && !selectedAcrossPages.value && props.pageInfo.total > selectedIds.value.length,
 );
@@ -143,49 +142,10 @@ function clearFilters(): void {
   page.value = 1;
 }
 
-function clearSelection(): void {
+function resetSelectionScope(): void {
   selectionEpoch += 1;
   selectAbort?.abort();
-  selectedIds.value = [];
   selectedAcrossPages.value = false;
-}
-
-/** Ids that were applied or skipped are done with; anything else stays selected so it can be retried. */
-function dropFromSelection(itemIds: string[]): void {
-  const dropped = new Set(itemIds);
-  selectedIds.value = selectedIds.value.filter((id) => !dropped.has(id));
-  if (selectedIds.value.length === 0) clearSelection();
-}
-
-/** An action removes its row once the list refetches, so focus would fall to the page; keep it in the list instead. */
-async function restoreFocus(nextItemId?: string): Promise<void> {
-  pendingFocus = { nextItemId };
-  await nextTick();
-  focusListIfLost();
-}
-
-/** Focus on the page, or on a toast that is leaving, counts as lost. */
-function focusIsLost(): boolean {
-  const active = document.activeElement;
-  return !active || active === document.body || Boolean(active.closest(".ui-toast-host"));
-}
-
-function focusListIfLost(): void {
-  if (!pendingFocus || !focusIsLost()) return;
-  const { nextItemId } = pendingFocus;
-  pendingFocus = undefined;
-  const root = listRef.value?.$el as HTMLElement | undefined;
-  if (!root) {
-    const box = boxRef.value?.$el as HTMLElement | undefined;
-    box?.querySelector<HTMLElement>(".ui-empty button, .ui-flash button")?.focus();
-    return;
-  }
-  const rows = [...root.querySelectorAll<HTMLElement>("[data-item-id]")];
-  const row = rows.find((element) => element.dataset.itemId === nextItemId) ?? rows[0];
-  const action = row?.querySelector<HTMLElement>(".outstanding-items__actions button:not(:disabled)");
-  if (action) return action.focus();
-  if (!root.hasAttribute("tabindex")) root.tabIndex = -1;
-  root.focus();
 }
 
 async function undoStatus(
@@ -297,12 +257,6 @@ async function selectAllMatching(): Promise<void> {
   }
 }
 
-function selectItem(itemId: string, selected: boolean): void {
-  selectedIds.value = selected
-    ? [...new Set([...selectedIds.value, itemId])]
-    : selectedIds.value.filter((id) => id !== itemId);
-}
-
 function closedByLabel(item: OutstandingItem): string | undefined {
   if (item.status === "pending") return undefined;
   if (item.closedBy === "later_session") return t("outstanding.closedByLaterSession");
@@ -316,14 +270,7 @@ function isChanging(item: OutstandingItem): boolean {
 
 watch([projectId, status, from, to, closedFilter], clearSelection);
 
-watch(
-  () => props.items,
-  () => {
-    focusListIfLost();
-    pendingFocus = undefined;
-  },
-  { flush: "post" },
-);
+watch(() => props.items, settleFocus, { flush: "post" });
 
 watch([page, pageSize], () => {
   if (!selectedAcrossPages.value) clearSelection();
@@ -376,44 +323,38 @@ onBeforeUnmount(() => selectAbort?.abort());
 
     <UiFilterChips :chips="filterChips" clearable @remove="removeFilter" @clear="clearFilters" />
 
-    <div v-if="status === 'pending' && items.length > 0" class="outstanding-items__selection">
-      <label class="outstanding-items__select-page">
-        <UiCheckbox
-          v-model="allSelected"
-          :label="t('outstanding.selectAllOpenItemsOn')"
-          :indeterminate="selectedIds.length > 0 && !allSelected"
-          :disabled="loading || selectionBusy"
-        />
-        <span v-if="selectedIds.length === 0">{{ t("outstanding.selectPage") }}</span>
-      </label>
-      <div
-        v-if="selectedIds.length > 0"
-        class="outstanding-items__batch"
-        role="group"
-        :aria-label="t('outstanding.bulkActions')"
-        data-testid="outstanding-batch-toolbar"
+    <UiSelectionBar
+      v-if="status === 'pending' && items.length > 0"
+      v-model="allSelected"
+      :label="t('outstanding.selectAllOpenItemsOn')"
+      :select-text="t('outstanding.selectPage')"
+      :group-label="t('outstanding.bulkActions')"
+      :summary="selectionSummary"
+      :count="selectedIds.length"
+      :indeterminate="selectedIds.length > 0 && !allSelected"
+      :disabled="loading || selectionBusy"
+      toolbar-testid="outstanding-batch-toolbar"
+      summary-testid="outstanding-selection-summary"
+    >
+      <UiButton
+        v-if="canSelectAllMatching"
+        variant="link"
+        size="sm"
+        :loading="selectingAll"
+        :disabled="selectionBusy"
+        @click="selectAllMatching"
+        >{{ t("outstanding.selectAllMatching", { count: pageInfo.total }) }}</UiButton
       >
-        <span aria-live="polite" data-testid="outstanding-selection-summary">{{ selectionSummary }}</span>
-        <UiButton
-          v-if="canSelectAllMatching"
-          variant="link"
-          size="sm"
-          :loading="selectingAll"
-          :disabled="selectionBusy"
-          @click="selectAllMatching"
-          >{{ t("outstanding.selectAllMatching", { count: pageInfo.total }) }}</UiButton
-        >
-        <UiButton variant="link" size="sm" :disabled="selectionBusy" @click="clearSelection">{{
-          t("outstanding.clearSelection")
-        }}</UiButton>
-        <UiButton size="sm" :disabled="loading || selectionBusy" @click="updateBatch('completed')">{{
-          t("outstanding.markDone")
-        }}</UiButton>
-        <UiButton size="sm" :disabled="loading || selectionBusy" @click="updateBatch('not_needed')">{{
-          t("outstanding.markNotNeeded")
-        }}</UiButton>
-      </div>
-    </div>
+      <UiButton variant="link" size="sm" :disabled="selectionBusy" @click="clearSelection">{{
+        t("outstanding.clearSelection")
+      }}</UiButton>
+      <UiButton size="sm" :disabled="loading || selectionBusy" @click="updateBatch('completed')">{{
+        t("outstanding.markDone")
+      }}</UiButton>
+      <UiButton size="sm" :disabled="loading || selectionBusy" @click="updateBatch('not_needed')">{{
+        t("outstanding.markNotNeeded")
+      }}</UiButton>
+    </UiSelectionBar>
 
     <UiFlash v-if="error" tone="danger" data-testid="outstanding-items-error">
       {{ error }}
@@ -541,34 +482,6 @@ onBeforeUnmount(() => selectAbort?.abort());
 </template>
 
 <style scoped>
-.outstanding-items__selection {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--space-8);
-  padding: var(--space-1) var(--space-3);
-  border-bottom: 1px solid var(--border-muted);
-  color: var(--fg-muted);
-  font-size: var(--text-sm);
-}
-
-.outstanding-items__select-page {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  cursor: pointer;
-}
-
-.outstanding-items__batch {
-  display: flex;
-  flex: 1;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
 .outstanding-items__filters {
   display: flex;
   flex-wrap: wrap;

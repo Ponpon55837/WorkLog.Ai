@@ -856,9 +856,14 @@ test.describe("Work Intelligence browser regression", () => {
 
     const promoted = decision("Promote this Agent choice into Knowledge.");
     await expect(promoted).toBeVisible();
-    await promoted.getByRole("button", { name: tt("knowledge.turnIntoKnowledge") }).click();
+    await promoted.getByRole("button", { name: tt("knowledge.more") }).click();
+    await page.getByRole("menuitem", { name: tt("knowledge.turnIntoKnowledge") }).click();
     const dialog = page.getByRole("dialog", { name: tt("knowledge.turnAgentDecisionIntoKnowledge") });
     await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel(tt("knowledge.title"))).toHaveValue("");
+    await expect(dialog.getByLabel(tt("common.body"))).toHaveValue("Promote this Agent choice into Knowledge.");
+    await expect(dialog.getByLabel(tt("common.body"))).toBeFocused();
+    await expect(dialog.getByLabel(tt("knowledge.tags"))).toHaveValue("");
     await dialog.getByLabel(tt("knowledge.title")).fill("E2E promoted Agent decision");
     await dialog.getByLabel(tt("common.body")).fill("This decision is promoted with its source Session.");
     await dialog.getByRole("button", { name: tt("knowledge.createAndLinkKnowledge") }).click();
@@ -868,6 +873,10 @@ test.describe("Work Intelligence browser regression", () => {
     const rejected = decision("Reject this Agent choice in the Web review queue.");
     await expect(rejected).toBeVisible();
     await rejected.getByRole("button", { name: tt("knowledge.reject") }).click();
+    await page
+      .getByRole("dialog", { name: tt("knowledge.rejectDecisionsTitle", { count: 1 }) })
+      .getByRole("button", { name: tt("knowledge.reject") })
+      .click();
     await expect(rejected).toHaveCount(0);
 
     const reviewed = withAgentStore((store) => store.getSessionDetail(sessionId)?.decisions ?? []);
@@ -977,10 +986,17 @@ test.describe("Work Intelligence browser regression", () => {
     await panel.getByRole("radio", { name: tt("knowledge.reviewFilterPending") }).click();
     const back = panel.getByTestId("agent-decision-item").filter({ hasText: "E2E review: keep" });
     await expect(back).toBeVisible();
+    const confirmReject = () =>
+      page
+        .getByRole("dialog", { name: tt("knowledge.rejectDecisionsTitle", { count: 1 }) })
+        .getByRole("button", { name: tt("knowledge.reject") })
+        .click();
     await back.getByRole("button", { name: tt("knowledge.reject") }).click();
+    await confirmReject();
     await expect(back).toHaveCount(0);
     const rest = panel.getByTestId("agent-decision-item").filter({ hasText: "E2E review: skip" });
     await rest.getByRole("button", { name: tt("knowledge.reject") }).click();
+    await confirmReject();
     await expect(rest).toHaveCount(0);
     expect(decisionId).toBeTruthy();
   });
@@ -1268,7 +1284,7 @@ test.describe("Work Intelligence browser regression", () => {
       if (finalized.outcome !== "finalized") throw new Error("Expected the evidence fixture Session.");
     });
 
-    await page.goto(`/knowledge?q=${encodeURIComponent(title)}`);
+    await page.goto(`/knowledge/list?q=${encodeURIComponent(title)}`);
     const row = page.getByTestId("knowledge-row").filter({ hasText: title });
     await row
       .getByRole("button", {
@@ -1538,6 +1554,8 @@ test.describe("Work Intelligence browser regression", () => {
 
     await page.getByTestId("nav-knowledge").click();
     await expect(page.getByRole("heading", { name: tt("common.workKnowledge") }).first()).toBeVisible();
+    await page.getByRole("tab", { name: /^Knowledge/ }).click();
+    await expect(page.getByRole("tab", { name: /^Knowledge/ })).toHaveAttribute("aria-selected", "true");
     const knowledgePageSize = page.getByLabel(tt("knowledge.knowledgePerPage"));
     await expect(knowledgePageSize).toHaveValue("10");
     await expect(knowledgePageSize.locator("option")).toHaveCount(5);
@@ -3127,7 +3145,7 @@ test.describe("Work Intelligence browser regression", () => {
       verification: { status: "passed" },
     });
 
-    await page.goto("/knowledge");
+    await page.goto("/knowledge/list");
     const row = page.getByTestId("knowledge-row").filter({ hasText: title });
     await expect(row).toContainText(tt("status.possiblyStale"));
 
@@ -3674,7 +3692,7 @@ test.describe("Work Intelligence browser regression", () => {
       await expectUserScrollsListInternally(page, tt("sessions.workHistoryList"));
       await expectNoHorizontalOverflow(page);
 
-      await page.goto("/knowledge");
+      await page.goto("/knowledge/list");
       const knowledgeList = await expectBoundedVirtualList(page, tt("knowledge.workKnowledgeList"));
       if (expectPanelFill) {
         await expectPanelToFillViewport(knowledgeList);
@@ -3927,7 +3945,7 @@ test("list pages show only the error state when their data fails to load", async
   await expect(page.getByTestId("sessions-error")).toContainText(tt("sessions.couldNotLoadWorkHistory"));
   await expect(page.getByText(tt("common.noWorkRecordsYet"))).toHaveCount(0);
 
-  await page.goto("/knowledge");
+  await page.goto("/knowledge/list");
   await expect(page.getByText(tt("knowledge.couldNotLoadKnowledge"))).toBeVisible();
   await expect(page.getByText(tt("knowledge.noConfirmedKnowledgeYet"))).toHaveCount(0);
 

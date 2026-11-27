@@ -86,7 +86,7 @@ const items = computed<PaletteItem[]>(() => {
     label: item.title,
     hint: item.projectName,
     icon: BookOpen,
-    run: () => void router.push({ name: "knowledge", query: { q: item.title } }),
+    run: () => void router.push({ name: "knowledge", params: { tab: "list" }, query: { q: item.title } }),
   }));
   return [...pages, ...preferences, ...sessionItems, ...knowledgeItems];
 });

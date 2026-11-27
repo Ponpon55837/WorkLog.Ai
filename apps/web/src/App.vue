@@ -15,6 +15,7 @@ import { useDashboardStore } from "./stores/dashboard";
 import { useDesktopLanguageStore } from "./stores/desktop-language";
 import { useOutstandingItemsStore } from "./stores/outstanding-items";
 import { useProjectsStore } from "./stores/projects";
+import { useWorkKnowledgePendingStore } from "./stores/work-knowledge-pending";
 import { errorMessage as toErrorMessage } from "./utils/format";
 import { locale, t } from "./i18n";
 
@@ -28,6 +29,7 @@ const dashboardStore = useDashboardStore();
 const { attentionCount } = storeToRefs(dashboardStore);
 const { loadDashboardData } = dashboardStore;
 const { pendingTotal: pendingOutstandingTotal } = storeToRefs(useOutstandingItemsStore());
+const { pendingTotal: pendingKnowledgeTotal } = storeToRefs(useWorkKnowledgePendingStore());
 const appStore = useAppStore();
 const { appHealth, appHealthError } = storeToRefs(appStore);
 const { loadHealth } = appStore;
@@ -49,6 +51,7 @@ const counts = computed(() => ({
   dashboard: { value: attentionCount.value ?? 0, tone: "attention" as const },
   sessions: { value: dashboard.value.finalizedSessions },
   outstanding: { value: pendingOutstandingTotal.value ?? 0 },
+  knowledge: { value: pendingKnowledgeTotal.value ?? 0 },
   projects: { value: trackedProjects.value.length },
 }));
 

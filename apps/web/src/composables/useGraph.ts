@@ -300,7 +300,7 @@ export function useGraph() {
       openKnowledgeEditor(item);
       return;
     }
-    void router.push({ name: "knowledge" });
+    void router.push({ name: "knowledge", params: { tab: "list" } });
   }
 
   function openGraphProject(): void {

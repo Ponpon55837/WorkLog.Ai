@@ -12,6 +12,17 @@ import { useAgentReviewStore } from "./agent-review";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
+const MAX_LISTED_DECISIONS = 200;
+const DECISION_REVIEW_CONCURRENCY = 4;
+
+type DecisionBatchResult = {
+  reviewedIds: string[];
+  /** Ids the API no longer knows or that moved out of tracking. */
+  skippedIds: string[];
+  failedIds: string[];
+  failure?: Error;
+};
+
 export const useSessionDecisionsStore = defineStore("session-decisions", () => {
   const queryCache = useQueryCache();
   const agentReviewStore = useAgentReviewStore();
@@ -20,7 +31,7 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
   const status = computed<ListSessionDecisionsInput["status"]>(() =>
     agentReviewStore.filter === "agent" ? "agent_reviewed" : "pending",
   );
-  const limit = ref(50);
+  const limit = ref(MAX_LISTED_DECISIONS);
 
   function listScope(): ListSessionDecisionsInput {
     return { projectRoot: projectRoot.value, status: status.value, limit: limit.value };
@@ -34,25 +45,29 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
   const reviewMutation = useMutation({
     mutation: (input: ReviewSessionDecisionInput) => useApi().client.reviewSessionDecision(input),
     onSuccess: async (result) => {
-      if (result.outcome !== "session_decision_reviewed") return;
-      const invalidations = [
-        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
-        queryCache.invalidateQueries({ key: queryKeys.agentReview.root }),
-        queryCache.invalidateQueries({ key: queryKeys.sessionDecisions.list }),
-        queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
-        queryCache.invalidateQueries({ key: queryKeys.reports.report }),
-      ];
-      if (result.decision.reviewStatus === "promoted") {
-        invalidations.push(
-          queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
-          queryCache.invalidateQueries({ key: queryKeys.commandPalette.search }),
-          queryCache.invalidateQueries({ key: queryKeys.views.graph }),
-        );
-      }
-      // Refreshes can be superseded by SSE; their errors do not undo the committed review.
-      await Promise.allSettled(invalidations);
+      if (result.outcome === "session_decision_reviewed")
+        await refreshAfterReview(result.decision.reviewStatus === "promoted");
     },
   });
+
+  async function refreshAfterReview(promoted: boolean): Promise<void> {
+    const invalidations = [
+      queryCache.invalidateQueries({ key: queryKeys.attention.list }),
+      queryCache.invalidateQueries({ key: queryKeys.agentReview.root }),
+      queryCache.invalidateQueries({ key: queryKeys.sessionDecisions.list }),
+      queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
+      queryCache.invalidateQueries({ key: queryKeys.reports.report }),
+    ];
+    if (promoted) {
+      invalidations.push(
+        queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
+        queryCache.invalidateQueries({ key: queryKeys.commandPalette.search }),
+        queryCache.invalidateQueries({ key: queryKeys.views.graph }),
+      );
+    }
+    // Refreshes can be superseded by SSE; their errors do not undo the committed review.
+    await Promise.allSettled(invalidations);
+  }
 
   const decisions = computed(() =>
     listQuery.data.value?.outcome === "session_decisions" ? listQuery.data.value.items : [],
@@ -82,6 +97,29 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
     return reviewMutation.mutateAsync(input);
   }
 
+  /** Reviews with bounded concurrency, since the API has no batch endpoint; one refresh covers the whole run. */
+  async function reviewDecisions(inputs: ReviewSessionDecisionInput[]): Promise<DecisionBatchResult> {
+    const { client } = useApi();
+    const result: DecisionBatchResult = { reviewedIds: [], skippedIds: [], failedIds: [] };
+    let next = 0;
+    async function work(): Promise<void> {
+      while (next < inputs.length && !result.failure) {
+        const input = inputs[next++]!;
+        try {
+          const reviewed = await client.reviewSessionDecision(input);
+          if (reviewed.outcome === "session_decision_reviewed") result.reviewedIds.push(input.decisionId);
+          else result.skippedIds.push(input.decisionId);
+        } catch (error) {
+          result.failedIds.push(input.decisionId);
+          result.failure ??= error instanceof Error ? error : new Error(String(error));
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(DECISION_REVIEW_CONCURRENCY, inputs.length) }, work));
+    if (result.reviewedIds.length > 0 || result.skippedIds.length > 0) await refreshAfterReview(false);
+    return result;
+  }
+
   return {
     decisions,
     pendingCount,
@@ -92,5 +130,6 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
     setListActive,
     reload,
     reviewDecision,
+    reviewDecisions,
   };
 });

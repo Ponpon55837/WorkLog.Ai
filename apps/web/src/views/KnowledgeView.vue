@@ -129,6 +129,7 @@ useRouteQuery("knowledgePage", openPageId, {
 });
 const projectChip = useProjectChip(knowledgeProjectId);
 
+const entryTab = ref<KnowledgeTab | null>(null);
 const selectedKnowledgeId = ref("");
 const targetedDecisionId = ref("");
 const openedKnowledgeId = ref("");
@@ -176,17 +177,13 @@ const isAgentView = computed(() => reviewFilter.value === "agent");
 const selectedProjectRoot = computed(
   () => trackedProjects.value.find((project) => project.id === knowledgeProjectId.value)?.rootPath,
 );
+const routeTab = computed(() => {
+  const value = String(route.params.tab ?? "");
+  return (knowledgeTabs as readonly string[]).includes(value) ? (value as KnowledgeTab) : null;
+});
 const tab = computed<KnowledgeTab>({
-  get: () => {
-    const value = String(route.params.tab ?? "");
-    return (knowledgeTabs as readonly string[]).includes(value) ? (value as KnowledgeTab) : "list";
-  },
-  set: (value) =>
-    void router.replace({
-      name: "knowledge",
-      params: { tab: value === "list" ? undefined : value },
-      query: route.query,
-    }),
+  get: () => routeTab.value ?? entryTab.value ?? "decisions",
+  set: (value) => void router.replace({ name: "knowledge", params: { tab: value }, query: route.query }),
 });
 
 const knowledgeTabCount = computed(() =>
@@ -285,6 +282,15 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
   }
 }
 
+// A bare /knowledge opens the decisions tab while something waits for review, once the counts are known.
+watch(
+  [routeTab, decisionsLoaded],
+  ([chosen, loaded]) => {
+    if (chosen) entryTab.value = null;
+    else if (loaded && entryTab.value === null) entryTab.value = pendingCount.value > 0 ? "decisions" : "list";
+  },
+  { immediate: true },
+);
 watch(
   [tab, knowledgeProjectId, knowledgeStatus],
   () => {
