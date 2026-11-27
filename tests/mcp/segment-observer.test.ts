@@ -50,6 +50,24 @@ describe("segment observer", () => {
     expect(observer.peek("/fiction/alpha")).toEqual({ at: "2030-01-01T09:00:00.000Z", tool: "work_search" });
   });
 
+  it("remembers the last save time per project and bounds the entries", () => {
+    const time = clock("2030-01-01T08:00:00.000Z");
+    const observer = new SegmentObserver(time.now, 2);
+
+    expect(observer.lastSaveAt("/fiction/alpha")).toBeUndefined();
+    observer.reset("/fiction/alpha");
+    time.advance(60_000);
+    observer.reset("/fiction/beta");
+    time.advance(60_000);
+    observer.reset("/fiction/alpha");
+    time.advance(60_000);
+    observer.reset("/fiction/gamma");
+
+    expect(observer.lastSaveAt("/fiction/alpha/")).toBe("2030-01-01T08:02:00.000Z");
+    expect(observer.lastSaveAt("/fiction/beta")).toBeUndefined();
+    expect(observer.lastSaveAt("/fiction/gamma")).toBe("2030-01-01T08:03:00.000Z");
+  });
+
   it("drops the oldest project when the cap is reached", () => {
     const observer = new SegmentObserver(() => new Date("2030-01-01T08:00:00.000Z"), 2);
 

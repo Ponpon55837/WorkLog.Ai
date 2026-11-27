@@ -46,6 +46,8 @@ export interface AgentReadExtraction {
 export interface RecordAgentReadInput {
   tool: string;
   agentClient?: string;
+  /** The MCP server process that served the read; reads without one cannot be attributed to a connection. */
+  connectionId?: string;
   /** The tool's response as returned to the Agent; only ids are read from it. Omitted for failed reads. */
   result?: unknown;
   /** The project the call was scoped to by id, when its input named one. */
@@ -310,16 +312,17 @@ export class AgentReadAuditService {
           this.db
             .prepare(
               `INSERT INTO agent_read_audit
-             (id, created_at, tool, agent_client, project_id, outcome, returned_count,
+             (id, created_at, tool, agent_client, connection_id, project_id, outcome, returned_count,
               session_ids_json, knowledge_ids_json, omitted_session_count, omitted_knowledge_count,
               duration_ms, error_code, response_chars)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               auditId,
               input.now ?? nowIso(),
               input.tool.slice(0, 100),
               input.agentClient ? input.agentClient.slice(0, 100) : null,
+              input.connectionId ? input.connectionId.slice(0, 100) : null,
               projectId ?? null,
               outcome,
               extraction.sessionIds.length + extraction.knowledgeIds.length,

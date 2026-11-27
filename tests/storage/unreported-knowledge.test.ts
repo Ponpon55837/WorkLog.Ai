@@ -37,13 +37,14 @@ function setup() {
   };
   const read = (
     knowledgeIds: string[],
-    options: { tool?: string; agentClient?: string; projectId?: string; compact?: boolean } = {},
+    options: { tool?: string; agentClient?: string; connectionId?: string; projectId?: string; compact?: boolean } = {},
   ) => {
     tick();
     const projectId = options.projectId ?? project.id;
     store.recordAgentRead({
       tool: options.tool ?? "work_get_context",
       agentClient: options.agentClient ?? CLIENT,
+      ...(options.connectionId ? { connectionId: options.connectionId } : {}),
       projectId,
       result: {
         items: knowledgeIds.map((id) =>
@@ -59,6 +60,7 @@ function setup() {
     key: string,
     overrides: Partial<FinalizeSessionInput> = {},
     agentClient: string | undefined = CLIENT,
+    connection: { connectionId?: string; previousSaveAt?: string } = {},
   ) => {
     tick();
     const result = store.finalizeSession(
@@ -72,7 +74,7 @@ function setup() {
         verification: { status: "passed" },
         ...overrides,
       },
-      agentClient ? { agentClient } : {},
+      agentClient ? { agentClient, ...connection } : {},
     );
     if (result.outcome !== "finalized") throw new Error("Expected finalize.");
     return result;
@@ -216,6 +218,74 @@ describe("unreported Knowledge on finalize", () => {
 
     expect(result).toMatchObject({ outcome: "finalized", duplicate: false });
     expect(result).not.toHaveProperty("unreportedKnowledge");
+  });
+});
+
+describe("unreported Knowledge of concurrent works on one client", () => {
+  const idsOf = (result: ReturnType<ReturnType<typeof setup>["finalize"]>) =>
+    result.unreportedKnowledge?.items.map((item) => item.id).sort();
+
+  function interleave() {
+    const env = setup();
+    const { record, read, tick, now } = env;
+    const ids = Object.fromEntries(["a1", "a2", "b1", "b2"].map((name) => [name, record(name)]));
+    const startedA = now();
+    read([ids.a1!], { connectionId: "connection-a" });
+    tick();
+    const startedB = now();
+    read([ids.b1!], { connectionId: "connection-b" });
+    read([ids.a2!], { connectionId: "connection-a" });
+    read([ids.b2!], { connectionId: "connection-b" });
+    return { ...env, ids, startedA, startedB };
+  }
+
+  it.each([
+    ["A first", ["a", "b"]],
+    ["B first", ["b", "a"]],
+  ] as const)("lists only each connection's own reads when finalizing %s", (_name, order) => {
+    const { finalize, ids, startedA, startedB } = interleave();
+    const works = {
+      a: { startedAt: startedA, connectionId: "connection-a", expected: [ids.a1, ids.a2] },
+      b: { startedAt: startedB, connectionId: "connection-b", expected: [ids.b1, ids.b2] },
+    };
+
+    for (const key of order) {
+      const work = works[key];
+      const result = finalize(`work-${key}`, { startedAt: work.startedAt }, CLIENT, {
+        connectionId: work.connectionId,
+      });
+      expect(idsOf(result)).toEqual([...work.expected].sort());
+      expect(result.unreportedKnowledge?.total).toBe(2);
+    }
+  });
+
+  it("starts the work window at the connection's previous save", () => {
+    const { record, read, finalize, now, tick } = setup();
+    const earlier = record("earlier");
+    const later = record("later");
+    const startedAt = now();
+    read([earlier], { connectionId: "connection-a" });
+    tick();
+    const previousSaveAt = now();
+    tick();
+    read([later], { connectionId: "connection-a" });
+
+    const result = finalize("second-work", { startedAt }, CLIENT, { connectionId: "connection-a", previousSaveAt });
+
+    expect(idsOf(result)).toEqual([later]);
+  });
+
+  it("does not count audit rows without a connection id when a connection is given", () => {
+    const { record, read, finalize, now } = setup();
+    const legacy = record("legacy");
+    const own = record("own");
+    const startedAt = now();
+    read([legacy]);
+    read([own], { connectionId: "connection-a" });
+
+    const result = finalize("connection-work", { startedAt }, CLIENT, { connectionId: "connection-a" });
+
+    expect(idsOf(result)).toEqual([own]);
   });
 });
 

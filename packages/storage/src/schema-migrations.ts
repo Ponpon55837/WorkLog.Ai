@@ -1125,6 +1125,13 @@ const MIGRATIONS: SchemaMigration[] = [
       ${projectDataRevisionTriggersSql(["agent_review_request_items"])}
     `,
   },
+  {
+    version: 39,
+    name: "agent-read-audit-connection-id",
+    // Additive only. The MCP server process that served the read, so a Session's unreported Knowledge counts only
+    // reads from its own connection. Existing rows keep NULL, which never matches a connection. Never exported.
+    sql: `ALTER TABLE agent_read_audit ADD COLUMN connection_id TEXT;`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

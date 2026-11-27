@@ -4,6 +4,20 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.79] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.79.md).
+
+### Fixed
+
+- The finalize receipt's `unreportedKnowledge` no longer mixes the reads of concurrent works that one Agent client runs over separate MCP connections. Reads are now attributed to the MCP server process that served them, and the work window starts at that connection's previous save instead of the client's previous save in the project. With two concurrent works A and B, A lists only A's reads and B only B's, whichever finalizes first. REST and callers without a connection id keep the previous attribution.
+
+### Changed
+
+- Schema 39 (migration `agent-read-audit-connection-id`) adds a nullable `connection_id` to `agent_read_audit`. The audit stays local, outside the portable export; rows written before the upgrade have no connection and are never counted for a connection.
+
+Known limits: Claude Desktop may serve several chats over one MCP connection, so reads of those chats still share one connection. Reads made before the launcher swaps the MCP child for a new build are not counted (under-listing, by design). Reconnecting the MCP is not required.
+
 ## [1.6.78] - 2026-11-26
 
 [繁體中文更新說明](docs/releases/1.6.78.md).

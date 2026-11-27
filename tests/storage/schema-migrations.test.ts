@@ -1357,4 +1357,29 @@ describe("agent review knowledge items migration", () => {
       db.close();
     }
   });
+
+  it("adds the nullable connection id to the read audit and keeps existing rows without one", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 38);
+      db.prepare(
+        `INSERT INTO agent_read_audit (id, created_at, tool, outcome, returned_count, session_ids_json, knowledge_ids_json,
+           omitted_session_count, omitted_knowledge_count)
+         VALUES ('audit-1', '2030-01-01T00:00:00.000Z', 'work_recall', 'recall', 0, '[]', '[]', 0, 0)`,
+      ).run();
+
+      applyRuntimeMigrations(db);
+
+      expect(db.prepare("SELECT name FROM schema_migrations WHERE version = 39").get()).toEqual({
+        name: "agent-read-audit-connection-id",
+      });
+      expect(db.prepare("SELECT connection_id FROM agent_read_audit WHERE id = 'audit-1'").get()).toEqual({
+        connection_id: null,
+      });
+      expect(LATEST_SCHEMA_VERSION).toBeGreaterThanOrEqual(39);
+    } finally {
+      db.close();
+    }
+  });
 });

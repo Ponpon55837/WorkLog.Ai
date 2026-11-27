@@ -90,11 +90,11 @@ MCP 回應是一張回條，不回顯 Agent 剛送出的內容：`session` 只�
 請求帶了 `appliedKnowledgeIds` 或 `contradictedKnowledgeIds` 時，回條另有 `knowledgeFeedback: { applied, contradicted }`：這次請求中找到、且這筆 Session 現在記錄為該類回饋的 Knowledge 數（之前已回報過的也算，所以重試得到相同數字）；找不到的 id 只列在 `knowledgeWarnings`。
 
 `unreportedKnowledge` 列出這段工作讀過、這筆 Session 還沒回報的 Knowledge：`items` 最多 3 筆，每筆只有 `id` 與 `title`（最多 80 字元），依最後一次讀取由新到舊；超過 3 筆時另帶 `total`，以及一句 `hint`。來源是 Agent 讀取 audit，只算同時符合下列條件的讀取：
-- 同一個專案、同一個 MCP 用戶端（initialize 握手記錄的名稱，完全相同才算）。
+- 同一個專案、同一個 MCP 用戶端（initialize 握手記錄的名稱，完全相同才算），且經由同一條 MCP 連線（同一個 MCP server 程序，audit 的 `connection_id`）。經 REST 或沒有連線識別的呼叫，只依專案與用戶端比對。
 - 回傳 Knowledge 內容的召回工具：`work_get_context`、`work_recall`、`work_search`、`work_search_knowledge`。`view: "compact"` 的清單沒有內文，audit 不把它記為 Knowledge 讀取；`work_get_knowledge_history`、知識頁與候選審核屬於維護讀取，也不算。
-- 讀取時間在這段工作之內：從 Session 的 `startedAt`（回報、由事件推得或伺服器觀察）到完成時間；同一用戶端在這段時間內於同專案保存過別的 Session 時，改從那次保存開始。
+- 讀取時間在這段工作之內：從 Session 的 `startedAt`（回報、由事件推得或伺服器觀察）到完成時間；同一用戶端在這段時間內於同專案保存過別的 Session 時，改從那次保存開始；有連線識別時，改從這條連線在該專案的上一次保存開始。
 
-只列 active 的 Knowledge，並排除本次回報過的、這筆 Session 之前回報過的，以及已列在 `knowledgeToReview` 的。補登（請求帶 `completedAt`）、沒有 `startedAt`，或不知道用戶端時都不計算；全部回報過或沒讀過就沒有這個欄位。歸屬只看專案、用戶端與時間：同一個用戶端在同一專案同時進行兩段工作時，可能列到另一段讀過的 Knowledge，所以這只是提醒，不是用過的證據。伺服器不判斷 Knowledge 是否真的用上，也不會因此拒絕或延後保存。Agent 只把真的用上且仍正確的，以 `work_update_session_metadata` 帶 `sessionId` 與 `appliedKnowledgeIds` 補報；發現已不正確的放 `contradictedKnowledgeIds`；沒用上的不必回報。查詢在交易提交後執行，一次查詢走 `agent_read_audit` 的專案時間索引，失敗只會省略該欄位；同一 `idempotencyKey` 重試時依目前的回報重新計算。
+只列 active 的 Knowledge，並排除本次回報過的、這筆 Session 之前回報過的，以及已列在 `knowledgeToReview` 的。補登（請求帶 `completedAt`）、沒有 `startedAt`，或不知道用戶端時都不計算；全部回報過或沒讀過就沒有這個欄位。歸屬只看專案、連線與時間：同一個用戶端用不同連線（例如兩個 Agent 視窗各自啟動的 MCP server）同時進行兩段工作時，各自只列自己讀過的；Claude Desktop 可能讓多個對話共用一條 MCP 連線，這些對話的讀取仍會互相混在一起。MCP server 換新版（launcher 更換子程序）之前的讀取不計算，寧可少列。這只是提醒，不是用過的證據。伺服器不判斷 Knowledge 是否真的用上，也不會因此拒絕或延後保存。Agent 只把真的用上且仍正確的，以 `work_update_session_metadata` 帶 `sessionId` 與 `appliedKnowledgeIds` 補報；發現已不正確的放 `contradictedKnowledgeIds`；沒用上的不必回報。查詢在交易提交後執行，一次查詢走 `agent_read_audit` 的專案時間索引，失敗只會省略該欄位；同一 `idempotencyKey` 重試時依目前的回報重新計算。
 選填 `agentModel`（最多 100 字）：Agent 知道自己確切的模型 id（例如 system prompt 中的 id）時可帶入；不確定就省略，不要猜，省略不會有警告或追問。Agent 用戶端名稱（例如 Claude Code、Codex）不需要傳入，由 MCP server 在連線 initialize 握手時自動記錄（`getClientVersion().name`）；REST finalize 不記錄用戶端。兩者都顯示在 Session 面板，既有 Session 維持未回報；同一 `idempotencyKey` 重試保留第一次的值。
 
 
