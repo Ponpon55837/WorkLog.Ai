@@ -404,7 +404,7 @@ function seedOutstandingItems(targetStore, projectIds) {
   return candidateByProject;
 }
 
-function seedOutstandingCleanupReview(targetStore, project) {
+function seedOutstandingCleanupReview(targetStore, project, keptItemId) {
   const database = new DatabaseSync(targetStore.databasePath);
   try {
     const insertRequest = database.prepare(
@@ -461,11 +461,13 @@ function seedOutstandingCleanupReview(targetStore, project) {
   if (pending.outcome !== "outstanding_items" || pending.items.length === 0) {
     throw new Error("The cleanup benchmark needs at least one synthetic pending item.");
   }
+  // Submitting closes each proposed item, so the finalize reminder candidate must stay out of it.
+  const proposed = pending.items.filter((item) => item.id !== keptItemId);
   const submitted = targetStore.submitOutstandingCleanupProposals({
     requestId: created.request.id,
     idempotencyKey: "benchmark-outstanding-cleanup-submission",
-    examinedItemIds: pending.items.map((item) => item.id),
-    proposals: pending.items.map((item) => ({
+    examinedItemIds: proposed.map((item) => item.id),
+    proposals: proposed.map((item) => ({
       itemId: item.id,
       status: "completed",
       reason: "Synthetic benchmark proposal with same-project later evidence.",
@@ -845,7 +847,7 @@ try {
   if (!finalizeReminderCandidate) throw new Error("Expected a synthetic finalize reminder candidate.");
   // Captured before cleanup adds an evidence Session with no changed files.
   const [newestAlpha] = benchStore.listSessionsPage({ projectId: alpha.id, page: 1, pageSize: 1 }).items;
-  const cleanupRequestId = seedOutstandingCleanupReview(benchStore, alpha);
+  const cleanupRequestId = seedOutstandingCleanupReview(benchStore, alpha, finalizeReminderCandidate.id);
   seedStaleKnowledge(benchStore, alpha);
   seedKnowledgePages(benchStore, alpha);
   const pathTarget = `file:${alpha.id}:${newestAlpha.changedFiles.at(-1)}`;
