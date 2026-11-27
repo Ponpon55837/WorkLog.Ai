@@ -12,9 +12,11 @@ export type SelectOption<T extends string | number = string> = {
   icon?: IconComponent;
   tone?: Tone;
   description?: string;
-  count?: number;
+  count?: number | string;
   disabled?: boolean;
 };
+
+export type FilterChip = { key: string; label: string };
 
 export const iconProps = { size: 16, "stroke-width": 1.75 } as const;
 

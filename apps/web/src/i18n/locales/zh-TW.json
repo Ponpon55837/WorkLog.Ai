@@ -111,7 +111,8 @@
     "workKnowledge": "工作知識",
     "yes": "是",
     "yesterday": "昨天",
-    "searchSkippedRecords": "有 {count} 筆記錄超過單筆搜尋上限而未搜尋，結果可能不完整；請縮小搜尋範圍。"
+    "searchSkippedRecords": "有 {count} 筆記錄超過單筆搜尋上限而未搜尋，結果可能不完整；請縮小搜尋範圍。",
+    "filteredCount": "{shown} / {total}"
   },
   "dashboard": {
     "activityBusiest": "最忙的一天：{date}，{count} 個 Session",
@@ -1796,7 +1797,11 @@
     "showingOf": "顯示 {from}–{to}，共 {total} 筆",
     "startsChooseAnEndDate": "起始 {draftFrom}，請選擇結束日期",
     "thisBrowserDoesNotAllow": "目前瀏覽器不允許使用剪貼簿 API，請手動複製文字。",
-    "trendChartValues": "趨勢圖數值表"
+    "trendChartValues": "趨勢圖數值表",
+    "filterValue": "{label}：{value}",
+    "appliedFilters": "已套用的篩選",
+    "removeFilter": "移除篩選：{filter}",
+    "searchFilter": "搜尋"
   },
   "usage": {
     "addFolder": "加入資料夾",
@@ -1922,7 +1927,6 @@
     "unavailable": "無法取得",
     "atLeast": "至少 {count}",
     "sourceFailed": "{source} 暫時無法載入，不能判定已處理完畢。",
-    "sourcePartial": "{source} 僅檢查或顯示最近 {examined}／{available} 筆來源；請前往原頁面查看完整資料。",
     "rowMeta": "{project} · {source} · {count} 筆 · {updated}",
     "openSource": "前往處理",
     "list": "待處理來源清單",
@@ -1931,8 +1935,6 @@
     "unknownEmpty": "尚無可顯示的提醒，部分來源未完成檢查",
     "empty": "此範圍沒有待處理提醒",
     "emptyDescription": "可調整專案或類型篩選；來源狀態仍由各領域頁面維護。",
-    "countDescription": "提醒與專案入口數，並非問題總筆數",
-    "incompleteCount": "來源尚未完整檢查；顯示已知數量",
     "kinds": {
       "synthesis": "報告整理",
       "backfill": "metadata 回補請求",
@@ -1950,7 +1952,7 @@
       "stale": "可能過時",
       "requested": "已要求更新",
       "newData": "有新資料",
-      "open": "未結項入口",
+      "open": "{count} 筆未結項",
       "missing": "metadata 缺漏"
     },
     "view": "提醒顯示",
@@ -1966,7 +1968,32 @@
     "allSuppressed": "目前範圍的提醒已延後或隱藏",
     "noSuppressed": "目前沒有已延後或隱藏的提醒",
     "suppressedDescription": "切換至「已延後／隱藏」可恢復提醒；來源有新問題時會重新顯示。",
-    "until": "延後至 {date}"
+    "until": "延後至 {date}",
+    "waitingForYou": "{count} 項等你處理",
+    "waitingForYouAtLeast": "至少 {count} 項等你處理",
+    "jumpToNeedsAttention": "前往「需要處理」",
+    "waitingForAgent": "等待 Agent",
+    "groupTitles": {
+      "decision": "{project} · {count} 筆待確認決策",
+      "knowledge": "{project} · {count} 筆 Knowledge 待核對",
+      "knowledgePage": "{project} · {count} 個知識頁待維護"
+    },
+    "groupMeta": "{source} · {updated}",
+    "groupMetaWaiting": "其中 {waiting} 筆等待 Agent · {updated}",
+    "expandGroup": "看前 {count} 筆",
+    "collapseGroup": "收合",
+    "groupMore": "還有 {count} 筆，請按「前往處理」查看",
+    "partialNotice": "只檢查了 {examined}／{available} 筆來源，其餘項目不會列在這裡。",
+    "viewAllInKnowledge": "前往工作知識查看全部",
+    "groupTitlesPartial": {
+      "decision": "{project} · 待確認決策",
+      "knowledge": "{project} · Knowledge 待核對",
+      "knowledgePage": "{project} · 知識頁待維護"
+    },
+    "groupMoreUnknown": "還有更多，請按「前往處理」查看",
+    "groupMixed": "需要處理",
+    "mergedRows": "本頁已合併為 {rows} 列",
+    "viewAllOf": "前往查看全部{source}"
   },
   "related": {
     "title": "可能相關",

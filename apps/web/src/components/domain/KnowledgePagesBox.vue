@@ -3,10 +3,13 @@ import { computed, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { BookMarked, Eye, FilePlus2, Sparkles } from "lucide-vue-next";
 import { KNOWLEDGE_PAGE_DEFAULTS, type KnowledgePageRecord, type ProjectRecord } from "@work-intelligence/core";
+import type { FilterChip } from "../ui/types";
+import { useProjectChip } from "../../composables/useProjectChip";
 import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
 import { errorMessage, formatDate, formatRelative } from "../../utils/format";
 import { knowledgePageStatusVisual } from "../../utils/status";
+import { filterChip } from "../../utils/filter-chips";
 import ProjectFilterMenu from "./ProjectFilterMenu.vue";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
@@ -14,6 +17,7 @@ import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
+import UiFilterChips from "../ui/UiFilterChips.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
@@ -37,6 +41,8 @@ const projectId = defineModel<string>("projectId", { required: true });
 const pagesStore = useKnowledgePagesStore();
 const { pages, pagesLoading, pagesError } = storeToRefs(pagesStore);
 const { showToast } = useToast();
+
+const projectChip = useProjectChip(projectId);
 
 const requestDialogOpen = ref(false);
 const requesting = ref("");
@@ -83,6 +89,23 @@ const filteredRows = computed(() =>
     return (row.page?.status ?? "missing") === statusFilter.value;
   }),
 );
+const filterChips = computed(() => {
+  const chips: FilterChip[] = [];
+  if (projectChip.value) chips.push(projectChip.value);
+  const status = statusItems.find((item) => item.value === statusFilter.value);
+  if (statusFilter.value !== "all" && status) chips.push(filterChip("status", t("common.status"), status.label));
+  return chips;
+});
+
+function removeFilter(key: string): void {
+  if (key === "project") projectId.value = "";
+  else statusFilter.value = "all";
+}
+
+function clearFilters(): void {
+  projectId.value = "";
+  statusFilter.value = "all";
+}
 
 async function requestUpdate(row: PageRow): Promise<void> {
   const project = projectsById.value.get(row.projectId);
@@ -126,6 +149,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
       </div>
     </template>
 
+    <UiFilterChips :chips="filterChips" clearable @remove="removeFilter" @clear="clearFilters" />
     <UiFlash v-if="pagesError" tone="danger">{{ pagesError }}</UiFlash>
     <UiFlash v-if="waitingCount > 0" tone="accent">
       {{ t("knowledge.knowledgePagesAreWaitingFor", { waitingCount }) }}

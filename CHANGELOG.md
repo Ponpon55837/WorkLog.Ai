@@ -4,6 +4,20 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.90] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.90.md).
+
+### Added
+
+- Web filters show their applied value on the menu trigger (accent color; on a phone the icon with a dot) and list headers show each applied filter as a removable chip (`UiFilterChips`) next to 「清除篩選」 on Sessions, Knowledge, Open items and Knowledge pages. The Sessions and Knowledge tab counts read "shown / total" while a filter narrows the list; Knowledge reads the unfiltered total with one extra `pageSize=1` request while filtered.
+- Dashboard 「需要處理」 pages 10 rows at a time, groups same-type items of one project into an expandable row (first 3; not when filtered by both project and kind, and a group states a count only when the whole result fits on the page), confirms or rejects pending decisions inline, marks decisions of a project with an open Agent request as 「等待 Agent」 (a per-project estimate, not per item), and moves above the stat cards when items exist. The 待處理 stat card scrolls to and focuses it. 「前往處理」 on a decision adds `decision=<id>` to the Knowledge decisions URL, which scrolls to and highlights it.
+
+### Changed
+
+- The Dashboard cap warning is one line with a link to 工作知識 and no 「重試」; 「未結項入口」 is now 「N 筆未結項」, and its list no longer scrolls inside the box. A partial-coverage notice links to the page of the partial source.
+- Graph, Reports, metadata backfill and Agent reads use the shared project filter menu.
+
 ## [1.6.89] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.89.md).

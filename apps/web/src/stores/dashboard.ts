@@ -18,9 +18,9 @@ export const useDashboardStore = defineStore("dashboard", () => {
     },
   });
   const attentionQuery = useQuery<AttentionResult>({
-    key: [...queryKeys.attention.list, { projectId: "", kind: "", page: 1, pageSize: 20 }],
+    key: [...queryKeys.attention.list, { projectId: "", kind: "", page: 1, pageSize: 10 }],
     enabled: overviewEnabled,
-    query: ({ signal }) => useApi().client.getAttention({ page: 1, pageSize: 20 }, signal),
+    query: ({ signal }) => useApi().client.getAttention({ page: 1, pageSize: 10 }, signal),
   });
   const weekRange = computed(() => {
     const range = overviewQuery.data.value?.range;

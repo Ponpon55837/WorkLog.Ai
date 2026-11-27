@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { ArrowRight, ChartColumn, CircleCheckBig, FolderGit2, Inbox, ListChecks, ShieldCheck } from "lucide-vue-next";
 import type { WorkSessionRecord } from "@work-intelligence/core";
@@ -56,7 +56,13 @@ const { openSessionDetail, setSessionSequence } = sessionsStore;
 const systemStatusStore = useSystemStatusStore();
 const { systemStatus, systemStatusLoading, systemStatusError } = storeToRefs(systemStatusStore);
 
+const attentionBox = ref<InstanceType<typeof AttentionBox> | null>(null);
+
 const today = new Intl.DateTimeFormat(intlLocale(), { dateStyle: "full" }).format(new Date());
+// Where the box sits is decided once, when the first count arrives, so it is never remounted afterwards.
+const attentionPlaced = ref(false);
+const attentionFirst = ref(false);
+
 const pausedCount = computed(() => projects.value.filter((project) => project.status === "paused").length);
 const visibleProjects = computed(() =>
   [...projects.value].sort((a, b) => Number(b.status === "tracked") - Number(a.status === "tracked")).slice(0, 6),
@@ -77,6 +83,12 @@ const weekDelta = computed(() => {
       : t("dashboard.vsLastWeek", { value: Math.abs(comparison.delta) });
   return { direction: comparison.direction, text };
 });
+
+const attentionFoot = computed(() =>
+  attentionComplete.value
+    ? t("attention.waitingForYou", { count: attentionCount.value ?? 0 })
+    : t("attention.waitingForYouAtLeast", { count: attentionCount.value ?? 0 }),
+);
 const showFirstRunChecklist = computed(
   () => initialDataReady.value && (dashboard.value.trackedProjects === 0 || dashboard.value.finalizedSessions === 0),
 );
@@ -89,6 +101,15 @@ async function openDayReport(date: string): Promise<void> {
   await router.push({ name: "reports", query: { period: "day", date } });
 }
 
+watch(
+  [attentionLoaded, attentionFailed],
+  ([loaded, failed]) => {
+    if (attentionPlaced.value || !(loaded || failed)) return;
+    attentionPlaced.value = true;
+    attentionFirst.value = (attentionCount.value ?? 0) > 0;
+  },
+  { immediate: true },
+);
 watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)), { immediate: true });
 watch(showFirstRunChecklist, (visible) => systemStatusStore.setSystemStatusActive(visible), { immediate: true });
 
@@ -132,6 +153,8 @@ onBeforeUnmount(() => {
     <UiSkeleton v-else-if="!activityLoaded" variant="text" :count="3" :label="t('dashboard.activityLoading')" />
     <ActivityHeatmap v-else :days="activityDays" @select="openDayReport" />
   </UiBox>
+
+  <AttentionBox v-if="attentionPlaced && attentionFirst" ref="attentionBox" class="dashboard__attention" />
 
   <DashboardCycle class="dashboard__cycle" />
 
@@ -183,7 +206,9 @@ onBeforeUnmount(() => {
             : t('attention.loadingShort')
       "
       :value-tone="attentionCount ? 'attention' : undefined"
-      :foot="attentionComplete ? t('attention.countDescription') : t('attention.incompleteCount')"
+      :foot="attentionFoot"
+      :action-title="t('attention.jumpToNeedsAttention')"
+      @select="attentionBox?.reveal()"
     />
   </UiStatGrid>
 
@@ -191,7 +216,7 @@ onBeforeUnmount(() => {
 
   <UiSplitLayout>
     <template #main>
-      <AttentionBox />
+      <AttentionBox v-if="attentionPlaced && !attentionFirst" ref="attentionBox" />
 
       <UiBox>
         <template #header>
@@ -278,6 +303,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .dashboard__activity,
+.dashboard__attention,
 .dashboard__cycle,
 .dashboard__insights {
   margin-bottom: var(--space-4);

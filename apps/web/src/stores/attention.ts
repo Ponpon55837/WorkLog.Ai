@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryCache } from "@pinia/colada";
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import type { AttentionKind, AttentionResult, UpdateAttentionPreference } from "@work-intelligence/core";
+import type {
+  AgentReviewRequest,
+  AttentionKind,
+  AttentionResult,
+  UpdateAttentionPreference,
+} from "@work-intelligence/core";
 import { useApi } from "../composables/useApi";
 import { errorMessage } from "../utils/format";
 import type { ListPageSize } from "../utils/labels";
@@ -15,7 +20,7 @@ export const useAttentionStore = defineStore("attention", () => {
   const kind = ref<AttentionKind | "">("");
   const view = ref<"visible" | "suppressed">("visible");
   const page = ref(1);
-  const pageSize = ref<ListPageSize>(20);
+  const pageSize = ref<ListPageSize>(10);
   const query = useQuery<AttentionResult>({
     key: () => [
       ...queryKeys.attention.list,
@@ -40,7 +45,31 @@ export const useAttentionStore = defineStore("attention", () => {
         signal,
       ),
   });
+  const openRequestsQuery = useQuery<AgentReviewRequest[]>({
+    key: () => [...queryKeys.agentReview.requests, "open"],
+    enabled: active,
+    query: async ({ signal }) => {
+      const { client } = useApi();
+      const results = await Promise.all(
+        (["pending", "processing"] as const).map((status) =>
+          client.listAgentReviewRequests({ status, page: 1, pageSize: 20 }, signal),
+        ),
+      );
+      return results.flatMap((list) => (list.outcome === "agent_review_requests" ? list.requests : []));
+    },
+  });
   const result = computed(() => (query.data.value?.outcome === "attention" ? query.data.value : null));
+  /** When the newest open Agent review request that carries decisions was made, per project. */
+  const openDecisionRequestAt = computed(() => {
+    const requestedAt = new Map<string, string>();
+    for (const request of openRequestsQuery.data.value ?? []) {
+      const known = requestedAt.get(request.projectId);
+      if (request.decisionCount > 0 && (!known || request.requestedAt > known)) {
+        requestedAt.set(request.projectId, request.requestedAt);
+      }
+    }
+    return requestedAt;
+  });
   const items = computed(() => result.value?.items ?? []);
   const groups = computed(() => result.value?.groups ?? []);
   const loaded = computed(() => query.data.value !== undefined);
@@ -92,6 +121,7 @@ export const useAttentionStore = defineStore("attention", () => {
     error,
     skipped,
     hasIncomplete,
+    openDecisionRequestAt,
     setActive,
     reload,
   };

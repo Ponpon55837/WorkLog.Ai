@@ -28,7 +28,6 @@ const {
   reportRange,
   reportDatePickerRange,
   reportProjectId,
-  projectLabel,
   exportItems,
   reportLoading,
   reportExportLoading,
@@ -77,7 +76,6 @@ const {
       </div>
       <ProjectFilterMenu
         v-model="reportProjectId"
-        :label="projectLabel"
         :icon="FolderGit2"
         variant="button"
         :header="t('reports.projectScope')"

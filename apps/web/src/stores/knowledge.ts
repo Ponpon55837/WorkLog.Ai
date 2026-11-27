@@ -65,6 +65,11 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const candidateProjectRoot = ref<string | undefined>();
   const candidatesEnabled = ref(false);
   const candidatesQuietRefresh = ref(false);
+  const knowledgeNarrowed = computed(() =>
+    Boolean(
+      knowledgeQuery.value || knowledgeKind.value || knowledgeProjectId.value || knowledgeConvention.value === "only",
+    ),
+  );
 
   function knowledgeListScope() {
     return {
@@ -90,6 +95,12 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     enabled: conventionsEnabled,
     query: ({ signal }): Promise<KnowledgeSearchResult> =>
       useApi().client.searchKnowledge({ status: "active", convention: true, pageSize: 100 }, signal),
+  });
+  const baselineQuery = useQuery<KnowledgeSearchResult>({
+    key: () => [...queryKeys.knowledge.list, "baseline", knowledgeStatus.value],
+    enabled: () => listEnabled.value && knowledgeNarrowed.value,
+    query: ({ signal }): Promise<KnowledgeSearchResult> =>
+      useApi().client.searchKnowledge({ status: knowledgeStatus.value, page: 1, pageSize: 1 }, signal),
   });
   const historyQuery = useQuery({
     key: () => [...queryKeys.knowledge.history, historyKnowledgeId.value, historyProjectRoot.value],
@@ -190,6 +201,12 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     listQuery.data.value?.outcome === "knowledge"
       ? listQuery.data.value.pageInfo
       : { ...emptyPageInfo, pageSize: pageSizeToQuery(knowledgePageSize.value) },
+  );
+  /** The status-scoped total with no other filter, shown beside the filtered count; undefined until it is known. */
+  const knowledgeBaselineTotal = computed(() =>
+    knowledgeNarrowed.value && baselineQuery.data.value?.outcome === "knowledge"
+      ? baselineQuery.data.value.pageInfo.total
+      : undefined,
   );
   const knowledgeLoading = computed(() => listQuery.isLoading.value);
   const knowledgeLoaded = computed(() => listQuery.data.value !== undefined);
@@ -355,6 +372,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     knowledgeStatus,
     knowledgeConvention,
     conventionCounts,
+    knowledgeBaselineTotal,
     knowledgeLoading,
     knowledgeLoaded,
     knowledgeSkippedRecords,

@@ -3,7 +3,6 @@ import { onBeforeUnmount, onMounted, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { Flame, FolderGit2 } from "lucide-vue-next";
 import type { HotspotGroup } from "@work-intelligence/core";
-import { useProjectOptions } from "../../composables/useProjectOptions";
 import { useHotspotsStore, type HotspotPeriod } from "../../stores/hotspots";
 import { useSessionsStore } from "../../stores/sessions";
 import UiBox from "../ui/UiBox.vue";
@@ -14,6 +13,7 @@ import UiSegmentedControl from "../ui/UiSegmentedControl.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import HotspotList from "./HotspotList.vue";
+import ProjectFilterMenu from "./ProjectFilterMenu.vue";
 import { t } from "../../i18n";
 
 const projectId = defineModel<string>("projectId", { required: true });
@@ -32,8 +32,6 @@ const periodOptions: { value: HotspotPeriod; label: string }[] = [
 const hotspotsStore = useHotspotsStore();
 const { groupBy, period, hotspots, hotspotsLoading, hotspotsError } = storeToRefs(hotspotsStore);
 const sessionsStore = useSessionsStore();
-
-const projectOptions = useProjectOptions();
 
 function openSession(sessionId: string): void {
   void sessionsStore.openSessionDetail(sessionId, t("graph.couldNotLoadTheSessionThatChangedThis"));
@@ -56,12 +54,13 @@ onBeforeUnmount(() => hotspotsStore.setActive(false));
     <template #header>
       <UiBoxTitle :icon="Flame" :title="t('graph.hotspotFiles')" :count="hotspots.length" />
       <div class="graph-hotspots__tools">
-        <UiSelect
+        <ProjectFilterMenu
           v-model="projectId"
-          :options="projectOptions"
           :icon="FolderGit2"
+          variant="button"
           size="sm"
-          :label="t('graph.chooseHotspotProjectScope')"
+          :header="t('graph.chooseHotspotProjectScope')"
+          :aria-label="t('graph.chooseHotspotProjectScope')"
         />
         <UiSelect v-model="period" :options="periodOptions" size="sm" :label="t('graph.chooseHotspotPeriod')" />
         <UiSegmentedControl v-model="groupBy" size="sm" :options="groupOptions" :label="t('graph.hotspotGrouping')" />

@@ -22,11 +22,13 @@ import KnowledgePagePanel from "../components/domain/KnowledgePagePanel.vue";
 import KnowledgePagesBox from "../components/domain/KnowledgePagesBox.vue";
 import KnowledgeKindOverview from "../components/domain/KnowledgeKindOverview.vue";
 import KnowledgeRow, { type KnowledgeAction } from "../components/domain/KnowledgeRow.vue";
+import type { FilterChip } from "../components/ui/types";
 import UiActionMenu from "../components/ui/UiActionMenu.vue";
 import UiBox from "../components/ui/UiBox.vue";
 import UiBoxTitle from "../components/ui/UiBoxTitle.vue";
 import UiButton from "../components/ui/UiButton.vue";
 import UiEmptyState from "../components/ui/UiEmptyState.vue";
+import UiFilterChips from "../components/ui/UiFilterChips.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
 import UiPagination from "../components/ui/UiPagination.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
@@ -34,6 +36,7 @@ import UiSplitLayout from "../components/ui/UiSplitLayout.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
+import { useProjectChip } from "../composables/useProjectChip";
 import { useKnowledgeActions } from "../composables/useKnowledge";
 import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
@@ -48,6 +51,7 @@ import { useKnowledgePagesStore } from "../stores/knowledge-pages";
 import { useSessionDecisionsStore } from "../stores/session-decisions";
 import { knowledgeKindLabels, knowledgeStatusLabels, listPageSizeOptions } from "../utils/labels";
 import { knowledgeKindVisual } from "../utils/status";
+import { filterChip } from "../utils/filter-chips";
 import { t } from "../i18n";
 
 type KnowledgeTab = "list" | "pages" | "candidates" | "decisions";
@@ -65,6 +69,7 @@ const {
   knowledgeStatus,
   knowledgeConvention,
   conventionCounts,
+  knowledgeBaselineTotal,
   knowledgeLoading,
   knowledgeError,
   knowledgeSkippedRecords,
@@ -122,11 +127,14 @@ useRouteQuery("knowledgePage", openPageId, {
   parse: (raw) => raw || null,
   serialize: (value) => value ?? "",
 });
+const projectChip = useProjectChip(knowledgeProjectId);
 
 const selectedKnowledgeId = ref("");
+const targetedDecisionId = ref("");
 const openedKnowledgeId = ref("");
 
 useRouteQuery("knowledge", selectedKnowledgeId, stringQuery());
+useRouteQuery("decision", targetedDecisionId, stringQuery());
 
 const hasFilters = computed(() =>
   Boolean(
@@ -150,6 +158,20 @@ const conventionItems = computed(() => {
     },
   ];
 });
+const knowledgeFilterChips = computed(() => {
+  const chips: FilterChip[] = [];
+  if (projectChip.value) chips.push(projectChip.value);
+  if (knowledgeKind.value) {
+    chips.push(filterChip("kind", t("common.kind"), knowledgeKindLabels[knowledgeKind.value]));
+  }
+  if (knowledgeConvention.value) {
+    chips.push({ key: "convention", label: t("knowledge.convention") });
+  }
+  if (knowledgeStatus.value !== "active") {
+    chips.push(filterChip("status", t("common.status"), knowledgeStatusLabels[knowledgeStatus.value]));
+  }
+  return chips;
+});
 const isAgentView = computed(() => reviewFilter.value === "agent");
 const selectedProjectRoot = computed(
   () => trackedProjects.value.find((project) => project.id === knowledgeProjectId.value)?.rootPath,
@@ -166,6 +188,12 @@ const tab = computed<KnowledgeTab>({
       query: route.query,
     }),
 });
+
+const knowledgeTabCount = computed(() =>
+  knowledgeBaselineTotal.value === undefined || knowledgeBaselineTotal.value === knowledgePageInfo.value.total
+    ? knowledgePageInfo.value.total
+    : t("common.filteredCount", { shown: knowledgePageInfo.value.total, total: knowledgeBaselineTotal.value }),
+);
 
 // A tab shows its count only once that count has loaded; "0" before then would read as "nothing here".
 const tabs = computed(() => [
@@ -185,7 +213,7 @@ const tabs = computed(() => [
     value: "list" as const,
     label: "Knowledge",
     icon: BookOpen,
-    count: knowledgeLoaded.value ? knowledgePageInfo.value.total : undefined,
+    count: knowledgeLoaded.value ? knowledgeTabCount.value : undefined,
   },
   {
     value: "pages" as const,
@@ -222,6 +250,13 @@ async function openSelectedKnowledge(): Promise<void> {
   } else {
     useToast().showToast(knowledgeStore.knowledgeHistoryError || t("knowledge.knowledgeGone"), "danger");
   }
+}
+
+function removeKnowledgeFilter(key: string): void {
+  if (key === "project") knowledgeProjectId.value = "";
+  else if (key === "kind") knowledgeKind.value = "";
+  else if (key === "convention") knowledgeConvention.value = "";
+  else knowledgeStatus.value = "active";
 }
 
 function clearFilters(): void {
@@ -350,7 +385,9 @@ onBeforeUnmount(() => {
     role="tabpanel"
     aria-labelledby="knowledge-tab-decisions"
   >
-    <template #main><AgentDecisionReviewBox :project-root="selectedProjectRoot" /></template>
+    <template #main
+      ><AgentDecisionReviewBox :project-root="selectedProjectRoot" :highlight-id="targetedDecisionId"
+    /></template>
     <template #aside>
       <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="trackedProjects" />
     </template>
@@ -421,6 +458,7 @@ onBeforeUnmount(() => {
           </div>
         </template>
 
+        <UiFilterChips :chips="knowledgeFilterChips" @remove="removeKnowledgeFilter" />
         <UiSkeleton
           v-if="knowledgeLoading && knowledgeItems.length === 0"
           :count="4"

@@ -10,6 +10,7 @@ const props = withDefaults(
   defineProps<{
     label?: string;
     header?: string;
+    ariaLabel?: string;
     icon?: IconComponent;
     align?: "start" | "end";
     variant?: "filter" | "button";
@@ -39,6 +40,7 @@ const menuLabel = computed(() => props.label ?? t("common.project"));
     v-model="model"
     :label="menuLabel"
     :header="header"
+    :aria-label="ariaLabel"
     :icon="icon"
     :align="align"
     :variant="variant"

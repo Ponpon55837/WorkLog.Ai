@@ -9,6 +9,7 @@ import PageToolbar from "../components/layout/PageToolbar.vue";
 import GraphHotspotsBox from "../components/domain/GraphHotspotsBox.vue";
 import GraphTimelineBox from "../components/domain/GraphTimelineBox.vue";
 import GraphNodePanel from "../components/domain/GraphNodePanel.vue";
+import ProjectFilterMenu from "../components/domain/ProjectFilterMenu.vue";
 import UiBox from "../components/ui/UiBox.vue";
 import UiButton from "../components/ui/UiButton.vue";
 import UiEmptyState from "../components/ui/UiEmptyState.vue";
@@ -19,7 +20,6 @@ import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import GraphCanvas from "../components/GraphCanvas.vue";
 import { useGraph, type GraphNodeFilter } from "../composables/useGraph";
-import { useProjectOptions } from "../composables/useProjectOptions";
 import { stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
 import { graphLoadPresetOptions, useGraphStore } from "../stores/graph";
@@ -58,7 +58,11 @@ const {
 const load = (): Promise<void> => graphStore.loadGraph();
 useRouteQuery("project", graphProjectId, stringQuery());
 useRouteQuery("q", graphSearch, stringQuery());
-const projectOptions = useProjectOptions();
+
+// The docked node panel covers the right edge; keep the controls in the room left of it.
+const toolbarStyle = computed(() =>
+  selectedGraphNode.value ? { maxWidth: `max(240px, calc(100% - ${graphPanelWidth.value}px))` } : undefined,
+);
 
 const tab = computed<GraphTab>({
   get: () => {
@@ -167,7 +171,7 @@ onBeforeUnmount(() => {
 
     <UiBox class="graph">
       <template #header>
-        <form class="graph__toolbar" @submit.prevent="load">
+        <form class="graph__toolbar" :style="toolbarStyle" @submit.prevent="load">
           <UiTextInput
             v-model="graphSearch"
             type="search"
@@ -178,12 +182,13 @@ onBeforeUnmount(() => {
             class="graph__search"
             @keydown.enter.prevent="selectFirstMatch"
           />
-          <UiSelect
+          <ProjectFilterMenu
             v-model="graphProjectId"
-            :options="projectOptions"
             :icon="FolderGit2"
+            variant="button"
             size="sm"
-            :label="t('graph.chooseGraphProjectScope')"
+            :header="t('graph.chooseGraphProjectScope')"
+            :aria-label="t('graph.chooseGraphProjectScope')"
           />
           <UiSelect
             v-model="graphNodeFilter"

@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { Calendar, ChevronDown, ChevronLeft, ChevronRight } from "lucide-vue-next";
 import { usePopover } from "../../composables/usePopover";
-import { formatFullDate, startOfMonth, toDateInputValue, weekdayLabel } from "../../utils/format";
+import { formatDateRangeText, formatFullDate, startOfMonth, toDateInputValue, weekdayLabel } from "../../utils/format";
 import type { DateRange } from "./types";
 import { intlLocale, t } from "../../i18n";
 
@@ -74,11 +74,9 @@ const triggerText = computed(() => {
   if (activePreset.value) {
     return activePreset.value.label;
   }
-  const format = (value: string) => value.replaceAll("-", "/");
-  return model.value.from === model.value.to
-    ? format(model.value.from)
-    : `${format(model.value.from || "…")} – ${format(model.value.to || "…")}`;
+  return formatDateRangeText(model.value);
 });
+const highlighted = computed(() => applied.value && props.selectionMode === "range" && props.allowAllDates);
 
 const monthLabel = computed(() =>
   new Intl.DateTimeFormat(intlLocale(), { year: "numeric", month: "long" }).format(month.value),
@@ -147,10 +145,11 @@ watch(open, (value) => {
     :class="[
       'ui-date-range__trigger',
       `ui-date-range__trigger--${variant}`,
-      { 'is-applied': applied, 'is-open': open },
+      { 'is-applied': applied, 'is-highlighted': highlighted, 'is-open': open },
     ]"
     aria-haspopup="dialog"
     :aria-expanded="open"
+    :title="applied ? triggerText : undefined"
     @click="toggle"
   >
     <Calendar v-if="variant === 'button'" :size="16" :stroke-width="1.75" aria-hidden="true" />
@@ -249,6 +248,15 @@ watch(open, (value) => {
   font-weight: 600;
 }
 
+.ui-date-range__trigger.is-highlighted {
+  color: var(--accent);
+}
+
+.ui-date-range__trigger--button.is-highlighted {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
 .ui-date-range__trigger--button {
   height: var(--control-height);
   padding: 0 var(--space-3);
@@ -261,6 +269,10 @@ watch(open, (value) => {
 
 .ui-date-range__trigger :deep(.lucide) {
   color: var(--fg-muted);
+}
+
+.ui-date-range__trigger.is-highlighted :deep(.lucide) {
+  color: var(--accent);
 }
 
 .ui-date-range__panel {
