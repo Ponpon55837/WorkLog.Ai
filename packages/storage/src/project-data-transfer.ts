@@ -1599,6 +1599,11 @@ function planExistingRow(
 }
 
 /** `full` carries the columns a streamed file keeps out of the planner row; the result is written to `row`. */
+function withdrawImportedConvention(row: ProjectDataRow, reason: "archived" | "needs_review" | "import_cap"): void {
+  row.convention_confirmed_at = null;
+  row.convention_withdrawal_json = JSON.stringify({ at: nowIso(), by: "system", reason });
+}
+
 function withdrawConventionOnUpdate(current: ProjectDataRow, full: ProjectDataRow, row: ProjectDataRow): boolean {
   if (typeof current.convention_confirmed_at !== "string" || current.convention_confirmed_at === "") return false;
   const reason =
@@ -2023,6 +2028,7 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
     ).map((entry) => [entry.project_id, entry.total]),
   );
   let conventionsWithdrawn = 0;
+  const pendingConventionAdds: Array<{ row: ProjectDataRow; projectId: string }> = [];
   const parentOwners = collectParentOwners(db, selectedBundle.tables, projectIds);
   const deletedPageIds = deletedKnowledgePageIds(db, selectedBundle.tables);
   for (const table of TABLE_ORDER) {
@@ -2092,27 +2098,40 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
         if (typeof row.convention_confirmed_at !== "string" || row.convention_confirmed_at === "") {
           row.convention_confirmed_at = null;
         } else {
-          const targetProjectId = projectIds.get(String(row.project_id)) ?? String(row.project_id);
-          const taken = conventionCounts.get(targetProjectId) ?? 0;
           const full = hydrateRow(row);
           const withdrawnReason =
             full.status !== "active"
               ? "archived"
               : full.review_json !== null && full.review_json !== undefined
                 ? "needs_review"
-                : taken >= KNOWLEDGE_CONVENTION_LIMIT
-                  ? "import_cap"
-                  : undefined;
+                : undefined;
           if (withdrawnReason) {
-            row.convention_confirmed_at = null;
-            row.convention_withdrawal_json = JSON.stringify({ at: nowIso(), by: "system", reason: withdrawnReason });
+            withdrawImportedConvention(row, withdrawnReason);
             conventionsWithdrawn += 1;
           } else {
-            conventionCounts.set(targetProjectId, taken + 1);
+            pendingConventionAdds.push({
+              row,
+              projectId: projectIds.get(String(row.project_id)) ?? String(row.project_id),
+            });
           }
         }
       }
       addPlan(table, row, "add");
+    }
+  }
+
+  pendingConventionAdds.sort(
+    (left, right) =>
+      String(left.row.convention_confirmed_at).localeCompare(String(right.row.convention_confirmed_at)) ||
+      String(left.row.id).localeCompare(String(right.row.id)),
+  );
+  for (const { row, projectId } of pendingConventionAdds) {
+    const taken = conventionCounts.get(projectId) ?? 0;
+    if (taken >= KNOWLEDGE_CONVENTION_LIMIT) {
+      withdrawImportedConvention(row, "import_cap");
+      conventionsWithdrawn += 1;
+    } else {
+      conventionCounts.set(projectId, taken + 1);
     }
   }
 
