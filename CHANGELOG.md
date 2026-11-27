@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Internal
+
+- `packages/storage`, `apps/server`, `apps/desktop`, `packages/agent-setup` and `packages/schema` follow the comment rule (worklog-code-layout §8); only comments changed, and every touched file prints the same with comments stripped.
+
 ## [1.6.82] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.82.md).
