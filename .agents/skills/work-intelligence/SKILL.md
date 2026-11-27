@@ -1,6 +1,6 @@
 ---
 name: work-intelligence
-description: Use the Work Intelligence MCP to finalize or repair tracked-project work sessions, recall related past work before starting a task or when an error appears, retrieve saved context, backfill verified metadata, and synthesize requested reports. Do not use it to record untracked project work.
+description: Use the Work Intelligence MCP to finalize or repair tracked-project work sessions, recall related past work before starting a task or when an error appears, retrieve saved context, backfill verified metadata, synthesize requested reports, and handle Agent review requests, Knowledge candidates and Knowledge page updates. Do not use it to record untracked project work.
 ---
 
 <!-- Work Intelligence skill version: 0.2.0 -->

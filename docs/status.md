@@ -6,6 +6,12 @@
 
 - 最後更新：2026-11-27
 
+## 1.6.81（工作知識分頁照處理順序排列，交給 Agent 的說法寫明 Work Intelligence）
+
+- 工作知識的分頁改為：待確認決策、候選、Knowledge、知識頁；開啟時仍預設顯示 Knowledge。
+- Web 上請你對 Agent 說的話都帶上 Work Intelligence，例如「用 Work Intelligence 處理 Agent 審查請求」，沒有上下文的 Agent 也知道要用哪個工具。
+- schema 維持 39；升級後請重新連線 MCP。詳見 [1.6.81 更新說明](releases/1.6.81.md)。
+
 ## 1.6.80（開工記錄用同一個 key 再結案一次即完成）
 
 - Agent 開工時以 `verification.status: "in_progress"` 結案一次，留下開工記錄；收尾時用同一個 `idempotencyKey` 再結案一次，就原地完成同一筆 Session，不需要再呼叫三個更新操作。開工記錄可以不填 `nextSteps`，不會產生未結項。

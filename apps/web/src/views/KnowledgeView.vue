@@ -45,7 +45,7 @@ import { knowledgeKindVisual } from "../utils/status";
 import { t } from "../i18n";
 
 type KnowledgeTab = "list" | "pages" | "candidates" | "decisions";
-const knowledgeTabs: readonly KnowledgeTab[] = ["list", "pages", "candidates", "decisions"];
+const knowledgeTabs: readonly KnowledgeTab[] = ["decisions", "candidates", "list", "pages"];
 
 const knowledgeStore = useKnowledgeStore();
 const {
@@ -144,6 +144,18 @@ const tab = computed<KnowledgeTab>({
 // A tab shows its count only once that count has loaded; "0" before then would read as "nothing here".
 const tabs = computed(() => [
   {
+    value: "decisions" as const,
+    label: t("knowledge.decisionsToConfirm"),
+    icon: ListChecks,
+    count: decisionsLoaded.value ? pendingCount.value : undefined,
+  },
+  {
+    value: "candidates" as const,
+    label: t("knowledge.candidates"),
+    icon: Sparkles,
+    count: candidatesLoaded.value ? candidates.value.length : undefined,
+  },
+  {
     value: "list" as const,
     label: "Knowledge",
     icon: BookOpen,
@@ -154,18 +166,6 @@ const tabs = computed(() => [
     label: t("common.knowledgePages"),
     icon: BookMarked,
     count: pagesLoaded.value ? pages.value.length : undefined,
-  },
-  {
-    value: "candidates" as const,
-    label: t("knowledge.candidates"),
-    icon: Sparkles,
-    count: candidatesLoaded.value ? candidates.value.length : undefined,
-  },
-  {
-    value: "decisions" as const,
-    label: t("knowledge.decisionsToConfirm"),
-    icon: ListChecks,
-    count: decisionsLoaded.value ? pendingCount.value : undefined,
   },
 ]);
 const projectItems = computed(() => [

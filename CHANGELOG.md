@@ -4,6 +4,18 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.81] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.81.md).
+
+### Changed
+
+- The Work knowledge tabs follow the processing order: Decisions to confirm, Candidates, Knowledge, Knowledge pages. Opening Work knowledge still shows Knowledge.
+- Every Web prompt that tells the user what to say to the Agent now names Work Intelligence ("use Work Intelligence to handle the Agent review request", "… to organize Knowledge candidates", "… to update the Knowledge pages", and the outstanding cleanup copy), so an Agent without context maps it to this tool.
+- The server instructions add one sentence that maps those requests to their guides (agent-review, knowledge, outstanding-cleanup). The skill description names Agent review requests, Knowledge candidates and Knowledge page updates, and its Claude and plugin copies match the canonical description again.
+
+Schema stays 39. Reconnect the MCP after upgrading so Agents read the new instructions.
+
 ## [1.6.80] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.80.md).
