@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.90] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.90.md).
+
 ### Added
 
 - Web filters show their applied value on the menu trigger (accent color; on a phone the icon with a dot) and list headers show each applied filter as a removable chip (`UiFilterChips`) next to 「清除篩選」 on Sessions, Knowledge, Open items and Knowledge pages. The Sessions and Knowledge tab counts read "shown / total" while a filter narrows the list; Knowledge reads the unfiltered total with one extra `pageSize=1` request while filtered.
