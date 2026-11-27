@@ -8,12 +8,12 @@ import { queryKeys } from "./query-keys";
 /** What waits for review in 工作知識 across all projects: pending Agent decisions plus proposed candidates. */
 export const useWorkKnowledgePendingStore = defineStore("work-knowledge-pending", () => {
   const decisionsQuery = useQuery<SessionDecisionListQueryResult>({
-    key: () => [...queryKeys.sessionDecisions.list, "pending-total"],
+    key: () => [...queryKeys.sessionDecisions.pendingTotal],
     query: ({ signal }) => useApi().client.listSessionDecisions({ status: "pending", limit: 1 }, signal),
   });
   // Its own entry under the candidates prefix: every candidate decision refreshes it, yet the candidates list keeps its own loading timing.
   const candidatesQuery = useQuery<KnowledgeCandidateListResult>({
-    key: () => [...queryKeys.knowledge.candidates, "pending-total"],
+    key: () => [...queryKeys.knowledge.candidatesPendingTotal],
     query: ({ signal }) => useApi().client.listKnowledgeCandidates(undefined, signal),
   });
 

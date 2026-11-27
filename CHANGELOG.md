@@ -6,7 +6,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
-- 待確認決策 can be selected (a select-all row with the same rules as Open items, toolbar only while something is selected) and handled with 「確認所選」 or 「拒絕所選」. The API has no batch decision endpoint, so the web app calls the single review endpoint with at most four requests in flight and refreshes once; a decision changed elsewhere is skipped and a failure keeps the unapplied decisions selected. The list now shows up to 200 decisions instead of 50.
+- 待確認決策 can be selected (a select-all row with the same rules as Open items, toolbar only while something is selected) and handled with 「確認所選」 or 「拒絕所選」. The API has no batch decision endpoint, so the web app calls the single review endpoint with at most four requests in flight and refreshes once. The review endpoint overwrites whatever status a decision has, so the web app checks the loaded list instead: once a reject question is answered, decisions that are no longer listed as pending (or, for a batch, no longer selected) and decisions whose project is not tracked are skipped and counted in the toast; a failure keeps the unapplied decisions selected. The list now shows up to 200 decisions instead of 50.
 - The 工作知識 sidebar entry shows the pending decisions plus candidates count across all projects.
 
 ### Changed
@@ -14,7 +14,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 - 待確認決策 rows put 「確認」 first as the only primary button, 「拒絕」 as a default button, and 「整理成 Knowledge」 in a 「更多」 menu. Focus moves to the next row after an action.
 - A human review of a decision cannot be reset to pending (only an Agent review can be overturned), so there is no 「復原」: 「確認」 applies at once, and 「拒絕」, single or batch, asks first. This also applies to 「拒絕」 in the overview's 「需要處理」.
 - 「整理成 Knowledge」 opens with the content filled from the decision, an empty title with a placeholder and the hint to write a searchable conclusion, no preset tag, and the cursor in the content.
-- Opening 工作知識 without a tab shows 待確認決策 while any wait for review, and Knowledge otherwise. The tab is the `/knowledge/:tab?` route parameter, so Knowledge is now `/knowledge/list`; a bare `/knowledge` keeps its URL.
+- Opening 工作知識 without a tab shows 待確認決策 while any wait for review, and Knowledge otherwise. The tab is the `/knowledge/:tab?` route parameter, so Knowledge is now `/knowledge/list`; a bare `/knowledge` keeps its URL and shows a loading state until the tab is decided (Knowledge if the count cannot be read), and an older link such as `/knowledge?q=…` or `?knowledge=<id>` is redirected to `/knowledge/list` with its query.
 
 ## [1.6.93] - 2026-11-27
 

@@ -50,6 +50,13 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
     },
   });
 
+  const batchMutation = useMutation({
+    mutation: (inputs: ReviewSessionDecisionInput[]) => runDecisionBatch(inputs),
+    onSuccess: async (result) => {
+      if (result.reviewedIds.length > 0 || result.skippedIds.length > 0) await refreshAfterReview(false);
+    },
+  });
+
   async function refreshAfterReview(promoted: boolean): Promise<void> {
     const invalidations = [
       queryCache.invalidateQueries({ key: queryKeys.attention.list }),
@@ -98,13 +105,12 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
   }
 
   /** Reviews with bounded concurrency, since the API has no batch endpoint; one refresh covers the whole run. */
-  async function reviewDecisions(inputs: ReviewSessionDecisionInput[]): Promise<DecisionBatchResult> {
+  async function runDecisionBatch(inputs: ReviewSessionDecisionInput[]): Promise<DecisionBatchResult> {
     const { client } = useApi();
     const result: DecisionBatchResult = { reviewedIds: [], skippedIds: [], failedIds: [] };
     let next = 0;
     async function work(): Promise<void> {
-      while (next < inputs.length && !result.failure) {
-        const input = inputs[next++]!;
+      for (let input = inputs[next++]; input && !result.failure; input = inputs[next++]) {
         try {
           const reviewed = await client.reviewSessionDecision(input);
           if (reviewed.outcome === "session_decision_reviewed") result.reviewedIds.push(input.decisionId);
@@ -116,8 +122,11 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
       }
     }
     await Promise.all(Array.from({ length: Math.min(DECISION_REVIEW_CONCURRENCY, inputs.length) }, work));
-    if (result.reviewedIds.length > 0 || result.skippedIds.length > 0) await refreshAfterReview(false);
     return result;
+  }
+
+  async function reviewDecisions(inputs: ReviewSessionDecisionInput[]): Promise<DecisionBatchResult> {
+    return batchMutation.mutateAsync(inputs);
   }
 
   return {

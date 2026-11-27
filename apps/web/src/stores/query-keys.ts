@@ -31,11 +31,13 @@ export const queryKeys = {
     history: ["knowledge", "history"] as const,
     conventions: ["knowledge", "conventions"] as const,
     candidates: ["knowledge", "candidates"] as const,
+    candidatesPendingTotal: ["knowledge", "candidates", "pending-total"] as const,
     pages: ["knowledge", "pages"] as const,
     pageVersions: ["knowledge", "page-versions"] as const,
   },
   sessionDecisions: {
     list: ["session-decisions", "list"] as const,
+    pendingTotal: ["session-decisions", "list", "pending-total"] as const,
   },
   agentReview: {
     root: ["agent-review"] as const,

@@ -93,11 +93,36 @@ describe("useDecisionReview", () => {
     expect(reviewCalls()).toHaveLength(0);
   });
 
+  it("skips decisions that stopped being pending while the reject question was open", async () => {
+    const { reviewMany } = useDecisionReview();
+    const stillPending = vi.fn((id: string) => id !== "d2");
+
+    const pending = reviewMany([decision("d1"), decision("d2")], "rejected", stillPending);
+    await answerConfirm(true);
+
+    await expect(pending).resolves.toEqual(expect.arrayContaining(["d1", "d2"]));
+    expect(reviewCalls().map((call) => call.url.pathname)).toEqual(["/api/session-decisions/d1/review"]);
+    expect(showToast).toHaveBeenCalledWith(t("knowledge.decisionsReviewedAndSkipped", { reviewed: 1, skipped: 1 }));
+  });
+
+  it("does not reject a single decision that stopped being pending while the question was open", async () => {
+    const { review } = useDecisionReview();
+
+    const pending = review(decision("d1"), "rejected", undefined, () => false);
+    await answerConfirm(true);
+
+    await expect(pending).resolves.toBe(false);
+    expect(reviewCalls()).toHaveLength(0);
+    expect(showToast).toHaveBeenCalledWith(t("knowledge.decisionNoLongerPending"));
+  });
+
   it("leaves a decision whose project is unknown out of the batch", async () => {
     const { reviewMany } = useDecisionReview();
 
     const done = await reviewMany([decision("d1"), { id: "d2", projectId: "gone" }], "confirmed");
 
-    expect(done).toEqual(["d1"]);
+    expect(done).toEqual(expect.arrayContaining(["d1", "d2"]));
+    expect(reviewCalls()).toHaveLength(1);
+    expect(showToast).toHaveBeenCalledWith(t("knowledge.decisionsReviewedAndSkipped", { reviewed: 1, skipped: 1 }));
   });
 });

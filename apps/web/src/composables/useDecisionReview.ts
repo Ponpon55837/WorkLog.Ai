@@ -8,6 +8,7 @@ import { t } from "../i18n";
 
 type DecisionTarget = { id: string; projectId?: string };
 type DecisionVerdict = "confirmed" | "rejected";
+type StillPending = (id: string) => boolean;
 
 /**
  * Confirms or rejects Agent-autonomous decisions and reports each outcome with a toast.
@@ -32,11 +33,12 @@ export function useDecisionReview() {
     });
   }
 
-  /** Resolves true when the decision was applied. */
+  /** Resolves true when the decision was applied. `stillPending` is checked after a reject was confirmed. */
   async function review(
     decision: DecisionTarget,
     reviewStatus: DecisionVerdict,
     projectRoot?: string,
+    stillPending?: StillPending,
   ): Promise<boolean> {
     const root = rootFor(decision, projectRoot);
     if (!root) {
@@ -45,6 +47,10 @@ export function useDecisionReview() {
     }
     if (reviewingIds.value.includes(decision.id)) return false;
     if (reviewStatus === "rejected" && !(await confirmReject(1))) return false;
+    if (stillPending && !stillPending(decision.id)) {
+      showToast(t("knowledge.decisionNoLongerPending"));
+      return false;
+    }
     reviewingIds.value = [...reviewingIds.value, decision.id];
     try {
       const result = await decisionStore.reviewDecision({ decisionId: decision.id, projectRoot: root, reviewStatus });
@@ -71,25 +77,35 @@ export function useDecisionReview() {
     }
   }
 
-  /** Resolves the ids that are done with (applied or no longer pending); the rest stay for a retry. */
-  async function reviewMany(decisions: DecisionTarget[], reviewStatus: DecisionVerdict): Promise<string[]> {
+  /**
+   * Resolves the ids that are done with, applied or skipped (no longer pending, or no tracked project to review in);
+   * the rest stay for a retry. The API overwrites any status, so what changed while a reject question was open is
+   * checked against the list through `stillPending`.
+   */
+  async function reviewMany(
+    decisions: DecisionTarget[],
+    reviewStatus: DecisionVerdict,
+    stillPending?: StillPending,
+  ): Promise<string[]> {
+    if (decisions.length === 0) return [];
+    if (reviewStatus === "rejected" && !(await confirmReject(decisions.length))) return [];
+    const skippedIds: string[] = [];
     const inputs = decisions.flatMap((decision) => {
       const projectRoot = rootFor(decision);
-      return projectRoot ? [{ decisionId: decision.id, projectRoot, reviewStatus }] : [];
+      if (!projectRoot || (stillPending && !stillPending(decision.id))) {
+        skippedIds.push(decision.id);
+        return [];
+      }
+      return [{ decisionId: decision.id, projectRoot, reviewStatus }];
     });
-    if (inputs.length === 0) {
-      showToast(t("knowledge.couldNotFindTheTracked"), "danger");
-      return [];
-    }
-    if (reviewStatus === "rejected" && !(await confirmReject(inputs.length))) return [];
     reviewingIds.value = [...reviewingIds.value, ...inputs.map((input) => input.decisionId)];
     try {
       const result = await decisionStore.reviewDecisions(inputs);
       const reviewed = result.reviewedIds.length;
-      const skipped = result.skippedIds.length;
+      const skipped = skippedIds.length + result.skippedIds.length;
       if (result.failure) {
         const reason = errorMessage(result.failure, t("knowledge.couldNotUpdateTheDecision"));
-        showToast(t("knowledge.decisionsPartiallyReviewed", { reviewed, total: inputs.length, reason }), "danger");
+        showToast(t("knowledge.decisionsPartiallyReviewed", { reviewed, total: decisions.length, reason }), "danger");
       } else if (skipped > 0) {
         showToast(t("knowledge.decisionsReviewedAndSkipped", { reviewed, skipped }));
       } else {
@@ -100,7 +116,7 @@ export function useDecisionReview() {
           "success",
         );
       }
-      return [...result.reviewedIds, ...result.skippedIds];
+      return [...result.reviewedIds, ...result.skippedIds, ...skippedIds];
     } finally {
       const done = new Set(inputs.map((input) => input.decisionId));
       reviewingIds.value = reviewingIds.value.filter((id) => !done.has(id));

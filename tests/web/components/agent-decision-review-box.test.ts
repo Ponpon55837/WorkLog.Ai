@@ -115,6 +115,16 @@ describe("AgentDecisionReviewBox", () => {
     expect(html).not.toContain(t("knowledge.confirmSelected"));
   });
 
+  it("names a row checkbox after a shortened decision, not its whole text", async () => {
+    const long = "Keep the registry as the single source of project paths ".repeat(6);
+    decisions.value = [decision("d1", long)];
+
+    const html = await render();
+
+    expect(html).toContain('aria-label="Select decision: Keep the registry as the single source of projec…"');
+    expect(html).not.toContain(`aria-label="${t("knowledge.selectDecision", { text: long })}"`);
+  });
+
   it("has no selection or review actions on the Agent-processed list", async () => {
     filter.value = "agent";
 

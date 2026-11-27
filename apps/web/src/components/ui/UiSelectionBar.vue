@@ -22,6 +22,7 @@ const allSelected = defineModel<boolean>({ required: true });
       <UiCheckbox v-model="allSelected" :label="label" :indeterminate="indeterminate" :disabled="disabled" />
       <span v-if="count === 0">{{ selectText }}</span>
     </label>
+    <span class="sr-only" role="status">{{ count > 0 ? summary : "" }}</span>
     <div
       v-if="count > 0"
       class="ui-selection-bar__actions"
@@ -29,7 +30,7 @@ const allSelected = defineModel<boolean>({ required: true });
       :aria-label="groupLabel"
       :data-testid="toolbarTestid"
     >
-      <span aria-live="polite" :data-testid="summaryTestid">{{ summary }}</span>
+      <span aria-hidden="true" :data-testid="summaryTestid">{{ summary }}</span>
       <slot />
     </div>
   </div>

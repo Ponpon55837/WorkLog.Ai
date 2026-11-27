@@ -716,9 +716,11 @@
     "decisionsConfirmed": "Confirmed {count} decision.|Confirmed {count} decisions.",
     "decisionsRejected": "Rejected {count} decision.|Rejected {count} decisions.",
     "decisionsPartiallyReviewed": "Reviewed {reviewed} of {total} decisions. {reason}",
-    "decisionsReviewedAndSkipped": "Reviewed {reviewed}; {skipped} no longer pending.",
+    "decisionsReviewedAndSkipped": "Reviewed {reviewed}; skipped {skipped} that were no longer pending, no longer selected or not in a tracked project.",
     "titleHint": "Write the title as a conclusion someone could search for.",
-    "titlePlaceholder": "e.g. Project paths are read only from the central registry"
+    "titlePlaceholder": "e.g. Project paths are read only from the central registry",
+    "decisionNoLongerPending": "This decision is no longer pending, so nothing was changed.",
+    "loadingWorkKnowledge": "Loading work knowledge…"
   },
   "labels": {
     "agent": "Agent",

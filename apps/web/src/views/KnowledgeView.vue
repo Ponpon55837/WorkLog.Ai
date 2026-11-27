@@ -56,6 +56,7 @@ import { t } from "../i18n";
 
 type KnowledgeTab = "list" | "pages" | "candidates" | "decisions";
 const knowledgeTabs: readonly KnowledgeTab[] = ["decisions", "candidates", "list", "pages"];
+const LIST_ONLY_QUERY_KEYS = ["q", "kind", "status", "convention", "page", "size", "knowledge"] as const;
 
 const knowledgeStore = useKnowledgeStore();
 const {
@@ -115,7 +116,7 @@ const agentReviewStore = useAgentReviewStore();
 const { filter: reviewFilter } = storeToRefs(agentReviewStore);
 useRouteQuery("review", reviewFilter, enumQuery(["pending", "agent"] as const, "pending"));
 const decisionStore = useSessionDecisionsStore();
-const { pendingCount, decisionsLoaded } = storeToRefs(decisionStore);
+const { pendingCount, decisionsLoaded, decisionsError } = storeToRefs(decisionStore);
 const { candidates, candidatesLoaded, knowledgeLoaded } = storeToRefs(knowledgeStore);
 const editorStore = useKnowledgeEditorStore();
 const projectsStore = useProjectsStore();
@@ -185,6 +186,8 @@ const tab = computed<KnowledgeTab>({
   get: () => routeTab.value ?? entryTab.value ?? "decisions",
   set: (value) => void router.replace({ name: "knowledge", params: { tab: value }, query: route.query }),
 });
+
+const tabPending = computed(() => routeTab.value === null && entryTab.value === null);
 
 const knowledgeTabCount = computed(() =>
   knowledgeBaselineTotal.value === undefined || knowledgeBaselineTotal.value === knowledgePageInfo.value.total
@@ -282,12 +285,19 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
   }
 }
 
-// A bare /knowledge opens the decisions tab while something waits for review, once the counts are known.
+// A bare /knowledge opens the decisions tab while something waits for review, once the counts are known; a failed
+// count falls back to Knowledge. Links from before the tabs became a route parameter carried list filters on /knowledge.
 watch(
-  [routeTab, decisionsLoaded],
-  ([chosen, loaded]) => {
-    if (chosen) entryTab.value = null;
-    else if (loaded && entryTab.value === null) entryTab.value = pendingCount.value > 0 ? "decisions" : "list";
+  [routeTab, decisionsLoaded, decisionsError],
+  ([chosen, loaded, failed]) => {
+    if (chosen) {
+      entryTab.value = null;
+    } else if (LIST_ONLY_QUERY_KEYS.some((key) => key in route.query)) {
+      entryTab.value = "list";
+      void router.replace({ name: "knowledge", params: { tab: "list" }, query: route.query });
+    } else if ((loaded || failed) && entryTab.value === null) {
+      entryTab.value = pendingCount.value > 0 ? "decisions" : "list";
+    }
   },
   { immediate: true },
 );
@@ -354,7 +364,13 @@ onBeforeUnmount(() => {
   <PageHeader :description="t('knowledge.knowledgeOnlyAcceptsConfirmedContent')" />
 
   <PageToolbar>
-    <UiUnderlineNav v-model="tab" :items="tabs" :label="t('knowledge.workKnowledgeTabs')" id-prefix="knowledge" />
+    <UiUnderlineNav
+      v-if="!tabPending"
+      v-model="tab"
+      :items="tabs"
+      :label="t('knowledge.workKnowledgeTabs')"
+      id-prefix="knowledge"
+    />
     <form v-if="tab === 'list' && !isAgentView" class="knowledge-search" role="search" @submit.prevent="reloadNow">
       <UiTextInput
         v-model="knowledgeQuery"
@@ -385,8 +401,9 @@ onBeforeUnmount(() => {
   <KnowledgeCandidateEditorDialog :project-root="selectedProjectRoot" />
   <KnowledgePagePanel :projects="trackedProjects" />
 
+  <UiSkeleton v-if="tabPending" :count="3" :label="t('knowledge.loadingWorkKnowledge')" />
   <UiSplitLayout
-    v-if="tab === 'decisions'"
+    v-else-if="tab === 'decisions'"
     id="knowledge-panel-decisions"
     role="tabpanel"
     aria-labelledby="knowledge-tab-decisions"

@@ -716,9 +716,11 @@
     "decisionsConfirmed": "已確認 {count} 筆決策。",
     "decisionsRejected": "已拒絕 {count} 筆決策。",
     "decisionsPartiallyReviewed": "已處理 {reviewed} / {total} 筆決策。{reason}",
-    "decisionsReviewedAndSkipped": "已處理 {reviewed} 筆；{skipped} 筆已不在待確認狀態。",
+    "decisionsReviewedAndSkipped": "已處理 {reviewed} 筆；略過 {skipped} 筆（已不在待確認、已取消選取，或不在追蹤中的專案）。",
     "titleHint": "標題請寫成別人能搜尋到的結論。",
-    "titlePlaceholder": "例如：專案路徑一律只從中央 registry 讀取"
+    "titlePlaceholder": "例如：專案路徑一律只從中央 registry 讀取",
+    "decisionNoLongerPending": "這項決策已不在待確認狀態，沒有做任何變更。",
+    "loadingWorkKnowledge": "正在載入工作知識…"
   },
   "labels": {
     "agent": "Agent",

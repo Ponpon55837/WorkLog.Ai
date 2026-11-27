@@ -1,14 +1,17 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { tt } from "./helpers/i18n.js";
 
 type Fixture = { projectId: string; root: string; texts: string[] };
 
+const FIXTURE_NAME = "Decision Review Fixture";
+
 async function seed(request: APIRequestContext, count: number): Promise<Fixture> {
   const root = mkdtempSync(join(tmpdir(), "decision-review-fictional-"));
-  const created = await request.post("/api/projects", { data: { name: "Decision Review Fixture", rootPath: root } });
+  const created = await request.post("/api/projects", { data: { name: FIXTURE_NAME, rootPath: root } });
   expect(created.ok()).toBeTruthy();
   const project = (await created.json()) as { id: string };
   expect((await request.patch(`/api/projects/${project.id}`, { data: { status: "tracked" } })).ok()).toBeTruthy();
@@ -54,6 +57,19 @@ function rejectDialog(page: Page, count: number) {
 }
 
 test.describe("Agent decision review", () => {
+  // The shared e2e database also feeds the Reports page, which lists only a few decisions.
+  test.afterAll(() => {
+    const databasePath = process.env.WORK_INTELLIGENCE_E2E_DB;
+    if (!databasePath) return;
+    const db = new DatabaseSync(databasePath);
+    db.exec("PRAGMA foreign_keys = ON");
+    try {
+      db.prepare("DELETE FROM projects WHERE name = ?").run(FIXTURE_NAME);
+    } finally {
+      db.close();
+    }
+  });
+
   test("makes Confirm the one primary action and keeps Turn into Knowledge in the More menu", async ({
     page,
     request,
@@ -104,6 +120,46 @@ test.describe("Agent decision review", () => {
       .click();
     await expect(item).toHaveCount(0);
     expect((await reviewStatuses(request, fixture))[fixture.texts[0]!]).toBe("rejected");
+  });
+
+  test("skips a reject when the decision was reviewed elsewhere while the question was open", async ({
+    page,
+    request,
+  }) => {
+    const fixture = await seed(request, 2);
+    await page.goto(`/knowledge/decisions?project=${fixture.projectId}`);
+    const item = row(page, fixture.texts[0]!);
+    await item.getByRole("button", { name: tt("knowledge.reject") }).click();
+    const dialog = rejectDialog(page, 1);
+    await expect(dialog).toBeVisible();
+
+    const listed = (await (
+      await request.get("/api/session-decisions", { params: { projectRoot: fixture.root, status: "pending" } })
+    ).json()) as { items: Array<{ id: string; text: string }> };
+    const id = listed.items.find((entry) => entry.text === fixture.texts[0])!.id;
+    const confirmed = await request.patch(`/api/session-decisions/${id}/review`, {
+      data: { projectRoot: fixture.root, reviewStatus: "confirmed" },
+    });
+    expect(confirmed.ok()).toBeTruthy();
+    await expect(item).toHaveCount(0);
+
+    await dialog.getByRole("button", { name: tt("knowledge.reject") }).click();
+    await expect(page.getByText(tt("knowledge.decisionNoLongerPending"))).toBeVisible();
+    expect((await reviewStatuses(request, fixture))[fixture.texts[0]!]).toBe("confirmed");
+  });
+
+  test("keeps focus inside the list box when a batch empties it", async ({ page, request }) => {
+    const fixture = await seed(request, 2);
+    await page.goto(`/knowledge/decisions?project=${fixture.projectId}`);
+    await page.getByRole("checkbox", { name: tt("knowledge.selectAllDecisionsInList") }).check();
+    await page.getByRole("button", { name: tt("knowledge.confirmSelected") }).click();
+
+    await expect(page.getByText(tt("knowledge.noDecisionsToConfirm"))).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.activeElement?.closest("[data-testid='agent-decision-review']") !== null),
+      )
+      .toBe(true);
   });
 
   test("selects decisions and confirms or rejects the selection", async ({ page, request }) => {
@@ -190,6 +246,24 @@ test.describe("Work knowledge entry", () => {
 
     await page.getByRole("tab", { name: /^Knowledge/ }).click();
     await expect(page).toHaveURL(/\/knowledge\/list/);
+    await expect(page.getByRole("tab", { name: /^Knowledge/ })).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("sends an older bare /knowledge link with list filters to the Knowledge tab", async ({ page, request }) => {
+    await seed(request, 1);
+    await page.goto("/knowledge?q=registry&kind=decision");
+
+    await expect(page).toHaveURL(/\/knowledge\/list\?q=registry&kind=decision/);
+    await expect(page.getByRole("tab", { name: /^Knowledge/ })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("searchbox", { name: tt("knowledge.searchKnowledge") })).toHaveValue("registry");
+  });
+
+  test("falls back to Knowledge when the decision count cannot be read", async ({ page }) => {
+    await page.route("**/api/session-decisions?*", (route) =>
+      route.fulfill({ status: 500, json: { error: "Internal server error.", code: "internal_error" } }),
+    );
+    await page.goto("/knowledge");
+
     await expect(page.getByRole("tab", { name: /^Knowledge/ })).toHaveAttribute("aria-selected", "true");
   });
 

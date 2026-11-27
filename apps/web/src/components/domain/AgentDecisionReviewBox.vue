@@ -15,7 +15,7 @@ import { useAgentReviewStore } from "../../stores/agent-review";
 import { useProjectsStore } from "../../stores/projects";
 import { useSessionDecisionsStore } from "../../stores/session-decisions";
 import { useSessionsStore } from "../../stores/sessions";
-import { formatDate, formatRelative } from "../../utils/format";
+import { formatDate, formatRelative, graphNodeLabel } from "../../utils/format";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
@@ -90,9 +90,17 @@ function verdictFor(item: SessionDecisionRecord): "confirmed" | "rejected" | "pr
   return item.reviewStatus === "pending" ? "confirmed" : item.reviewStatus;
 }
 
+function isListedPending(id: string): boolean {
+  return filter.value === "pending" && decisions.value.some((decision) => decision.id === id);
+}
+
+function selectLabel(item: SessionDecisionRecord): string {
+  return t("knowledge.selectDecision", { text: graphNodeLabel(item.text, 48) });
+}
+
 async function reviewOne(item: SessionDecisionRecord, verdict: "confirmed" | "rejected"): Promise<void> {
   const nextId = orderedDecisions.value[orderedDecisions.value.findIndex((entry) => entry.id === item.id) + 1]?.id;
-  if (await review(item, verdict, projectRootFor(item))) {
+  if (await review(item, verdict, projectRootFor(item), isListedPending)) {
     dropFromSelection([item.id]);
     await restoreFocus(nextId);
   }
@@ -100,11 +108,16 @@ async function reviewOne(item: SessionDecisionRecord, verdict: "confirmed" | "re
 
 async function reviewSelected(verdict: "confirmed" | "rejected"): Promise<void> {
   if (selectionBusy.value || selectedIds.value.length === 0) return;
-  const targets = orderedDecisions.value.filter((decision) => selectedIds.value.includes(decision.id));
+  const ordered = orderedDecisions.value;
+  const targets = ordered.filter((decision) => selectedIds.value.includes(decision.id));
+  const anchor = ordered.findIndex((decision) => decision.id === targets[0]?.id);
   batchBusy.value = true;
   try {
-    dropFromSelection(await reviewMany(targets, verdict));
-    await restoreFocus();
+    const done = new Set(
+      await reviewMany(targets, verdict, (id) => isListedPending(id) && selectedIds.value.includes(id)),
+    );
+    dropFromSelection([...done]);
+    await restoreFocus(ordered.slice(anchor).find((decision) => !done.has(decision.id))?.id);
   } finally {
     batchBusy.value = false;
   }
@@ -207,7 +220,7 @@ watch(decisions, settleFocus, { flush: "post" });
             <UiCheckbox
               v-if="filter === 'pending'"
               :model-value="selectedIds.includes(item.id)"
-              :label="t('knowledge.selectDecision', { text: item.text })"
+              :label="selectLabel(item)"
               :disabled="selectionBusy || isReviewing(item.id)"
               @update:model-value="selectItem(item.id, $event)"
             />

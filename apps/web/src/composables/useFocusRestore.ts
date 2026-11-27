@@ -25,7 +25,11 @@ export function useFocusRestore(options: FocusRestoreOptions) {
     const root = listRef.value?.$el as HTMLElement | undefined;
     if (!root) {
       const box = boxRef.value?.$el as HTMLElement | undefined;
-      box?.querySelector<HTMLElement>(".ui-empty button, .ui-flash button")?.focus();
+      const control = box?.querySelector<HTMLElement>(".ui-empty button, .ui-flash button");
+      if (control) return control.focus();
+      if (!box) return;
+      if (!box.hasAttribute("tabindex")) box.tabIndex = -1;
+      box.focus();
       return;
     }
     const rows = [...root.querySelectorAll<HTMLElement>(rowSelector)];
