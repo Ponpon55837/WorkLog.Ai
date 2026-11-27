@@ -2739,3 +2739,39 @@ describe("knowledge page checked cursor across machines", () => {
     expect(preview.conflicts).toMatchObject({ knowledge_pages: 1 });
   });
 });
+
+describe("session link import planning", () => {
+  function linkedSource() {
+    const source = createSource();
+    const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const link = bundle.tables.session_links[0];
+    if (!link) throw new Error("Expected the exported link.");
+    return { source, bundle, link };
+  }
+
+  it("skips a link with a different id but the same pair and relation", () => {
+    const { source, bundle, link } = linkedSource();
+    link.id = "link-renamed";
+
+    const preview = source.store.previewProjectDataImport({ bundle });
+
+    expect(preview.skipped.session_links).toBe(1);
+    expect(preview.conflictDetails).not.toContainEqual(expect.objectContaining({ table: "session_links" }));
+    expect(preview.conflicts.session_links ?? 0).toBe(0);
+  });
+
+  it("keeps a unique conflict when the same pair has a different relation", () => {
+    const { source, bundle, link } = linkedSource();
+    link.id = "link-renamed";
+    link.relation = "related";
+
+    const preview = source.store.previewProjectDataImport({ bundle });
+
+    expect(preview.conflictDetails).toContainEqual({
+      table: "session_links",
+      id: "link-renamed",
+      reason: "唯一識別值已被另一筆資料使用。",
+      category: "unique",
+    });
+  });
+});
