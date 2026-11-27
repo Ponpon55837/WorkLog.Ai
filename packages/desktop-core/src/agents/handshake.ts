@@ -19,18 +19,14 @@ export type McpHandshakeErrorCode = (typeof MCP_HANDSHAKE_ERROR_CODES)[number];
 
 export interface McpHandshakeRequest {
   /**
-   * The program to run. It must be the launcher shim of the validated integration record (`launcherShimPath` of the
-   * runtime root the App itself chose) or a path the App built; never a `command` read from an Agent's config file,
-   * which any process of the user can change and which this probe would then execute.
+   * The validated launcher shim or a path the App built; never a `command` read from an Agent's config, which any user
+   * process can change.
    */
   readonly command: string;
   readonly args: readonly string[];
-  /** Added to this process's environment. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly cwd?: string;
-  /** Paths (such as the runtime root) masked in `stderrTail` besides the home directory, cwd and config directory. */
   readonly maskedPaths?: readonly string[];
-  /** The whole handshake (spawn to the last `tools/list` page) must finish within this time. */
   readonly timeoutMs: number;
 }
 
@@ -40,7 +36,6 @@ export type McpHandshakeResult =
       readonly serverInfo: { readonly name: string; readonly version: string };
       readonly protocolVersion: string;
       readonly toolNames: readonly string[];
-      /** Same function the MCP server uses for what a real host received; see {@link mcpContractFingerprint}. */
       readonly contractFingerprint: string;
       readonly elapsedMs: number;
     }
@@ -48,16 +43,13 @@ export type McpHandshakeResult =
       readonly ok: false;
       readonly code: McpHandshakeErrorCode;
       readonly message: string;
-      /** The last stderr lines of the child, with the home and config directories, cwd and `maskedPaths` masked. */
       readonly stderrTail: readonly string[];
       readonly elapsedMs: number;
     };
 
-/** How a child is started; the argv array reaches the OS without any shell string. */
 export interface McpSpawnPlan {
   readonly file: string;
   readonly args: readonly string[];
-  /** True when `args` already hold the exact command line cmd.exe must see (Windows batch shims only). */
   readonly windowsVerbatimArguments: boolean;
 }
 
@@ -67,16 +59,13 @@ export interface McpHandshakeDependencies {
   spawn(file: string, args: readonly string[], options: SpawnOptions): ChildProcess;
 }
 
-/** The protocol revision the bundled MCP SDK (apps/mcp) speaks as latest; servers answer with the one they support. */
 export const MCP_HANDSHAKE_PROTOCOL_VERSION = "2025-11-25";
 
 const STDERR_LINES = 20;
-/** One answer larger than this is not a tools list of ours; stops a runaway server from filling memory. */
 const MAX_PENDING_STDOUT = 4 * 1024 * 1024;
 const MAX_TOOL_PAGES = 20;
 const EXIT_WAIT_MS = 2_000;
 const WINDOWS_BATCH_FILE = /\.(?:cmd|bat)$/i;
-/** cmd.exe expands `%` even inside quotes and `"` cannot be escaped reliably for a batch file: such arguments are refused. */
 const UNSAFE_BATCH_ARGUMENT = /["%\r\n\0]/;
 const INITIALIZE_ID = 1;
 const FIRST_TOOLS_ID = 2;
@@ -107,10 +96,8 @@ function quoteBatchArgument(value: string): string {
 }
 
 /**
- * Node refuses to start a `.cmd` or `.bat` file without a shell (CVE-2024-27980 hardening), and a shell string built by
- * concatenation is the injection this avoids. The one supported route runs `System32\cmd.exe /d /s /c "<command line>"`
- * with each element quoted by itself and the whole line passed verbatim, so the elements stay separate arguments.
- * Everything else is started directly from its argv array.
+ * Node refuses `.cmd`/`.bat` without a shell (CVE-2024-27980); they run via `System32\cmd.exe /d /s /c` with each
+ * argument quoted, never a concatenated shell string.
  */
 export function planMcpSpawn(
   command: string,
@@ -129,12 +116,6 @@ export function planMcpSpawn(
   };
 }
 
-/**
- * Ends the child and everything it started: a process group elsewhere, `taskkill /T` on Windows (the child is
- * `cmd.exe /c shim.cmd`, so killing it alone would orphan the server). `taskkill` works by pid, so it is skipped once
- * the child has exited: the pid may belong to another process by then. A failing `taskkill` falls back to the child.
- * A process group stays valid while any member lives, so POSIX needs no such guard.
- */
 function killProcessTree(child: ChildProcess, deps: McpHandshakeDependencies): void {
   const pid = child.pid;
   try {
@@ -183,13 +164,6 @@ function initializeResult(result: unknown): { serverInfo: { name: string; versio
   return { protocolVersion: value.protocolVersion, serverInfo: { name: value.serverInfo.name, version } };
 }
 
-/**
- * Starts a stdio MCP server and speaks the minimum a host does: `initialize`, `notifications/initialized`, `tools/list`.
- * It proves the server starts and answers, without any Agent in the loop. The child receives
- * {@link MCP_SELFTEST_ENVIRONMENT}, which makes Work Intelligence's own server skip its database and runtime state, and
- * the client name {@link SELFTEST_CLIENT_NAME}, which it never records as a host. The child tree is always killed
- * before this returns. It never throws: every failure is a result with one of {@link MCP_HANDSHAKE_ERROR_CODES}.
- */
 export async function probeMcpHandshake(
   request: McpHandshakeRequest,
   deps: McpHandshakeDependencies = defaultDependencies,

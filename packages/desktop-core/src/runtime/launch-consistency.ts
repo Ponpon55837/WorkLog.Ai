@@ -5,26 +5,18 @@ import { RuntimeError } from "./errors.js";
 import { CURRENT_FILE_NAME, LAUNCH_FILE_NAME } from "./layout.js";
 import { isRuntimeId, type RuntimeManifest } from "./manifest.js";
 
-/** What the launcher knows about itself when it checks that the shim started it the way the manifest says. */
 export interface LaunchConsistencyInput {
   readonly root: string;
   readonly runtimeId: string;
   readonly runtimeDirectory: string;
   readonly manifest: RuntimeManifest;
-  /** `process.execPath` of the running launcher. */
   readonly execPath: string;
   readonly platform: string;
-  /** Receives warnings that do not stop the launch. */
   readonly warn: (message: string) => void;
 }
 
 const BYTE_ORDER_MARK = "﻿";
 
-/**
- * The executable named by the text of `runtime-launch.txt`: one line, with an optional byte order mark and a trailing
- * CRLF, LF or CR removed. Anything else (no line, two lines, a blank line) is refused: the file is read by a shim
- * that checks nothing, so its exact shape is checked here, where the file has already been hashed.
- */
 export function parseLaunchFile(text: string): string {
   const body = (text.startsWith(BYTE_ORDER_MARK) ? text.slice(1) : text).replace(/\r\n?$|\n$/, "");
   if (body === "" || /[\r\n]/.test(body)) {
@@ -36,7 +28,6 @@ export function parseLaunchFile(text: string): string {
   return body;
 }
 
-/** The id in the text of a `current` pointer: byte order mark, line ends and surrounding spaces are ignored. */
 export function parsePointerText(text: string): string {
   const id = (text.startsWith(BYTE_ORDER_MARK) ? text.slice(1) : text).trim();
   if (!isRuntimeId(id)) {
@@ -49,7 +40,6 @@ export function parsePointerText(text: string): string {
   return id;
 }
 
-/** File names compare without case on Windows and (by default) macOS. */
 function pathKey(value: string, platform: string): string {
   return platform === "win32" || platform === "darwin" ? value.toLowerCase() : value;
 }
@@ -76,20 +66,6 @@ async function readText(file: string, name: string): Promise<string> {
   }
 }
 
-/**
- * The checks that tie the fixed shim to the verified runtime. The shim validates nothing: it starts whatever executable
- * `runtime-launch.txt` names with whatever `current` points at. By the time this runs, the launcher IS that process, so
- * it can compare what it really is with what the manifest says:
- *
- * 1. the runtime id taken from where the launcher lives is a legal id (this also bounds its length);
- * 2. `runtime-launch.txt` (hashed by the manifest) holds exactly the manifest's executable;
- * 3. `process.execPath` is that executable (real paths, case-folded on Windows and macOS), so a launch file or `current`
- *    that pointed the shim at some other binary is noticed;
- * 4. `current` holds a legal id. When it names a different runtime this only warns: an update may be switching it.
- *
- * Limit: step 3 runs inside the process that was started, so it cannot undo what a swapped executable did before it
- * got here; it catches mistakes and a mismatched pointer, not an attacker who already replaced the executable.
- */
 export async function checkLaunchConsistency(input: LaunchConsistencyInput): Promise<void> {
   const { root, runtimeId, runtimeDirectory, manifest } = input;
   if (!isRuntimeId(runtimeId)) {

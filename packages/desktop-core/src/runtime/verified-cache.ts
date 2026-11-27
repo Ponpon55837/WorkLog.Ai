@@ -5,21 +5,17 @@ import { VERIFIED_CACHE_FILE_NAME } from "./layout.js";
 import { SHA256_PATTERN } from "./manifest.js";
 import type { Fingerprint } from "./scan.js";
 
-/** The content hash a file passed verification with, and the fingerprint it had at that moment. */
 export interface CachedFile extends Fingerprint {
   readonly sha256: string;
 }
 
-/** The change time and inode of one object when its ACL was last read (Windows); see verifyRuntime. */
 export interface AclStampEntry {
   readonly ctimeNs: string;
   readonly ino: string;
 }
 
-/** By label (`root`, `bin`, `runtimes`, `current`, ...): the objects the last successful ACL read covered. */
 export type AclStamp = Readonly<Record<string, AclStampEntry>>;
 
-/** What `.verified.json` holds. */
 export interface VerifiedCache {
   readonly files: Map<string, CachedFile>;
   readonly acl: AclStamp | undefined;
@@ -43,7 +39,6 @@ function isCachedFile(value: unknown): value is CachedFile {
   );
 }
 
-/** The ACL stamp when `raw` is a well-formed one; a malformed stamp is no stamp (the ACLs are read again). */
 function aclStampOf(raw: unknown): AclStamp | undefined {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
   const entries = Object.entries(raw);
@@ -60,7 +55,6 @@ function aclStampOf(raw: unknown): AclStamp | undefined {
   return wellFormed ? (raw as AclStamp) : undefined;
 }
 
-/** The cache when `raw` is a well-formed cache of `runtimeId`; any deviation yields undefined. */
 function cachedFilesOf(raw: unknown, runtimeId: string): VerifiedCache | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const cache = raw as Record<string, unknown>;
@@ -72,11 +66,7 @@ function cachedFilesOf(raw: unknown, runtimeId: string): VerifiedCache | undefin
   return { files: new Map(entries as [string, CachedFile][]), acl: aclStampOf(cache.acl) };
 }
 
-/**
- * Reads `.verified.json`. A missing, oversized, unparsable or foreign cache is an empty cache: a bad cache can only
- * cost a full re-verification, never make a file pass. The cache is a speed-up for the owner of the runtime directory,
- * not a security boundary (see verifyRuntime).
- */
+/** A bad cache can only cost a full re-verification, never make a file pass; it is a speed-up, not a security boundary. */
 export async function readVerifiedCache(runtimeDirectory: string, runtimeId: string): Promise<VerifiedCache> {
   const cachePath = path.join(runtimeDirectory, VERIFIED_CACHE_FILE_NAME);
   try {
@@ -88,7 +78,6 @@ export async function readVerifiedCache(runtimeDirectory: string, runtimeId: str
   }
 }
 
-/** Writes `.verified.json` atomically; failing to write (read-only directory, another user) only costs speed. */
 export async function writeVerifiedCache(
   runtimeDirectory: string,
   runtimeId: string,

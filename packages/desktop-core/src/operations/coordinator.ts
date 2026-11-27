@@ -8,23 +8,17 @@ import {
 import type { OperationJournal } from "./operation-journal.js";
 import type { ServiceOwnerState } from "./service-owner-state.js";
 
-/** Everything the journal needs to begin an operation. */
 export type OperationRequest = NewOperationInput;
 
-/** Passed to each step so it can honour cancellation and flag the point of no return. */
 export interface OperationStepContext {
   readonly operationId: string;
-  /** Aborted when `cancel()` was accepted during a cancellable step. */
   readonly signal: AbortSignal;
-  /** Persist `migrationStarted` BEFORE the first write that may migrate or restore the DB. */
   markMigrationStarted(): Promise<void>;
 }
 
 /**
- * One unit of an operation. `phase` (optional) is the ServiceOwner state entered before the step runs;
- * `cancellable` declares whether `cancel()` may take effect while it runs (SQLite writes and installer
- * handoff must be `false`: they are never killed). Step names must be unique within an operation and
- * `run` must be safe to repeat, because a crash between `run` and its journal write replays it.
+ * `run` must be safe to repeat (a crash before its journal write replays it); SQLite writes and installer handoff are
+ * not cancellable.
  */
 export interface OperationStep {
   readonly name: string;
@@ -86,28 +80,14 @@ function storedResult(record: OperationRecord): OperationRunResult | null {
   return null;
 }
 
-/**
- * Serializes ServiceOwner operations behind ONE in-process lock (one desktop main process per user).
- * Cross-process exclusion (second app instance, CLI) is the single-instance file lock of DT-15 and is NOT done here.
- *
- * Contract: a different operationId while one runs gets `busy`; the same id returns the in-flight promise, or the
- * stored terminal result (also after a restart, because results come from the journal). An id that is still
- * `in-progress` in the journal but not running (crash) is resumed: steps already journaled are skipped.
- * Cancellation takes effect only at step boundaries and only when the running step is cancellable; the coordinator
- * does not roll back side effects, `recover(probe)` decides that from real state. A cancel before any phase change
- * or finished step closes the record as `cancelled`; later it persists `cancelRequested`, leaves the record
- * in-progress and returns `recoveryRequired` (also for a resubmitted id). A cancel after the last step is ignored.
- */
 export class OperationCoordinator {
   private readonly journal: OperationJournal;
-  /** operationId -> run; holds at most one entry (the lock) but keeps O(1) lookup by id. */
   private readonly active = new Map<string, ActiveRun>();
 
   constructor(journal: OperationJournal) {
     this.journal = journal;
   }
 
-  /** Run `steps` under the lock. See the class comment for the result semantics. */
   run(request: OperationRequest, steps: readonly OperationStep[]): Promise<OperationRunResult> {
     const existing = this.active.get(request.operationId);
     if (existing) return existing.promise;
@@ -129,7 +109,6 @@ export class OperationCoordinator {
     return run.promise;
   }
 
-  /** Ask a running operation to stop at its next step boundary. Never interrupts a non-cancellable phase. */
   cancel(operationId: string): CancelResult {
     const run = this.active.get(operationId);
     if (!run) return { accepted: false, reason: "unknown-operation" };
@@ -139,7 +118,6 @@ export class OperationCoordinator {
     return { accepted: true };
   }
 
-  /** Snapshot of the lock holder, or null when idle. */
   current(): BusyOperationInfo | null {
     const run = this.currentRun();
     return run ? this.info(run) : null;
@@ -154,7 +132,6 @@ export class OperationCoordinator {
     return { operationId: run.operationId, kind: run.kind, phase: run.phase, cancellable: run.cancellable };
   }
 
-  /** A different id while busy: a finished earlier id still answers from the journal, everything else is busy. */
   private async resolveWhileBusy(
     request: OperationRequest,
     steps: readonly OperationStep[],
@@ -210,7 +187,6 @@ export class OperationCoordinator {
       }
       await this.journal.completeStep(operationId, step.name, last);
     }
-    // Every step is done: a late cancel has nothing left to stop, so it is refused from here on and ignored.
     run.cancellable = false;
     await this.journal.finish(operationId, "completed", { result: last });
     return { status: "completed", result: last };
@@ -226,7 +202,6 @@ export class OperationCoordinator {
     return { status: "cancelled" };
   }
 
-  /** A failed operation that already moved the owner state must end in NEEDS_REPAIR (fail closed). */
   private async fail(run: ActiveRun, error: unknown): Promise<OperationRunResult> {
     const message = errorMessage(error);
     try {

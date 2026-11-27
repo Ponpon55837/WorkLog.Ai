@@ -22,20 +22,14 @@ export type UsageSourceProblem = "claude-dir-missing" | "codex-dir-missing" | "p
 
 export interface UsageProjectSources {
   projectId: string;
-  /** Absolute folders under the Claude projects directory; for scanning only, never shown to users. */
   claudeFolders: string[];
-  /** Absolute Codex rollout files whose first session_meta cwd lies in the project root. */
   codexFiles: string[];
   problem?: UsageSourceProblem;
 }
 
-/** Projects that share a source: Claude Code folders and Codex rollouts opened at a folder above all of them. */
 export interface UsageSourceGroup {
-  /** Tracked project ids below the shared folder, in input order. */
   projectIds: string[];
-  /** Absolute folders under the Claude projects directory; for scanning only, never shown to users. */
   claudeFolders: string[];
-  /** Absolute Codex rollout files whose session_meta cwd is the shared folder. */
   codexFiles: string[];
 }
 
@@ -59,7 +53,6 @@ export function encodeClaudeProjectDir(root: string): string {
   return root.replace(/[^A-Za-z0-9]/g, "-");
 }
 
-/** Default locations of the Claude Code and Codex logs under the current user's home directory. */
 export function defaultUsageSourceDirs(): UsageSourceDirs {
   return {
     claudeProjectsDir: join(homedir(), ".claude", "projects"),
@@ -68,9 +61,8 @@ export function defaultUsageSourceDirs(): UsageSourceDirs {
 }
 
 /**
- * `truncated` allows the shortened-name rule for a root whose encoding exceeds Claude Code's limit. A shared folder
- * does not use it: the shortened name of a long ancestor is also a prefix of its descendants' folders, so it could not
- * tell the ancestor's own conversations from a project's.
+ * `truncated` allows the shortened-name rule for roots over Claude Code's limit. Shared folders must not use it: a
+ * shortened ancestor name is also a prefix of its descendants' folders.
  */
 function folderMatches(name: string, encoded: string, platform: NodeJS.Platform, truncated = true): boolean {
   const folded = foldPath(name, platform);
@@ -90,7 +82,6 @@ function stateOf(error: unknown): DirState {
   return code === "EACCES" || code === "EPERM" ? "denied" : "missing";
 }
 
-/** Reads only the first session_meta line of a rollout, stopping early; returns its cwd or null. */
 async function readRolloutCwd(path: string): Promise<string | null> {
   const stream = createReadStream(path, { encoding: "utf8", highWaterMark: 64 * 1024 });
   let buffered = "";
@@ -117,7 +108,6 @@ async function readRolloutCwd(path: string): Promise<string | null> {
   }
 }
 
-/** The cwd of a session_meta line (null when it has none), or undefined when the line is not a session_meta. */
 function cwdOfMetaLine(text: string): string | null | undefined {
   if (text.trim() === "") return undefined;
   try {
@@ -172,11 +162,6 @@ function problemFor(claude: DirState, codex: DirState): UsageSourceProblem {
   return "none-found";
 }
 
-/**
- * Finds the Claude Code folders and Codex rollouts that belong to each project root. Read-only: nothing is created,
- * Codex cwd values are compared and never returned, and a missing or unreadable directory becomes a `problem` code
- * (reported only when a project has no source at all) instead of an error that could embed a path.
- */
 export async function resolveProjectSources(
   projects: UsageProjectInput[],
   dirs: UsageSourceDirs = defaultUsageSourceDirs(),
@@ -185,16 +170,6 @@ export async function resolveProjectSources(
   return (await resolveUsageSources(projects, dirs, options)).projects;
 }
 
-/**
- * `resolveProjectSources` plus the shared sources. A Claude Code folder, or a Codex session cwd, that is a strict
- * ancestor of a project root is a shared source of that project: a user who registers the subfolders of a monorepo as
- * projects often opens the Agent at the monorepo root. Folder names are a lossy encoding of the path, so an ancestor is
- * recognised the way a project is: every ancestor directory of every root is encoded with `encodeClaudeProjectDir` and
- * compared with the folder names (exact or worktree folder, compared case-insensitively on Windows); a Codex cwd is
- * normalised (`\` and `/` alike, folded on Windows) and compared with the same ancestors. Ancestors that are tracked
- * roots themselves stay the sources of that project, and a source that is already a project's own is never shared.
- * Ancestors with the same projects form one group.
- */
 export async function resolveUsageSources(
   projects: UsageProjectInput[],
   dirs: UsageSourceDirs = defaultUsageSourceDirs(),
@@ -288,7 +263,6 @@ function sharedGroups(
   }));
 }
 
-/** The folded, normalised spelling of an absolute path as a one-item list (empty for a relative path). */
 function normalizedKey(path: string, platform: NodeJS.Platform): string[] {
   const normalized = normalizePath(path);
   return normalized === null ? [] : [foldPath(normalized, platform)];

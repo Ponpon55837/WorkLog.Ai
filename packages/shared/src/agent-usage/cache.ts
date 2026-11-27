@@ -7,27 +7,18 @@ import type { ClaudeRecord } from "./types.js";
 /** Bump when the record or entry format changes; entries of another version are dropped on load. */
 export const CACHE_VERSION = 3;
 
-/** What one Claude Code file contributed, valid while its size and mtime are unchanged. */
 export interface UsageCacheEntry {
   version: number;
   mtimeMs: number;
   size: number;
-  /** Bytes up to and including the last newline that were read. */
   offset: number;
-  /** sha256 of the (up to 4 KiB) bytes just before `offset`, to tell an append from a rewrite. */
   prefixHash: string;
-  /** The records carry the shared-source evidence (tool paths, cwd); a file that became shared is parsed again. */
   evidence: boolean;
   records: ClaudeRecord[];
   skippedLines: number;
-  /** The unterminated last line, replaced when the file grows. */
   tail: { records: ClaudeRecord[]; skippedLines: number };
 }
 
-/**
- * Per-file extraction results keyed by absolute path, kept in memory and optionally persisted as JSON. Persistence is
- * best effort: a missing, corrupt or foreign-version file is ignored and a failed write is swallowed.
- */
 export class UsageCache {
   private readonly entries = new Map<string, UsageCacheEntry>();
   private readonly file: string | undefined;
@@ -54,7 +45,6 @@ export class UsageCache {
     if (this.entries.delete(path)) this.dirty = true;
   }
 
-  /** Reads the cache file when one was configured; any problem leaves the cache empty. */
   async load(): Promise<void> {
     if (this.file === undefined) return;
     try {
@@ -69,7 +59,6 @@ export class UsageCache {
     }
   }
 
-  /** Writes the cache atomically with owner-only permissions; does nothing when nothing changed. */
   async save(): Promise<void> {
     if (this.file === undefined || !this.dirty) return;
     const temporary = `${this.file}.${process.pid}.tmp`;

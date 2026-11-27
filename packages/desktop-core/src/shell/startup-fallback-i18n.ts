@@ -1,7 +1,6 @@
 import { formatMessage, type ShellLocale } from "./i18n.js";
 import type { StartupFallbackNote } from "./startup-fallback.js";
 
-/** The Status tab's sentences about a fallback to the last working combination (the logic is in startup-fallback.ts). */
 export interface StartupFallbackStrings {
   readonly heading: string;
   readonly restored: string;
@@ -33,7 +32,6 @@ export function startupFallbackMessages(locale: ShellLocale): StartupFallbackStr
   return locale === "zh-TW" ? zhTW : en;
 }
 
-/** The sentence of a note, in the user's language. */
 export function startupFallbackText(locale: ShellLocale, note: StartupFallbackNote): string {
   const text = startupFallbackMessages(locale);
   if (note.kind === "port-restored") {

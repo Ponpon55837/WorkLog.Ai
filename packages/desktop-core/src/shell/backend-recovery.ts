@@ -3,7 +3,6 @@ import type { RecentErrors } from "./recent-errors.js";
 import type { RestartPolicy } from "./restart-policy.js";
 import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 
-/** `busy`: a restart or another operation is already running; nothing changed and nothing failed. */
 export type RestartOutcome =
   | { readonly ok: true }
   | { readonly ok: false; readonly busy?: false; readonly code: string }
@@ -13,30 +12,19 @@ export interface BackendRecoveryDeps {
   readonly policy: RestartPolicy;
   readonly presenter: ErrorPresenter;
   readonly errors: RecentErrors;
-  /** Runs the restart operation (an ordinary managed start); `operationId` is the user's, absent for an automatic retry. */
   restart(operationId?: string): Promise<RestartOutcome>;
-  /** Whether a verified backend serves now; a retry that finds the lock held waits for the lock only while none does. */
   isServing?(): boolean;
-  /** False when a retry would be wrong now: an operation is running or a healthy backend already serves. */
   shouldAutoRetry(): boolean;
   now(): Date;
   setTimer(callback: () => void, ms: number): unknown;
   clearTimer(handle: unknown): void;
-  /** The shell's owner state changed (for the tray and the repair page). */
   onOwnerChange(owner: ServiceOwnerState): void;
   log(line: string): void;
 }
 
-/** An automatic retry that found another operation holding the lock tries again after this long. */
 const BUSY_DEFER_MS = 3_000;
-/** The tries above, in all: one minute. After that the failure is shown instead of staying silent. */
 const MAX_BUSY_DEFERRALS = 20;
 
-/**
- * What the shell does after the backend ends without being asked to (R4 section 6 point 4): record the error code, move to
- * NEEDS_REPAIR, show it the way the launch mode calls for, and retry on a bounded backoff unless the error is one a retry
- * cannot fix. The user's own retry is always possible and starts a fresh budget.
- */
 export class BackendRecovery {
   private readonly deps: BackendRecoveryDeps;
   private timer: unknown;
@@ -48,7 +36,6 @@ export class BackendRecovery {
     this.deps = deps;
   }
 
-  /** The backend ended unexpectedly, or a start failed, with `code`. */
   handleFailure(code: string): void {
     this.lastCode = code;
     this.busyDeferrals = 0;
@@ -64,10 +51,6 @@ export class BackendRecovery {
     this.schedule(decision.delayMs);
   }
 
-  /**
-   * The user pressed retry: cancel any pending automatic retry and run one now with a fresh budget. While a restart is
-   * already running the answer is `busy` and the user's `operationId` is not kept for anything else.
-   */
   async retryNow(operationId?: string): Promise<RestartOutcome> {
     if (this.running) return { ok: false, busy: true };
     this.cancel();
@@ -75,13 +58,11 @@ export class BackendRecovery {
     return this.attempt(false, operationId);
   }
 
-  /** Cancels a pending automatic retry (the user is quitting, or a retry started by hand). */
   cancel(): void {
     if (this.timer !== undefined) this.deps.clearTimer(this.timer);
     this.timer = undefined;
   }
 
-  /** Whether a restart is running right now. */
   get restarting(): boolean {
     return this.running;
   }
@@ -123,10 +104,6 @@ export class BackendRecovery {
     }
   }
 
-  /**
-   * An automatic retry met a held lock (M-05). The failure that scheduled it is still unanswered, so unless a backend
-   * serves by now the retry comes again shortly, and when the lock stays held the failure is shown rather than dropped.
-   */
   private deferWhileBusy(): void {
     if (this.deps.isServing?.()) return;
     if (this.busyDeferrals >= MAX_BUSY_DEFERRALS) {
@@ -138,7 +115,6 @@ export class BackendRecovery {
     this.schedule(BUSY_DEFER_MS);
   }
 
-  /** A restart that throws is a failed restart with the generic repair code, never an unhandled rejection. */
   private async restartSafely(operationId: string | undefined): Promise<RestartOutcome> {
     try {
       return await this.deps.restart(operationId);

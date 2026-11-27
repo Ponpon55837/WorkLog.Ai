@@ -3,10 +3,6 @@ import path from "node:path";
 import { writeFileAtomic } from "../internal/atomic-file.js";
 import { DESKTOP_SETTINGS_POINTER_FILE_NAME, isUsablePath } from "../runtime/desktop-database.js";
 
-/**
- * Records where the App's settings file is, atomically, unless the pointer already says so. Called by the App once its
- * runtime is current (the same moment it writes desktop-integration.json).
- */
 export async function writeDesktopSettingsPointer(
   launcherRoot: string,
   settingsFile: string,

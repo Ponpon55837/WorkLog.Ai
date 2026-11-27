@@ -48,7 +48,6 @@ export function emptyReportPresentation(): ReportPresentationState {
   return { pinned: [], hidden: [], overrides: [] };
 }
 
-/** Both rendering and copy use this immutable projection, with base ordinals and original citations. */
 export function projectReportSummary(summary: ReportSummary, state: ReportPresentationState): ProjectedReportSection[] {
   const hidden = new Set(state.hidden),
     pinned = new Set(state.pinned);

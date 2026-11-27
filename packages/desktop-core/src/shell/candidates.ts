@@ -4,22 +4,17 @@ import { needsStorageConsent, storagePolicy } from "../db-source/storage-policy.
 import type { StorageRisk } from "../db-source/storage-risk.js";
 import type { DbProbeStatus } from "../db-source/types.js";
 
-/** What a read-only preflight found out about a database the user picked. */
 export interface CandidatePreview {
   readonly status: DbProbeStatus;
-  /** Opening it would write the schema (an empty file, or an older version): needs the user's explicit consent. */
   readonly needsMigration: boolean;
   readonly identity?: DesktopDatabaseIdentity;
-  /** The preview itself could not run: the real backend error code (RUNTIME_MISSING, CHILD_START_TIMEOUT, ...). */
   readonly errorCode?: string;
 }
 
 export interface CandidateEntry {
   readonly id: string;
-  /** The real path; it stays in main. */
   readonly path: string;
   readonly preview: CandidatePreview | undefined;
-  /** What kind of storage the file is on (DT-08); undefined until it was classified. */
   readonly storageRisk?: StorageRisk;
 }
 
@@ -28,7 +23,6 @@ export type ConfirmCheck =
       readonly ok: true;
       readonly entry: CandidateEntry;
       readonly preview: CandidatePreview;
-      /** What the preview read; the start must find this very database. */
       readonly identity: DesktopDatabaseIdentity;
     }
   | {
@@ -38,18 +32,14 @@ export type ConfirmCheck =
         | "not-previewed"
         | "not-usable"
         | "migration-consent-required"
-        /** A network drive: the App never uses it. */
         | "storage-refused"
-        /** A removable disk, a sync folder or a hard link cannot take a schema update; copy it to the local disk. */
         | "migration-blocked-by-storage"
         | "storage-consent-required";
     };
 
-/** The preview of the supervisor's preflight as the page shows it; a preview that could not run is `unreadable`. */
 export function previewToCandidate(result: DatabasePreviewResult): CandidatePreview {
   if (result.outcome === "failed") return { status: "unreadable", needsMigration: false, errorCode: result.code };
   const { preflight } = result;
-  // Without the identity nothing can be confirmed against the file: an `ok` that carries none is not usable.
   if (preflight.status === "ok" && !preflight.identity) return { status: "unreadable", needsMigration: false };
   return {
     status: preflight.status,
@@ -58,10 +48,6 @@ export function previewToCandidate(result: DatabasePreviewResult): CandidatePrev
   };
 }
 
-/**
- * The databases the user picked in the repair window, by opaque id. At most `capacity` are kept (the oldest goes first).
- * Only a database whose preview says `ok` may be confirmed, and one that needs a schema update only with consent.
- */
 export class CandidateRegistry {
   private readonly capacity: number;
   private readonly newId: () => string;
@@ -106,10 +92,6 @@ export class CandidateRegistry {
     return [...this.entries.values()];
   }
 
-  /**
-   * Whether `id` may be confirmed now; `allowMigration` is the user's explicit consent to a schema update and
-   * `acknowledgeStorageRisk` the ticked checkbox that states why its storage is risky (DT-08).
-   */
   checkConfirm(id: string, allowMigration: boolean, acknowledgeStorageRisk = false): ConfirmCheck {
     const entry = this.entries.get(id);
     if (!entry) return { ok: false, reason: "unknown" };
@@ -122,7 +104,6 @@ export class CandidateRegistry {
       return { ok: false, reason: "migration-blocked-by-storage" };
     }
     if (preview.needsMigration && !allowMigration) return { ok: false, reason: "migration-consent-required" };
-    // A file the user browsed to was chosen on purpose, so only a positive risk asks for the checkbox.
     if (needsStorageConsent(entry.storageRisk, true) && !acknowledgeStorageRisk) {
       return { ok: false, reason: "storage-consent-required" };
     }

@@ -1,11 +1,8 @@
 import { posix, win32 } from "node:path";
 
 export interface ResolveDatabasePathOptions {
-  /** Relative paths resolve against this directory (the repository root), not the process cwd. */
   baseDirectory: string;
-  /** Used when the value is missing or blank. */
   fallback: string;
-  /** Path rules to apply; defaults to the running platform. */
   platform?: NodeJS.Platform;
 }
 
@@ -16,14 +13,13 @@ function pathApi(platform: NodeJS.Platform): typeof posix {
 }
 
 /**
- * True for a Windows drive-relative path such as `C:Users\me\data.sqlite`. It is what a shell leaves behind when it
- * swallows the backslashes of `C:\Users\me\data.sqlite`, and it silently points at the current directory of drive C.
+ * A Windows drive-relative path such as `C:Users\me\data.sqlite`: what a shell leaves after swallowing backslashes; it
+ * silently points at the current directory of drive C.
  */
 export function isDriveRelativePath(value: string, platform: NodeJS.Platform = process.platform): boolean {
   return platform === "win32" && DRIVE_RELATIVE_PATH.test(value.trim());
 }
 
-/** Throws a Traditional Chinese error when the value is a drive-relative path; otherwise does nothing. */
 export function assertNotDriveRelativePath(value: string, platform: NodeJS.Platform = process.platform): void {
   if (!isDriveRelativePath(value, platform)) return;
   throw new Error(
@@ -31,10 +27,6 @@ export function assertNotDriveRelativePath(value: string, platform: NodeJS.Platf
   );
 }
 
-/**
- * Resolves WORK_INTELLIGENCE_DB the same way for every entry point: blank means the fallback, `:memory:` stays as is,
- * relative paths hang off the base directory, and a drive-relative path is rejected instead of guessed.
- */
 export function resolveDatabasePath(raw: string | undefined, options: ResolveDatabasePathOptions): string {
   const platform = options.platform ?? process.platform;
   const path = pathApi(platform);

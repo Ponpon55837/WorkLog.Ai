@@ -3,30 +3,23 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { errorCode } from "./error-code.js";
 
-/** Minimal file handle surface; lets tests fail any single step. */
 export interface AtomicFileHandle {
   writeFile(data: string): Promise<void>;
   sync(): Promise<void>;
   close(): Promise<void>;
 }
 
-/** Injectable filesystem operations shared by every atomic writer (journal, settings). */
 export interface AtomicFileDeps {
-  /** Create a NEW file (flag `wx`) with the given mode; must fail if it exists. */
   openExclusive(filePath: string, mode: number): Promise<AtomicFileHandle>;
-  /** Open a directory read-only so it can be fsynced. */
   openDirectory(dirPath: string): Promise<AtomicFileHandle>;
   rename(from: string, to: string): Promise<void>;
   unlink(filePath: string): Promise<void>;
-  /** Unique suffix for temp names. */
   randomSuffix(): string;
   platform: NodeJS.Platform;
 }
 
-/** Step of the procedure that failed. */
 export type AtomicFileStep = "write" | "fsync" | "rename" | "directory-fsync";
 
-/** Failure of one primitive; `committed` is true when the rename already replaced the target. */
 export class AtomicFileError extends Error {
   readonly step: AtomicFileStep;
   readonly committed: boolean;
@@ -39,24 +32,19 @@ export class AtomicFileError extends Error {
   }
 }
 
-/** Options for {@link writeFileAtomic}. */
 export interface AtomicWriteOptions {
   /** File mode of the new file; defaults to owner-only because journals may reveal local paths. */
   readonly mode?: number;
   readonly deps?: AtomicFileDeps;
 }
 
-/** Result of a successful atomic write. */
 export interface AtomicWriteResult {
-  /** The directory fsync ran; false means the platform does not support it (documented capability). */
   readonly directorySynced: boolean;
 }
 
 const DEFAULT_MODE = 0o600;
-/** Directory fsync errors that mean "not supported here" rather than "failed". */
 const DIRECTORY_FSYNC_UNSUPPORTED = new Set(["EISDIR", "EPERM", "EINVAL", "ENOTSUP"]);
 
-/** Real filesystem dependencies. */
 export function createNodeAtomicFileDeps(): AtomicFileDeps {
   return {
     openExclusive: (filePath, mode) => fs.open(filePath, "wx", mode),
@@ -76,7 +64,6 @@ async function closeQuietly(handle: AtomicFileHandle): Promise<void> {
   }
 }
 
-/** Remove a temp file; a missing file (never created, already renamed) is fine. */
 export async function removeQuietly(deps: AtomicFileDeps, filePath: string): Promise<void> {
   try {
     await deps.unlink(filePath);
@@ -85,16 +72,10 @@ export async function removeQuietly(deps: AtomicFileDeps, filePath: string): Pro
   }
 }
 
-/** Temp path next to `target` (same filesystem, so rename is atomic). */
 export function tempPathFor(deps: AtomicFileDeps, target: string): string {
   return `${target}.${deps.randomSuffix()}.tmp`;
 }
 
-/**
- * Create `tempPath` exclusively, write, fsync and close it. `writeStep` labels create/write/close failures so a
- * caller with several stages (main file, recovery copy) can tell them apart; fsync failures are always `fsync`.
- * The temp file is NOT removed on failure; the caller owns cleanup.
- */
 export async function writeTempFile(
   deps: AtomicFileDeps,
   tempPath: string,
@@ -129,7 +110,6 @@ export async function writeTempFile(
   }
 }
 
-/** Rename a staged temp file over `to`. */
 export async function renameInto(deps: AtomicFileDeps, from: string, to: string): Promise<void> {
   try {
     await deps.rename(from, to);
@@ -138,11 +118,7 @@ export async function renameInto(deps: AtomicFileDeps, from: string, to: string)
   }
 }
 
-/**
- * fsync the directory so the rename itself is durable. Policy (same for every caller): skipped on win32 and on
- * EISDIR / EPERM / EINVAL / ENOTSUP (the platform cannot do it, returns false); any other failure is reported as a
- * committed `directory-fsync` error because the target was already replaced.
- */
+/** Skipped on win32 and on EISDIR/EPERM/EINVAL/ENOTSUP; any other failure is a committed `directory-fsync` error (the target was already replaced). */
 export async function syncDirectory(deps: AtomicFileDeps, dirPath: string): Promise<boolean> {
   if (deps.platform === "win32") return false;
   let handle: AtomicFileHandle;
@@ -163,11 +139,6 @@ export async function syncDirectory(deps: AtomicFileDeps, dirPath: string): Prom
   }
 }
 
-/**
- * Replace `target` with `data` so readers see either the old or the new content, never a torn file:
- * temp file in the same directory -> fsync -> rename -> directory fsync (see {@link syncDirectory} for the policy).
- * On failure before the rename the temp file is removed and the target is untouched.
- */
 export async function writeFileAtomic(
   target: string,
   data: string,

@@ -88,7 +88,7 @@ export const SENSITIVE_DATA_KINDS = [
 ] as const;
 export type SensitiveDataKind = (typeof SENSITIVE_DATA_KINDS)[number];
 
-/** Counts only: never contains the matched value or any token fragment. */
+/** Counts only: never the matched value or a token fragment. */
 export interface RedactionSummary {
   total: number;
   byKind: Partial<Record<SensitiveDataKind, number>>;
@@ -101,17 +101,11 @@ export interface ChangedFileProvenance {
 }
 
 export interface ChangedFileChange {
-  /** The current path, or the deleted path when status is deleted. */
   path: string;
   status: ChangedFileChangeStatus;
-  /** The old path for a rename. */
   previousPath?: string;
 }
 
-/**
- * One changed path as an Agent projection returns it: changedFiles, changedFilesProvenance and changedFileChanges
- * merged, so the path appears once with its status, sources and references.
- */
 export interface SessionFileEntry {
   path: string;
   status?: ChangedFileChangeStatus;
@@ -128,14 +122,9 @@ export interface ProjectRecord {
   createdAt: string;
   updatedAt: string;
   lastIngestedAt?: string;
-  /** https URL of the project's repository, set by the user; used for commit links. */
   repositoryUrl?: string;
 }
 
-/**
- * A registered project an Agent's unregistered project root may have meant, as a hint only: registry name, root and
- * status, never project data. Tracked and paused projects qualify; ignored ones are left out.
- */
 export interface MatchingProject {
   name: string;
   rootPath: string;
@@ -143,8 +132,8 @@ export interface MatchingProject {
 }
 
 /**
- * A repository link the Web UI may open: an https URL with a host and no embedded credentials (a token in
- * `https://token@host/...` would be stored and shown in plain text).
+ * https with a host and no embedded credentials: a token in `https://token@host/...` would be stored and shown in plain
+ * text.
  */
 export function isSafeRepositoryUrl(value: string): boolean {
   try {
@@ -254,10 +243,6 @@ export interface GitSummary {
   dirty?: boolean;
 }
 
-/**
- * Stable, human-readable sections for an Agent's completed work record.
- * Empty arrays are valid when a section has nothing to report.
- */
 export interface WorkSummarySections {
   outcomes: string[];
   scope: string[];
@@ -284,7 +269,6 @@ export interface WorkSummaryInputSections extends Omit<WorkSummarySections, "dec
   decisions: WorkSummaryDecisionEntry[];
 }
 
-/** Who made a review decision on a Session decision or Knowledge candidate. */
 export type ReviewActor = "user" | "agent";
 
 export interface SessionDecisionRecord {
@@ -297,7 +281,7 @@ export interface SessionDecisionRecord {
   reviewStatus: SessionDecisionReviewStatus;
   reviewedAt?: string;
   knowledgeId?: string;
-  /** Present only on a reviewed row; rows reviewed before Agent review existed read as "user". */
+  /** Rows reviewed before Agent review existed read as "user". */
   reviewedBy?: ReviewActor;
   reviewReason?: string;
   reviewRequestId?: string;
@@ -310,10 +294,8 @@ export const MAX_OUTSTANDING_ITEM_BATCH_SIZE = 100;
 export type OutstandingItemStatus = (typeof OUTSTANDING_ITEM_STATUSES)[number];
 export type OutstandingItemEventSource = "agent" | "web" | "migration";
 /**
- * Who closed a non-pending item, derived from the latest event that moved it into its current status:
- * source_session = an Agent update of the source Session's own nextSteps dropped it; later_session = another
- * Session's finalize closed it; user = a person acted in the web UI (including editing the Session's work summary);
- * cleanup_review = an accepted cleanup proposal; migration = a schema-migration backfill.
+ * From the latest event that set the current status: source_session = the source Session dropped it from its nextSteps;
+ * later_session = another Session's finalize; user = the web UI; cleanup_review = an accepted proposal; migration = a backfill.
  */
 export const OUTSTANDING_ITEM_CLOSED_BY = [
   "source_session",
@@ -334,7 +316,6 @@ export interface OutstandingItem {
   position: number;
   text: string;
   status: OutstandingItemStatus;
-  /** Present on completed and not_needed items whose closing event is known. */
   closedBy?: OutstandingItemClosedBy;
   createdAt: string;
   updatedAt: string;
@@ -344,7 +325,6 @@ export interface ListOutstandingItemsInput {
   projectRoot?: string;
   projectId?: string;
   status?: OutstandingItemStatus;
-  /** Keeps only non-pending items closed by one of these; matches nothing for pending. */
   closedBy?: readonly OutstandingItemClosedBy[];
   page?: number;
   pageSize?: number;
@@ -397,14 +377,12 @@ export type OutstandingItemRejectionCode =
   | "no_next_steps"
   | "both_lists";
 
-/** Why one requested id was left unchanged in the resolved or superseded list. */
 export interface OutstandingItemRejectionReason {
   id: string;
   list: "resolved" | "superseded";
   code: OutstandingItemRejectionCode;
 }
 
-/** Closes pending items a finalized Session's own later work directly verified (see work_resolve_outstanding_items). */
 export interface ResolveOutstandingItemsInput {
   sessionId: string;
   resolvedOutstandingItemIds?: string[];
@@ -417,9 +395,7 @@ export type ResolveOutstandingItemsResult =
       sessionId: string;
       resolvedOutstandingItemIds: string[];
       supersededOutstandingItemIds: string[];
-      /** Requested ids this same Session had already moved to the requested status. */
       alreadyAppliedIds?: string[];
-      /** True when every requested id had already been applied and nothing changed now. */
       duplicate?: true;
       outstandingItemWarnings?: {
         unresolvedIds: string[];
@@ -465,9 +441,7 @@ export interface WorkSessionRecord {
   title: string;
   summary: string;
   workSummary?: WorkSummarySections;
-  /** Number of sensitive values removed from this Session's persisted text. */
   redactionCount?: number;
-  /** Agent client that wrote this Session, recorded by the MCP server from the connection handshake. */
   agentClient?: string;
   /** Model id as reported by the Agent when it chose to; never guessed. */
   agentModel?: string;
@@ -477,7 +451,6 @@ export interface WorkSessionRecord {
   startedAt?: string;
   completedAt: string;
   createdAt: string;
-  /** Last change to the record after finalize (summary, workSummary, verification, metadata, void, evidence, links). */
   updatedAt: string;
   commitSha?: string;
   gitBranch?: string;
@@ -489,7 +462,6 @@ export interface WorkSessionRecord {
   voided?: VoidState;
 }
 
-/** Soft-delete marker kept with the record; every change is also written to the void audit. */
 export interface VoidState {
   at: string;
   reason: string;
@@ -514,7 +486,7 @@ export interface RawSnapshotRecord {
   capturedAt: string;
 }
 
-/** One audited MCP read: which Sessions and Knowledge items it returned to an Agent (ids only, never content). */
+/** Ids only, never content; `errorCode` is a machine-readable code, never an error message. */
 export interface AgentReadAuditItem {
   id: string;
   at: string;
@@ -532,17 +504,12 @@ export interface AgentReadAuditItem {
   durationMs?: number;
   /** Characters (UTF-16 code units) of the MCP response sent for this read; absent when unknown (older rows). */
   responseChars?: number;
-  /**
-   * Machine-readable code, never an error message: why the read failed (outcome `error`), or why a page lookup
-   * found nothing (outcome `not_found`).
-   */
   errorCode?: string;
 }
 
 export interface AgentReadAuditPage {
   items: AgentReadAuditItem[];
   pageInfo: PageInfo;
-  /** Distinct Agent clients in the audit, for the filter menu. */
   agents: string[];
 }
 
@@ -552,39 +519,31 @@ export interface AgentReadReference {
   agentClient?: string;
 }
 
-/** Size of the MCP responses of one tool, over the rows that recorded it (older rows are unknown and excluded). */
 export interface AgentReadResponseCharsStats {
-  /** Rows that carry a response size. */
   count: number;
   /** Nearest-rank percentiles in characters; null when count is 0. */
   p50: number | null;
   p95: number | null;
-  /** Sum of the recorded sizes. */
   total: number;
 }
 
-/** Latency and failure counts for one MCP read tool over the retained audit window. */
 export interface AgentReadToolStats {
   tool: string;
   count: number;
   errorCount: number;
-  /** Rows that carry a duration; rows recorded before timing existed are excluded from percentiles. */
   timedCount: number;
   /** Nearest-rank percentiles and maximum in milliseconds; null when no row has a duration. */
   p50Ms: number | null;
   p95Ms: number | null;
   maxMs: number | null;
   responseChars: AgentReadResponseCharsStats;
-  /** Rows per code: failed reads (counted in errorCount) and the causes of not_found page lookups. */
   errorCodes: Record<string, number>;
 }
 
-/** Per-tool read statistics, slowest p95 first. */
 export interface AgentReadStats {
   tools: AgentReadToolStats[];
 }
 
-/** How often a Session or Knowledge item was returned to Agents, with the newest reads. */
 export interface AgentReadReferences {
   total: number;
   items: AgentReadReference[];
@@ -598,20 +557,15 @@ export interface SessionDetail {
   evidence: EvidenceRecord[];
   knowledge: KnowledgeRecord[];
   decisions: SessionDecisionRecord[];
-  /** Void and restore history of this Session and its evidence, newest first. */
   voidHistory: VoidAuditRecord[];
-  /** Verification corrections after finalize, newest first. */
   verificationHistory: VerificationUpdateRecord[];
-  /** Sessions linked to this one (planning ↔ implementation, follow-ups), oldest first. */
   links: SessionLinkRecord[];
-  /** Diagrams an Agent attached, oldest first; voided ones stay listed with their reason. */
   diagrams: SessionDiagramRecord[];
 }
 
 export const SESSION_DIAGRAM_KINDS = ["mermaid", "architecture"] as const;
 export type SessionDiagramKind = (typeof SESSION_DIAGRAM_KINDS)[number];
 
-/** A versioned diagram attached to a Session; it can be voided but never deleted. */
 export interface SessionDiagramRecord {
   id: string;
   sessionId: string;
@@ -653,10 +607,8 @@ export type SetDiagramVoidResult =
   | { outcome: "not_found"; diagramId: string }
   | SkippedResult;
 
-/** Stored relation: `continues` means the Session continues the other one's work (e.g. implements its plan). */
 export type SessionLinkRelation = "continues" | "related";
 
-/** A link as seen from one Session: it continues the other, is continued by it, or is related. */
 export type SessionLinkDirection = "continues" | "continued_by" | "related";
 
 export interface SessionLinkRecord {
@@ -665,7 +617,6 @@ export interface SessionLinkRecord {
   projectName?: string;
   completedAt: string;
   relation: SessionLinkDirection;
-  /** The linked Session was voided; it stays listed here but leaves recall. */
   voided?: boolean;
 }
 
@@ -673,7 +624,6 @@ export interface LinkSessionsInput {
   sessionId: string;
   relatedSessionId: string;
   relation: SessionLinkRelation;
-  /** false removes any link between the two Sessions. */
   linked: boolean;
 }
 
@@ -688,7 +638,6 @@ export type VerificationUpdateSource = "web" | "agent";
 export interface VerificationUpdateRecord {
   id: string;
   source: VerificationUpdateSource;
-  /** Absent when the Session had no reported verification (historical not_supplied). */
   previous?: VerificationSummary;
   resulting: VerificationSummary;
   createdAt: string;
@@ -702,13 +651,11 @@ export interface EvidenceRecord {
   reference: string;
   summary?: string;
   capturedAt: string;
-  /** Set when the evidence was marked wrong; it stays visible in Session detail but leaves reports and the graph. */
   voided?: VoidState;
 }
 
 export type VoidTargetType = "session" | "evidence";
 
-/** Session list filter: voided Sessions are excluded unless asked for. */
 export type SessionVoidedFilter = "exclude" | "include" | "only";
 
 export interface VoidAuditRecord {
@@ -722,7 +669,6 @@ export interface VoidAuditRecord {
 
 export interface SetSessionVoidInput {
   sessionId: string;
-  /** true voids the Session, false restores it. */
   voided: boolean;
   /** Required when voiding. */
   reason?: string;
@@ -736,7 +682,6 @@ export interface UpdateSessionTitleInput {
 export type UpdateSessionTitleResult =
   | {
       outcome: "title_updated";
-      /** true when the stored title already matched, so nothing changed. */
       duplicate: boolean;
       session: WorkSessionRecord;
       previousTitle: string;
@@ -803,42 +748,22 @@ export interface KnowledgeRecord {
   status: KnowledgeStatus;
   createdAt: string;
   updatedAt: string;
-  /** Paths or globs (relative to the project) this Knowledge is about; drives possiblyStale. */
   appliesTo: string[];
-  /** When a Session last confirmed it still holds (appliedKnowledgeIds on a Session or a manual confirm). */
   lastConfirmedAt?: string;
   lastConfirmedSessionId?: string;
-  /** The older Knowledge this one replaced; the older one is archived when this is recorded. */
   supersedesId?: string;
-  /** Set when a Session reported contradicting it; cleared when it is confirmed again. */
   review?: KnowledgeReview;
-  /**
-   * Computed on read, never stored: a later Session changed files matching appliesTo after the last
-   * confirmation (or creation), so the Knowledge may no longer hold.
-   */
+  /** Computed on read, never stored. */
   possiblyStale?: KnowledgeStaleness;
-  /**
-   * Computed on read: how many later Sessions that listed more than 20 changed files touched appliesTo since the last
-   * confirmation (or creation). Such a Session is often a dirty worktree or a bulk change, so on its own it does not
-   * set possiblyStale; the count keeps the weaker signal. Absent when none did.
-   */
   broadChangesSince?: number;
-  /**
-   * Computed on read: the read's appliesTo match budget ran out before this Knowledge's entries were compared with
-   * every later changed file (only crafted, star-heavy stored data gets here), so a missing possiblyStale proves
-   * nothing.
-   */
   stalenessUnchecked?: true;
-  /** Computed on read from knowledge_feedback; absent when no Session or person has confirmed or contradicted it. */
   evidence?: KnowledgeEvidence;
 }
 
 export const KNOWLEDGE_FEEDBACK_KINDS = ["applied", "contradicted", "manual_confirm"] as const;
 export type KnowledgeFeedbackKind = (typeof KNOWLEDGE_FEEDBACK_KINDS)[number];
 
-/** How often recorded work backed or contradicted a Knowledge item. */
 export interface KnowledgeEvidence {
-  /** Sessions that applied it successfully plus manual confirmations. */
   confirmed: number;
   contradicted: number;
   lastConfirmedAt?: string;
@@ -848,7 +773,6 @@ export interface KnowledgeEvidence {
 export interface KnowledgeFeedbackRecord {
   id: string;
   kind: KnowledgeFeedbackKind;
-  /** Absent for a manual confirmation, which the Web UI or an Agent (work_update_knowledge with confirm) writes. */
   sessionId?: string;
   sessionTitle?: string;
   occurredAt: string;
@@ -860,18 +784,9 @@ export interface KnowledgeReview {
   at: string;
 }
 
-/**
- * applies_to_changed: later Sessions that changed at most 20 files touched appliesTo. broad_applies_to: the same, and
- * appliesTo covers a large share of the project's newest ordinary Sessions (the write-time breadth, not only the
- * Sessions after the baseline), so a touch says little about this Knowledge.
- */
 export const KNOWLEDGE_STALENESS_REASONS = ["applies_to_changed", "broad_applies_to"] as const;
 export type KnowledgeStalenessReason = (typeof KNOWLEDGE_STALENESS_REASONS)[number];
 
-/**
- * How much of a project's ordinary work an appliesTo covers: the share of the project's newest 200 Sessions with 1-20
- * changed files it touches. The same project-wide definition at write time and in possiblyStale.
- */
 export interface KnowledgeAppliesToBreadth {
   /** Touching Sessions divided by `sessions`, rounded to 3 decimals. */
   share: number;
@@ -879,11 +794,8 @@ export interface KnowledgeAppliesToBreadth {
   sessions: number;
 }
 
-/** The breadth measured when appliesTo is written, over the project's newest Sessions only. */
 export interface KnowledgeWriteBreadth extends KnowledgeAppliesToBreadth {
-  /** True when the project has more such Sessions than were scanned. */
   truncated: boolean;
-  /** True when the share is above the broad threshold over enough Sessions; the write's warnings then say so. */
   broad: boolean;
 }
 
@@ -896,7 +808,6 @@ export interface KnowledgeStaleness {
   /** How many later Sessions with at most 20 changed files touched matching paths. */
   sessionCount: number;
   reason: KnowledgeStalenessReason;
-  /** Project-wide (newest 200 Sessions with 1-20 files), as at write time; absent when the project has none. */
   appliesToBreadth?: KnowledgeAppliesToBreadth;
 }
 
@@ -924,7 +835,6 @@ export interface RecordKnowledgeInput {
   tags?: string[];
   references?: string[];
   appliesTo?: string[];
-  /** An older active Knowledge of the same project that this one replaces; it gets archived. */
   supersedesId?: string;
 }
 
@@ -932,12 +842,7 @@ export interface RecordedKnowledgeResult {
   outcome: "knowledge_recorded";
   duplicate: boolean;
   knowledge: KnowledgeRecord;
-  /**
-   * Problems that did not block recording, e.g. an unknown supersedesId, or an appliesTo that covers a large share of
-   * the project's recent Sessions.
-   */
   warnings?: string[];
-  /** How much of the project's recent work appliesTo touches; absent for a duplicate, no appliesTo, or no Sessions. */
   appliesToBreadth?: KnowledgeWriteBreadth;
   redactions?: RedactionSummary;
 }
@@ -952,7 +857,6 @@ export interface UpdateKnowledgeInput {
   references?: string[];
   status?: KnowledgeStatus;
   appliesTo?: string[];
-  /** true records that the Knowledge was checked and still holds: sets lastConfirmedAt, clears review. */
   confirm?: boolean;
 }
 
@@ -960,21 +864,14 @@ export interface UpdatedKnowledgeResult {
   outcome: "knowledge_updated";
   knowledge: KnowledgeRecord;
   redactions?: RedactionSummary;
-  /**
-   * Present when the saved appliesTo keeps an entry that never matches (a glob above the star bound), or when a
-   * changed appliesTo covers a large share of the project's recent Sessions.
-   */
   warnings?: string[];
-  /** Set when this update changed appliesTo: how much of the project's recent work it touches. */
   appliesToBreadth?: KnowledgeWriteBreadth;
 }
 
-/** Restoring (status active) was refused because an active Knowledge already supersedes this one. */
 export interface KnowledgeRestoreRejectedResult {
   outcome: "rejected";
   reason: "superseded_by_active";
   knowledgeId: string;
-  /** The active Knowledge that replaced it. */
   successorId: string;
 }
 
@@ -1010,7 +907,6 @@ export interface KnowledgeQuery {
   limit?: number;
   page?: number;
   pageSize?: number;
-  /** Agent search only: compact items are CompactKnowledgeItem rows read without body, tags, references or appliesTo. */
   view?: "full" | "compact";
 }
 
@@ -1030,16 +926,10 @@ export interface SessionListResult {
   outcome: "sessions";
   items: WorkSessionRecord[];
   pageInfo: PageInfo;
-  /** How a text query was shortened, or that records above the per-record search size were skipped. */
   warnings?: string[];
-  /** Records a text query skipped because they are above the per-record search size; absent when none. */
   searchSkippedRecords?: number;
 }
 
-/**
- * A Knowledge list row for maintenance: identity, state and size hints only. The full record (body, tags, references,
- * appliesTo, trust signals) is one work_get_knowledge_history read away.
- */
 export interface CompactKnowledgeItem {
   id: string;
   projectId: string;
@@ -1048,7 +938,6 @@ export interface CompactKnowledgeItem {
   status: KnowledgeStatus;
   title: string;
   updatedAt: string;
-  /** Absent when appliesTo is empty. */
   appliesToCount?: number;
   needsReview?: true;
 }
@@ -1059,24 +948,14 @@ export interface KnowledgeQueryResult<Item = KnowledgeRecord> {
   projects: ProjectRecord[];
   items: Item[];
   pageInfo: PageInfo;
-  /** How a text query was shortened, or that records above the per-record search size were skipped. */
   warnings?: string[];
-  /** Records a text query skipped because they are above the per-record search size; absent when none. */
   searchSkippedRecords?: number;
 }
 
 export type KnowledgeSearchResult = KnowledgeQueryResult | KnowledgeSkippedResult;
 
-/**
- * How an Agent Knowledge search with a query was answered: `strict` when every word matched (items), `relaxed` when
- * nothing did and ranked partial matches stand in (relaxedMatches), `none` when neither found anything.
- */
 export type KnowledgeSearchMatch = "strict" | "relaxed" | "none";
 
-/**
- * A ranked partial match from the relaxed fallback, as a digest: it shares some query terms but is not an exact
- * match. Read the full record with work_get_knowledge_history.
- */
 export interface RelaxedKnowledgeMatch {
   id: string;
   projectId: string;
@@ -1087,50 +966,26 @@ export interface RelaxedKnowledgeMatch {
   /** At most 3 entries; appliesToOmittedCount counts the rest. */
   appliesTo?: string[];
   appliesToOmittedCount?: number;
-  /** Tokenized query terms (words, identifier parts, CJK bigrams) the Knowledge contains. */
   matchedTerms: string[];
-  /** appliesTo or reference paths that matched a path-like query word. */
   matchedPaths?: string[];
   /** Up to 400 characters of the body around the matched terms; excerptTruncated marks a cut body. */
   excerpt: string;
   excerptTruncated?: true;
   possiblyStale?: true;
-  /** Only when the flag comes from a broad appliesTo: a touch says little about this Knowledge. */
   staleReason?: "broad_applies_to";
-  /** Later Sessions of over 20 changed files that touched appliesTo; present only above 0. */
   broadChangesSince?: number;
   needsReview?: true;
 }
 
-/** work_search_knowledge result: the strict list result, plus the fallback and status pointers when it was empty. */
 export interface AgentKnowledgeQueryResult<Item = KnowledgeRecord> extends KnowledgeQueryResult<Item> {
-  /** Present when the search had a query. */
   match?: KnowledgeSearchMatch;
   relaxedMatches?: RelaxedKnowledgeMatch[];
-  /** Matches in the statuses this search did not cover, counted the same way; counts only, never content. */
   otherStatusMatches?: Partial<Record<KnowledgeStatus, number>>;
-  /**
-   * Per other status, how many records contain every word of the effective query: passing that status answers with
-   * them as a strict match. A status absent here but present in otherStatusMatches has only partial matches.
-   */
   otherStatusFullMatches?: Partial<Record<KnowledgeStatus, number>>;
-  /** Present whenever the strict search cut the query (word cap), whatever the match; the exact words every count and re-query used. */
   effectiveQuery?: string;
-  /** The relaxed search used only part of the query's terms or path-like words (caps), so matchedTerms are partial. */
   queryTruncated?: true;
-  /**
-   * The relaxed search's appliesTo match budget or its path-scan budget ran out (only crafted stored patterns or
-   * very long histories reach them), or a stored list above the load bound was skipped, so older Knowledge was not
-   * checked against the path words of the query.
-   */
   appliesToScanTruncated?: true;
-  /**
-   * Fallback answers only (match relaxed or none): per query word, how many Knowledge of this scope and status contain
-   * it (a compound such as `retrieval-trust` counts a record holding any of its parts, like the ranking; an unsegmented
-   * Chinese run counts one holding at least half of its character pairs). A count of 0 names a word to drop or replace.
-   */
   termHits?: RecallTermHits[];
-  /** Set when the query had more than 32 distinct terms: words past the cap are not in termHits, not reported as 0. */
   termHitsTruncated?: true;
   hint?: string;
 }
@@ -1183,7 +1038,6 @@ export interface GraphNode {
   metadata: Record<string, string | number | boolean>;
 }
 
-/** recorded: stored in a record (a Session changed a file, a link someone made); derived: computed from records. */
 export type GraphEdgeProvenance = "recorded" | "derived";
 
 export interface GraphEdge {
@@ -1192,7 +1046,6 @@ export interface GraphEdge {
   to: string;
   kind: GraphEdgeKind;
   provenance: GraphEdgeProvenance;
-  /** Why a derived edge exists, e.g. how many Sessions changed both files. */
   reason?: string;
 }
 
@@ -1204,9 +1057,7 @@ export interface GraphQuery {
   limit?: number;
   maxNodes?: number;
   maxEdges?: number;
-  /** Enables bounded server-side graph pages when supplied. */
   pageSize?: number;
-  /** Opaque cursor returned by a previous graph page. */
   cursor?: string;
   /** Adds derived co_changed edges between loaded files (hidden by default). */
   includeDerived?: boolean;
@@ -1217,7 +1068,6 @@ export interface GraphQuery {
 export interface GraphPathQuery {
   projectRoot?: string;
   projectId?: string;
-  /** Graph node ids, e.g. "session:<id>" or "file:<projectId>:<path>". */
   from: string;
   to: string;
   includeDerived?: boolean;
@@ -1227,7 +1077,6 @@ export interface GraphPathStep {
   from: GraphNode;
   to: GraphNode;
   edge: GraphEdge;
-  /** Plain-language reason for this step. */
   reason: string;
 }
 
@@ -1235,9 +1084,7 @@ export type GraphPathResult =
   | {
       outcome: "graph_path";
       found: boolean;
-      /** Shortest path in steps (breadth-first over the bounded graph); empty when not found. */
       steps: GraphPathStep[];
-      /** Nodes the bounded graph held; a path through records beyond it is not searched. */
       searchedNodes: number;
       reason?: string;
     }
@@ -1245,7 +1092,6 @@ export type GraphPathResult =
 
 export interface GraphPageInfo {
   unit: "sessions";
-  /** Current opaque-cursor traversal phase. */
   phase?: "projects" | "sessions" | "project_knowledge";
   offset: number;
   pageSize: number;
@@ -1296,10 +1142,8 @@ export interface DashboardSummary {
 export const REPORT_PERIODS = ["day", "week", "month", "quarter", "year"] as const;
 
 export type ReportPeriod = (typeof REPORT_PERIODS)[number];
-/** A report covers a calendar period, or "custom" for an explicit from/to range (e.g. a sprint). */
 export const WORK_REPORT_PERIODS = [...REPORT_PERIODS, "custom"] as const;
 export type WorkReportPeriod = (typeof WORK_REPORT_PERIODS)[number];
-/** Longest custom report range, in days, inclusive of both ends. */
 export const MAX_CUSTOM_REPORT_DAYS = 366;
 export type ReportTrendGranularity = "day" | "month";
 export const REPORT_EXPORT_FORMATS = ["json", "markdown"] as const;
@@ -1381,7 +1225,6 @@ export interface ReportEvidence {
   reference?: string;
 }
 
-/** A compact Session reference for the report's cross-period lists. */
 export interface ReportSpanningSession {
   id: string;
   title: string;
@@ -1392,11 +1235,8 @@ export interface ReportSpanningSession {
 }
 
 export interface ReportSpanningSessions {
-  /** Completed in the period, started before it. */
   startedEarlier: ReportSpanningSession[];
-  /** Started in the period, completed after it. */
   continuedLater: ReportSpanningSession[];
-  /** Completed before the period, changed during it. */
   updatedInPeriod: ReportSpanningSession[];
 }
 
@@ -1411,11 +1251,6 @@ export interface WorkReport {
   periodSummary: string;
   sourceSessionIds: string[];
   sessions: WorkSessionRecord[];
-  /**
-   * Whether the current or comparison period contains more sessions than the report's 200-session limit. Totals,
-   * comparison, project shares and the period summary still count the whole period; only the listed sessions,
-   * trends, risks, decisions and evidence come from the 200 newest.
-   */
   sessionTruncation: {
     currentPeriod: boolean;
     previousPeriod: boolean;
@@ -1425,9 +1260,7 @@ export interface WorkReport {
   totals: {
     sessions: number;
     events: number;
-    /** Changed files of the period's Sessions, leaving out Sessions that list more than 20 files. */
     changedFiles: number;
-    /** Sessions left out of changedFiles because they list more than 20 files, usually an unrelated dirty worktree. */
     changedFilesOversizedSessions: number;
     verification: Record<ReportVerificationStatus, number>;
   };
@@ -1442,10 +1275,6 @@ export interface WorkReport {
   };
   trendGranularity: ReportTrendGranularity;
   trends: ReportTrendPoint[];
-  /**
-   * Work that crosses the period boundary. Totals still count a Session once, in the period it was
-   * completed; these lists only show where else it belongs (at most 20 each).
-   */
   spanning: ReportSpanningSessions;
   evidence: ReportEvidence[];
   evidencePageInfo: PageInfo;
@@ -1532,7 +1361,6 @@ export interface ReportSynthesisRequestQuery {
   from?: string;
   to?: string;
   projectId?: string;
-  /** "all" limits results to all-project reports, so a single project's synthesis never stands in for them. */
   scopeType?: ReportSynthesisScopeType;
   status?: ReportSynthesisStatus;
   requestId?: string;
@@ -1753,7 +1581,6 @@ export interface FinalizeSessionInput {
   handoffContent?: string;
   events?: FinalizeEventInput[];
   changedFiles?: string[];
-  /** Paths already changed before this work started; they are excluded from this Session's changed files. */
   baselineChangedFiles?: string[];
   changedFilesProvenance?: ChangedFileProvenance[];
   changedFileChanges?: ChangedFileChange[];
@@ -1762,20 +1589,13 @@ export interface FinalizeSessionInput {
   /** When the work began (e.g. the first message of the conversation); must not be after completedAt. */
   startedAt?: string;
   completedAt?: string;
-  /** An earlier Session this one continues (e.g. the planning Session it implements). */
   parentSessionId?: string;
   relatedSessionIds?: string[];
-  /** Knowledge this work relied on and found still valid; their confirmation time moves to this Session. */
   appliedKnowledgeIds?: string[];
-  /** Knowledge this work found no longer true; they are flagged for review. */
   contradictedKnowledgeIds?: string[];
-  /** Optional Mermaid or architecture diagrams that explain the work, masked and stored with the Session. */
   diagrams?: DiagramContentInput[];
-  /** Knowledge pages this work saved or checked; this Session does not count as their new data. */
   maintainedKnowledgePages?: string[];
-  /** Outstanding items completed in this Session; only pending items in this tracked project are resolved. */
   resolvedOutstandingItemIds?: string[];
-  /** Older pending items explicitly replaced by this Session; audited as not_needed with its actor id. */
   supersededOutstandingItemIds?: string[];
 }
 
@@ -1795,7 +1615,6 @@ export interface PolicyDecision {
 export type TransientNextStepCategory =
   "uncommitted" | "not_pushed" | "pending_merge" | "ci_running" | "phase_not_started";
 
-/** nextSteps items that look like in-task transient state; advisory only, nothing is dropped or changed. */
 export interface NextStepsWarnings {
   /** 0-based position in the stored nextSteps; item text is never repeated here. */
   items: { index: number; category: TransientNextStepCategory }[];
@@ -1803,9 +1622,7 @@ export interface NextStepsWarnings {
 }
 
 export interface PrivateTagWarnings {
-  /** Field paths such as "summary" or "workSummary.nextSteps[0]"; the text itself is never repeated. */
   fields: string[];
-  /** Unclosed opening tags across all fields, including any beyond the listed fields. */
   unclosed: number;
   message: string;
 }
@@ -1814,39 +1631,25 @@ export interface FinalizedSessionResult {
   outcome: "finalized";
   duplicate: boolean;
   session: WorkSessionRecord;
-  /** Where a newly stored startedAt came from; absent on duplicates and when the Session has no start. */
   startedAtSource?: "reported" | "events" | "server_observed";
   redactions?: RedactionSummary;
   verificationFollowUp?: VerificationFollowUp;
   changedFilesFollowUp?: ChangedFilesFollowUp;
-  /** Changed files that still have no added/modified/deleted/renamed status. */
   changedFileChangesFollowUp?: ChangedFileChangesFollowUp;
-  /** How many statuses the server filled in from its own Git observation (the Agent reported none for them). */
   changedFileChangesSource?: { serverObservedGit: number };
   workSummaryFollowUp?: WorkSummaryFollowUp;
-  /** Requested links that were not created (unknown, non-tracked, or same Session). */
   linkWarnings?: string[];
-  /** applied/contradicted Knowledge ids that were not found in this project. */
   knowledgeWarnings?: string[];
-  /** How many of the requested applied/contradicted ids this Session now records; present when any were sent. */
   knowledgeFeedback?: KnowledgeFeedbackCounts;
-  /** Active Knowledge returned to this Agent during this work that the Session has not reported; advisory only. */
   unreportedKnowledge?: UnreportedKnowledge;
-  /** Supplied timestamps that were stored but look estimated, or that could not apply. */
   timestampWarnings?: string[];
-  /** maintainedKnowledgePages whose review cursor moved to this Session (it no longer counts as their new data). */
   knowledgePagesAcknowledged?: string[];
-  /** One-line prompt for pages needing source review, an explicit update, or enough accumulated new Sessions. */
   knowledgePageMaintenanceHint?: string;
   resolvedOutstandingItemIds?: string[];
   supersededOutstandingItemIds?: string[];
-  /** Still-pending older items related to this work; retrieval is not completion evidence. */
   relatedOutstandingItems?: RelatedOutstandingItems;
-  /** Still-pending items of the Sessions this one continues or relates to (its links); pointers, not evidence. */
   continuedOutstandingItems?: RelatedOutstandingItems;
-  /** Active Knowledge whose appliesTo covers a file this Session changed; advisory, nothing was changed. */
   knowledgeToReview?: KnowledgeReviewHint[];
-  /** The appliesTo match budget ran out, so older Knowledge was not checked for knowledgeToReview. */
   knowledgeToReviewTruncated?: true;
   outstandingItemWarnings?: {
     unresolvedIds: string[];
@@ -1854,7 +1657,6 @@ export interface FinalizedSessionResult {
     message: string;
     reasons: OutstandingItemRejectionReason[];
   };
-  /** Text fields holding an opening <private> tag with no closing tag; the text is stored as written. */
   privateTagWarnings?: PrivateTagWarnings;
   nextStepsWarnings?: NextStepsWarnings;
 }
@@ -1864,19 +1666,15 @@ export interface KnowledgeFeedbackCounts {
   contradicted: number;
 }
 
-/** The newest few unreported reads (id and title only) and how many there are in all. */
 export interface UnreportedKnowledge {
   items: { id: string; title: string }[];
   total: number;
 }
 
-/** One Knowledge item a finishing Agent should check against its change: confirm, update, or leave it. */
 export interface KnowledgeReviewHint {
   id: string;
   title: string;
-  /** The changed file, as stored on the Session, that the pattern covers. */
   path: string;
-  /** The appliesTo entry that covers it, when it is not the path itself. */
   appliesTo?: string;
 }
 
@@ -1896,11 +1694,7 @@ export interface SkippedResult {
   reason: string;
 }
 
-/**
- * Policy-gated operations scoped by a project id must return the id that was
- * requested. A project root is unavailable for an unknown id and is the
- * wrong identifier for callers that already operate on the registry id.
- */
+/** Must return the requested project id, not the project root, which is the wrong identifier for registry callers. */
 export interface ProjectIdSkippedResult {
   outcome: "skipped";
   projectId: string;
@@ -1911,7 +1705,6 @@ export interface ProjectIdSkippedResult {
 export type FinalizeRejectionCode =
   "both_lists" | "superseded_without_next_steps" | "knowledge_applied_and_contradicted" | "started_after_completed";
 
-/** A request that contradicts itself: nothing was written. */
 export interface FinalizeRejectedResult {
   outcome: "rejected";
   code: FinalizeRejectionCode;
@@ -1955,29 +1748,23 @@ export interface UpdatedSessionVerificationResult {
   outcome: "updated";
   session: WorkSessionRecord;
   previous?: VerificationSummary;
-  /** true when the submitted verification equals the stored one; nothing was written. */
   unchanged?: boolean;
   redactions?: RedactionSummary;
 }
 
 export interface UpdateSessionMetadataInput {
   sessionId: string;
-  /** Omitted keeps the stored files, provenance, and changes unchanged. */
   changedFiles?: string[];
   changedFilesMode?: ChangedFilesMode;
   changedFilesProvenance?: ChangedFileProvenance[];
   changedFileChanges?: ChangedFileChange[];
   verification?: VerificationSummary;
   git?: GitSummary;
-  /** Confirmed start of the work; not applied (and reported in timestampWarnings) when after completedAt. */
   startedAt?: string;
-  /** Corrected completion time from evidence; not applied when before startedAt. Kept as a note event. */
   completedAt?: string;
   /** The work continued and just finished: the server clock is recorded as completedAt. Exclusive with completedAt. */
   completedAtNow?: true;
-  /** Recalled Knowledge this Session relied on and found still valid, reported after the save. */
   appliedKnowledgeIds?: string[];
-  /** Recalled Knowledge this Session found no longer true, reported after the save. */
   contradictedKnowledgeIds?: string[];
 }
 
@@ -2228,13 +2015,9 @@ export interface UpdatedSessionMetadataResult {
   outcome: "updated";
   session: WorkSessionRecord;
   redactions?: RedactionSummary;
-  /** Timestamp corrections that were not applied, or that look estimated. */
   timestampWarnings?: string[];
-  /** Present when this update touched changed files and some still have no change status. */
   changedFileChangesFollowUp?: ChangedFileChangesFollowUp;
-  /** applied/contradicted Knowledge ids that were not found in this project. */
   knowledgeWarnings?: string[];
-  /** How many of the requested applied/contradicted ids this Session now records; present when any were sent. */
   knowledgeFeedback?: KnowledgeFeedbackCounts;
 }
 
@@ -2300,7 +2083,6 @@ export interface UpdateSessionWorkSummaryInput {
   workSummary: WorkSummaryInputSections | Partial<WorkSummaryInputSections>;
 }
 
-/** What one nextSteps synchronization did to a Session's outstanding items. */
 export interface OutstandingItemSyncSummary {
   created: number;
   retained: number;
@@ -2317,9 +2099,7 @@ export interface UpdatedSessionWorkSummaryResult {
   previousWorkSummary?: WorkSummarySections;
   appliedWorkSummary: WorkSummarySections;
   redactions?: RedactionSummary;
-  /** Present only when this update changed the Session's outstanding items (not on a replay). */
   outstandingItems?: OutstandingItemSyncSummary;
-  /** Present only when this update supplied nextSteps and some look transient (not on a replay). */
   nextStepsWarnings?: NextStepsWarnings;
 }
 
@@ -2336,19 +2116,12 @@ export type UpdateSessionWorkSummaryResult =
   | SessionVerificationNotFoundResult
   | SessionVerificationSkippedResult;
 
-/**
- * Compact Session view for Agent context and search results, sized to stay within an Agent's
- * tool-result budget. Changed-file lists, provenance and events are left out; read the full
- * record with work_get_session.
- */
 export interface SessionDigest {
   id: string;
   projectId: string;
   projectName?: string;
   title: string;
-  /** Truncated with a trailing "…" when longer than the digest limit. */
   summary: string;
-  /** Context-only marker for sentence-boundary truncation. */
   summaryTruncated?: boolean;
   startedAt?: string;
   completedAt: string;
@@ -2356,11 +2129,9 @@ export interface SessionDigest {
   gitBranch?: string;
   verificationStatus: ReportVerificationStatus;
   changedFilesCount: number;
-  /** Leading items of workSummary.nextSteps (known limits and unfinished work), each truncated. */
   openItems: string[];
 }
 
-/** Compact Knowledge view; the full body is available through work_search_knowledge. */
 export interface KnowledgeDigest {
   id: string;
   projectId: string;
@@ -2368,34 +2139,24 @@ export interface KnowledgeDigest {
   sessionId?: string;
   kind: KnowledgeKind;
   title: string;
-  /** Body truncated with a trailing "…" when longer than the digest limit. */
   excerpt: string;
-  /** Context-only marker for sentence-boundary truncation. */
   excerptTruncated?: boolean;
   tags: string[];
   updatedAt: string;
   possiblyStale?: boolean;
-  /** Only when the flag comes from a broad appliesTo: a touch says little about this Knowledge. */
   staleReason?: "broad_applies_to";
-  /** Later Sessions of over 20 changed files that touched appliesTo; present only above 0. */
   broadChangesSince?: number;
   needsReview?: boolean;
 }
 
-/** A confirmed decision from a Session's workSummary.decisions, with its source for citation. */
 export interface DecisionDigest {
   sessionId: string;
   sessionTitle: string;
   completedAt: string;
   text: string;
-  /** Set when context shortened this decision at a sentence boundary. */
   truncated?: boolean;
 }
 
-/**
- * A decision in a focused context. Decisions of one Session are listed together, so only the first of them carries
- * the Session's title and completion time.
- */
 export type RelevantDecisionDigest = Omit<DecisionDigest, "sessionTitle" | "completedAt"> &
   Partial<Pick<DecisionDigest, "sessionTitle" | "completedAt">>;
 
@@ -2409,7 +2170,6 @@ export const KNOWLEDGE_CANDIDATE_REQUEST_STATUSES = [
 export type KnowledgeCandidateRequestStatus = (typeof KNOWLEDGE_CANDIDATE_REQUEST_STATUSES)[number];
 export type KnowledgeCandidateStatus = "proposed" | "accepted" | "rejected";
 
-/** An Agent request to propose Knowledge from a project's recorded Sessions; nothing is written as Knowledge until a person accepts it. */
 export interface KnowledgeCandidateRequest {
   id: string;
   projectId: string;
@@ -2423,7 +2183,6 @@ export interface KnowledgeCandidateRequest {
   candidateCount: number;
 }
 
-/** Live Sessions no Knowledge candidate request has covered. High value: confirmed decisions, recovered verification, or later work built on them. */
 export interface KnowledgeCandidateBacklogCounts {
   uncoveredSessions: number;
   highValueSessions: number;
@@ -2434,7 +2193,6 @@ export interface KnowledgeCandidateBacklog extends KnowledgeCandidateBacklogCoun
 }
 
 export interface KnowledgeCandidateInput {
-  /** The Session whose record supports this candidate; must be one of the request's sources. */
   sourceSessionId: string;
   kind: KnowledgeKind;
   title: string;
@@ -2442,7 +2200,6 @@ export interface KnowledgeCandidateInput {
   tags?: string[];
   references?: string[];
   appliesTo?: string[];
-  /** Why this is reusable, quoting or pointing to the supporting part of the Session record. */
   rationale: string;
 }
 
@@ -2461,15 +2218,13 @@ export interface KnowledgeCandidate {
   appliesTo: string[];
   rationale: string;
   status: KnowledgeCandidateStatus;
-  /** The Knowledge created when the candidate was accepted. */
   knowledgeId?: string;
   createdAt: string;
   decidedAt?: string;
-  /** Present only on a decided candidate; candidates decided before Agent review existed read as "user". */
+  /** Candidates decided before Agent review existed read as "user". */
   reviewedBy?: ReviewActor;
   reviewReason?: string;
   reviewRequestId?: string;
-  /** Advisory overlaps found when the candidate was submitted; absent when none were found or none were stored. */
   overlaps?: KnowledgeCandidateOverlap[];
 }
 
@@ -2478,9 +2233,7 @@ export interface KnowledgeCandidateSourceSession {
   title: string;
   summary: string;
   completedAt: string;
-  /** The sections reusable Knowledge comes from; scope and verification are one work_get_session read away. */
   workSummary?: Pick<WorkSummarySections, "outcomes" | "decisions" | "nextSteps">;
-  /** Raw handoff text, truncated to the request's character budget. */
   handoff?: string;
   handoffTruncated?: boolean;
 }
@@ -2489,24 +2242,12 @@ export interface KnowledgeCandidateContext {
   outcome: "knowledge_candidate_context";
   request: KnowledgeCandidateRequest;
   sessions: KnowledgeCandidateSourceSession[];
-  /** workSummary sections left out of sessions; read them with sessionReadWith. */
   omittedWorkSummarySections: Array<"scope" | "verification">;
   sessionReadWith: "work_get_session";
-  /**
-   * What the project already decided, so proposals do not repeat it: active Knowledge (no status), archived
-   * Knowledge, and rejected candidates, titles only, newest first within fixed caps per status.
-   */
   existingKnowledge: Array<{ id: string; kind: KnowledgeKind; title: string; status?: "archived" | "rejected" }>;
-  /** Entries left out by those caps. */
   existingKnowledgeOmitted?: number;
 }
 
-/**
- * An advisory computed when candidates are submitted: the candidate resembles existing Knowledge or an earlier
- * candidate of the same project. It never rejects, merges, or changes anything; the user decides in the Web UI.
- * Schema 33 stores it with the candidate (ids, statuses and scores only); relation and status stay as they were at
- * submission, while the title is read from the matched record and is absent once that record no longer exists.
- */
 export interface KnowledgeCandidateOverlap {
   relation: "possible_duplicate" | "overlaps_archived" | "overlaps_rejected";
   type: "knowledge" | "candidate";
@@ -2529,7 +2270,6 @@ export type RequestKnowledgeCandidatesResult =
       outcome: "knowledge_candidate_request";
       duplicate: boolean;
       request: KnowledgeCandidateRequest;
-      /** Sessions still not covered by any request after this new one (absent on a duplicate); tell the user, do not request again unasked. */
       remaining?: KnowledgeCandidateBacklogCounts;
     }
   | { outcome: "knowledge_candidates_not_needed"; reason: string }
@@ -2544,7 +2284,6 @@ export type KnowledgeCandidateContextResult =
 export type SubmitKnowledgeCandidatesResult =
   | {
       outcome: "knowledge_candidates_submitted";
-      /** Set when the same payload was already submitted for this request; nothing new was stored. */
       duplicate?: true;
       request: KnowledgeCandidateRequest;
       candidates: KnowledgeCandidate[];
@@ -2555,7 +2294,6 @@ export type SubmitKnowledgeCandidatesResult =
   | { outcome: "invalid_candidates"; reason: string }
   | KnowledgeCandidateSkippedResult;
 
-/** Standing Knowledge pages: an Agent-maintained answer to a fixed question about a project. */
 export const KNOWLEDGE_PAGE_DEFAULTS = [
   {
     slug: "architecture",
@@ -2580,9 +2318,7 @@ export function isDefaultKnowledgePageSlug(slug: string): boolean {
 }
 export const KNOWLEDGE_PAGE_AUTHORS = ["agent", "web"] as const;
 export type KnowledgePageAuthor = (typeof KNOWLEDGE_PAGE_AUTHORS)[number];
-/** `empty` until first written; `has_new_data` when unreviewed Sessions postdate the saved page. */
 export type KnowledgePageStatus = "empty" | "fresh" | "has_new_data";
-/** The literal a section uses when its sources do not answer the question; only such a section may cite nothing. */
 export const KNOWLEDGE_PAGE_INSUFFICIENT = "資料不足";
 
 export interface KnowledgePageSection {
@@ -2607,9 +2343,7 @@ export interface KnowledgePageReviewSource {
 export interface KnowledgePageReviewSection {
   heading: string;
   sources: KnowledgePageReviewSource[];
-  /** Counts additional affected sources omitted from a bounded context summary. */
   omittedSourceCount?: number;
-  /** Reason codes across both shown and omitted sources in a bounded context summary. */
   reasons?: KnowledgePageReviewReason[];
 }
 
@@ -2620,16 +2354,11 @@ export interface KnowledgePageRecord {
   title: string;
   question: string;
   sections: KnowledgePageSection[];
-  /** 0 until the first version is saved. */
   version: number;
   status: KnowledgePageStatus;
-  /** Non-voided Sessions completed after the page was last written. */
   newSessionCount: number;
-  /** Newest Session the Agent has assessed as not requiring a page rewrite. */
   checkedThrough?: { sessionId: string; completedAt: string };
-  /** Set when at least one cited source changed or its void state changed after the page was written. */
   needsReview?: boolean;
-  /** Sections and cited source Sessions that triggered needsReview. */
   reviewSections?: KnowledgePageReviewSection[];
   lastAuthor?: KnowledgePageAuthor;
   /** When the page was last written (its content reflects Sessions up to this time). */
@@ -2666,11 +2395,8 @@ export interface RequestKnowledgePageUpdateInput {
 export interface KnowledgePageContextQuery {
   projectRoot: string;
   slug: string;
-  /** Focused read: only the sections whose heading or content contains a query term. */
   query?: string;
-  /** Focused read: only the sections with these headings (case-insensitive, trimmed). */
   headings?: string[];
-  /** Review-only read: only the sections that need another look and the Sessions behind them. */
   reviewOnly?: boolean;
 }
 
@@ -2678,17 +2404,12 @@ export interface SaveKnowledgePageInput {
   projectRoot: string;
   slug: string;
   idempotencyKey: string;
-  /** The whole page. Exactly one of sections or a section update (upsertSections and/or removeHeadings). */
   sections?: KnowledgePageSection[];
-  /** Section update: sections to add, or to replace in place when a section with that heading exists. */
   upsertSections?: KnowledgePageSection[];
-  /** Section update: headings of sections to remove (case-insensitive, trimmed). Needs reviewToken. */
   removeHeadings?: string[];
   /**
-   * The reviewToken of the work_get_knowledge_page_context read this page was written from, passed back unchanged.
-   * The save is refused with version_conflict when the page changed since that read, and Sessions the read did not
-   * show (left out by truncation, or finished after it) stay new. Without it the save behaves as before: no version
-   * check, and every Session finished before the save counts as covered.
+   * The reviewToken of the page-context read, passed back unchanged. A changed page is refused with version_conflict;
+   * without it, no version check is made.
    */
   reviewToken?: string;
 }
@@ -2696,7 +2417,6 @@ export interface SaveKnowledgePageInput {
 export interface MarkKnowledgePageCheckedInput {
   projectRoot: string;
   slug: string;
-  /** A Session returned by work_get_knowledge_page_context that the Agent has assessed. */
   throughSessionId: string;
 }
 
@@ -2710,127 +2430,75 @@ export interface UpdateKnowledgePageInput {
   pageId: string;
   title?: string;
   sections: KnowledgePageSection[];
-  /** The page version the edit started from; a different current version returns version_conflict. */
   baseVersion?: number;
 }
 
-/**
- * A Session as an Agent sees it while writing a Knowledge page: the first two outcomes, decisions and open items,
- * each at most 100 characters. The summary, scope and verification are one work_get_session read away.
- */
 export interface KnowledgePageContextSession {
   id: string;
   title: string;
   completedAt: string;
   workSummary: Pick<WorkSummarySections, "outcomes" | "decisions" | "nextSteps">;
-  /** True when items were left out or shortened (shortened text ends with an ellipsis). */
   truncated?: boolean;
-  /**
-   * In review mode: why this Session is included, each reason once (finished after the page's coverage, a changed
-   * cited source, or both).
-   */
   reasons?: KnowledgePageContextSessionReason[];
 }
 
 export type KnowledgePageContextSessionReason = "new" | "source_changed";
 
-/**
- * Why a section needs another look in a review-only read: a cited source reason, or a new Session that continues or
- * relates to a cited Session (new_session_linked) or changed a file one did (new_session_shared_files).
- */
 export type KnowledgePageSectionReviewReason =
   KnowledgePageReviewReason | "new_session_linked" | "new_session_shared_files";
 
 export interface KnowledgePageContext {
   outcome: "knowledge_page_context";
   page: KnowledgePageRecord;
-  /**
-   * full: the page is empty or an update was requested, so recent Sessions are given for a complete rewrite.
-   * review: only Sessions finished after the page's coverage and changed cited sources, oldest first.
-   */
   mode: "full" | "review";
   sessions: KnowledgePageContextSession[];
-  /** Session fields the context leaves out; read them with sessionReadWith. */
   omittedSessionFields: Array<"summary" | "workSummary.scope" | "workSummary.verification">;
   sessionReadWith: "work_get_session";
-  /** True when Sessions were left out to stay within the size limit. */
   truncated: boolean;
-  /**
-   * Pass unchanged to work_save_knowledge_page. It records the page version this read saw and the last Session it
-   * showed, so a save cannot overwrite a newer version or mark Sessions left out of this read as covered.
-   */
   reviewToken: string;
-  /** Present only when the page is near its limits, with splitSuggestion. */
   size?: KnowledgePageSize;
   splitSuggestion?: KnowledgePageSplitSuggestion;
-  /** Present only for a custom page with no confirmed content: the user can delete it in the Web UI. */
   emptyPageHint?: string;
 }
 
-/** A focused read: the matching sections in full and the size of the rest; no Session list. */
 export interface KnowledgePageFocusedContext {
   outcome: "knowledge_page_context";
   focused: true;
-  /** none: nothing matched, so no sections are returned; pick from otherSections by heading. */
   match: "sections" | "none";
   page: Pick<KnowledgePageRecord, "slug" | "title" | "version" | "status" | "newSessionCount" | "updatedAt"> & {
     needsReview?: true;
     updateRequestedAt?: string;
   };
   sections: Array<KnowledgePageSection & { needsReview?: true }>;
-  /** For a section update or full save of this page, passed back unchanged. */
   reviewToken: string;
   otherSections: Array<{ heading: string; chars: number }>;
   sessionsOmitted: true;
-  /** How to get the Session list and the complete page. */
   readFullWith: string;
-  /** Present only when the page is near its limits, with splitSuggestion. */
   size?: KnowledgePageSize;
   splitSuggestion?: KnowledgePageSplitSuggestion;
   emptyPageHint?: string;
 }
 
-/**
- * A review-only read: the sections that need another look in full, with their reasons and the Sessions behind them,
- * and the size of the rest. Its reviewToken keeps the page's coverage, like a focused read.
- */
 export interface KnowledgePageReviewContext {
   outcome: "knowledge_page_context";
   reviewOnly: true;
-  /**
-   * sections: at least one section needs review; new_sessions: none does, but new Sessions map to no section;
-   * none: nothing to review; full_rewrite: the page is empty or an update was requested, so read it in full;
-   * use_full_read: so much needs review (over half the sections, or more section content than a review-only read
-   * returns) that the full read is the smaller answer, so no sections or Sessions are returned.
-   */
   review: "sections" | "new_sessions" | "none" | "full_rewrite" | "use_full_read";
   page: KnowledgePageFocusedContext["page"];
   sections: Array<
     KnowledgePageSection & {
       reasons: KnowledgePageSectionReviewReason[];
-      /** Cited sources that changed since the save, with their reason codes. */
       changedSources?: Array<Pick<KnowledgePageReviewSource, "sourceSessionId" | "reasons">>;
-      /** New Sessions mapped to this section, oldest first. */
       newSessionIds?: string[];
     }
   >;
   otherSections: Array<{ heading: string; chars: number }>;
-  /** The whole page against the save limits, for the room left to a section update. */
   size: KnowledgePageSize;
-  /** Present only when the page is near its limits. */
   splitSuggestion?: KnowledgePageSplitSuggestion;
-  /** Previews of the Sessions behind the sections, each once, changed sources first, then new Sessions oldest first. */
   sessions: KnowledgePageContextSession[];
-  /** New Sessions that map to no section, oldest first: id, title and completion time only. */
   unmappedSessions: Array<Pick<KnowledgePageContextSession, "id" | "title" | "completedAt">>;
-  /**
-   * The newest new Session this read accounted for (previewed or listed as unmapped), with every earlier one also
-   * accounted for; pass it to work_mark_knowledge_page_checked once they are handled.
-   */
   checkedThroughCandidate?: string;
   omittedSessionFields: KnowledgePageContext["omittedSessionFields"];
   sessionReadWith: "work_get_session";
-  /** True when new Sessions or previews were left out to stay within the size limit; read again after handling. */
   truncated: boolean;
   reviewToken: string;
   readFullWith: string;
@@ -2852,15 +2520,9 @@ export type RequestKnowledgePageUpdateResult =
   | { outcome: "invalid_page"; reason: string }
   | KnowledgePageSkippedResult;
 
-/**
- * Why work_get_knowledge_page_context found no page; also recorded in the read audit. `page_id_as_slug`: the value
- * is the id of a page of this project; `slug_looks_like_id`: an id of no page; `slug_near_match`: a slug close to
- * an existing or default page; `page_not_requested`: a default page that was never requested; `page_unknown`: none.
- */
 export type KnowledgePageNotFoundReasonCode =
   "page_id_as_slug" | "slug_looks_like_id" | "slug_near_match" | "page_not_requested" | "page_unknown";
 
-/** A page lookup that found nothing, with the project's slugs so the Agent can retry instead of creating a page. */
 export interface KnowledgePageNotFoundResult {
   outcome: "not_found";
   slug: string;
@@ -2868,7 +2530,6 @@ export interface KnowledgePageNotFoundResult {
   reason: string;
   /** The slug to call again with: the page whose id was passed, or the nearest existing or default slug. */
   suggestedSlug?: string;
-  /** Slugs of the project's pages in alphabetical order, bounded; the rest are counted in existingSlugsOmittedCount. */
   existingSlugs: string[];
   existingSlugsOmittedCount?: number;
 }
@@ -2880,22 +2541,16 @@ export type KnowledgePageContextResult =
   | KnowledgePageNotFoundResult
   | KnowledgePageSkippedResult;
 
-/** The page was saved by someone else after the edit started; nothing was written. */
 export interface KnowledgePageVersionConflictResult {
   outcome: "version_conflict";
   reason: string;
-  /** The version the edit started from, and the page's version now. */
   baseVersion: number;
   currentVersion: number;
 }
 
-/** Headings as stored after a section update. */
 export interface KnowledgePageSectionChanges {
-  /** Sections replaced in place, in page order. */
   replaced: string[];
-  /** Sections appended, in request order. */
   added: string[];
-  /** Sections removed, in the order they had on the page. */
   removed: string[];
 }
 
@@ -2905,11 +2560,8 @@ export type SaveKnowledgePageResult =
       duplicate: boolean;
       page: KnowledgePageRecord;
       redactions?: RedactionSummary;
-      /** Present only when the save was a section update. */
       sectionChanges?: KnowledgePageSectionChanges;
-      /** Present when the save had no reviewToken and so used the older, unchecked coverage rule. */
       warnings?: string[];
-      /** Present only when the saved page is near its limits, with splitSuggestion. */
       size?: KnowledgePageSize;
       splitSuggestion?: KnowledgePageSplitSuggestion;
     }
@@ -2928,7 +2580,6 @@ export type SaveKnowledgePageResult =
       maxSections: number;
       contentChars: number;
       maxContentChars: number;
-      /** The sections to move to a custom page instead; absent when the merged page has no sections. */
       splitSuggestion?: KnowledgePageSplitSuggestion;
     }
   | KnowledgePageVersionConflictResult
@@ -2948,13 +2599,11 @@ export type KnowledgePageVersionsResult =
       versions: KnowledgePageVersionRecord[];
       /** Every stored version of the page; versions lists at most the newest 50. */
       versionCount: number;
-      /** Titles of the Sessions cited by the page and the listed versions; a voided or missing Session is absent. */
       sources: Array<{ id: string; title: string }>;
     }
   | { outcome: "not_found"; pageId: string; reason: string }
   | KnowledgePageSkippedResult;
 
-/** Rows removed with a custom Knowledge page. */
 export interface KnowledgePageDeletionCounts {
   knowledgePageVersions: number;
   attentionPreferences: number;
@@ -2971,7 +2620,6 @@ export type DeleteKnowledgePageResult =
     }
   | KnowledgePageSkippedResult;
 
-/** A bounded page for work_get_context: the rendered answer, cut to a fixed length. */
 export interface KnowledgePageDigest {
   slug: string;
   title: string;
@@ -2979,9 +2627,7 @@ export interface KnowledgePageDigest {
   newSessionCount: number;
   updatedAt: string;
   content: string;
-  /** Session ids cited by the page, kept even when its rendered content is truncated or omitted. */
   sourceSessionIds: string[];
-  /** Number of cited Session ids left to the full page context in a bounded summary. */
   sourceSessionIdsOmittedCount?: number;
   truncated: boolean;
   needsReview?: boolean;
@@ -2999,7 +2645,6 @@ export type KnowledgeCandidateListResult =
       outcome: "knowledge_candidates";
       items: KnowledgeCandidate[];
       openRequests: KnowledgeCandidateRequest[];
-      /** Uncovered Session counts per project in scope; projects with none are left out. */
       backlog: KnowledgeCandidateBacklog[];
     }
   | KnowledgeCandidateSkippedResult;
@@ -3007,7 +2652,6 @@ export type KnowledgeCandidateListResult =
 export interface DecideKnowledgeCandidateInput {
   candidateId: string;
   decision: "accept" | "reject";
-  /** Edits applied before accepting; omitted fields keep the proposal. */
   edits?: Partial<Pick<KnowledgeCandidate, "kind" | "title" | "body" | "tags" | "references" | "appliesTo">>;
 }
 
@@ -3017,10 +2661,6 @@ export type DecideKnowledgeCandidateResult =
   | { outcome: "already_decided"; candidate: KnowledgeCandidate }
   | KnowledgeCandidateSkippedResult;
 
-/**
- * An item of a project-scoped context: the project is named once in `project` instead of on every item, so the
- * project fields are present only when the context spans several projects.
- */
 export type ProjectScopedItem<T extends { projectId: string }> = Omit<T, "projectId" | "projectName"> & {
   projectId?: string;
   projectName?: string;
@@ -3028,43 +2668,31 @@ export type ProjectScopedItem<T extends { projectId: string }> = Omit<T, "projec
 
 export interface ContextResult {
   outcome: "context";
-  /** Present only for a projectRoot-scoped call: the policy decision that admitted it, same as work_get_project_status. */
   projectStatus?: "tracked";
   tracked?: true;
   clock: ServerClock;
-  /** The scope of a projectRoot call, named once; its items leave out projectId and projectName. */
   project?: ProjectRecord;
-  /** Tracked projects of an unscoped call; empty when `project` is set. */
   projects: ProjectRecord[];
   recentSessions: ProjectScopedItem<SessionDigest>[];
   recentDecisions: DecisionDigest[];
   recentKnowledge: ProjectScopedItem<KnowledgeDigest>[];
-  /** Pending items only, each linked to its source Session. */
   pendingOutstandingItems: ProjectScopedItem<ContextOutstandingItem>[];
   pendingOutstandingItemsTotal: number;
   pendingOutstandingItemsOmitted: number;
   pendingOutstandingItemsTruncated: number;
-  /** Counts only; list the affected Sessions with work_preview_metadata_backfill. */
   metadataFollowUps: MetadataBackfillPreview["totals"];
   /** Pending or processing Agent requests in this scope, newest first (at most 5 of each kind); Knowledge candidate requests also list failed ones, which block a new request until resumed. */
   pendingRequests: {
     reportSynthesis: Array<ReportSynthesisRequest & { sourceSessionIdsOmittedCount?: number }>;
     metadataBackfill: MetadataBackfillRequest[];
-    /** Active project cleanup requests for Agents; proposals require Web review. */
     outstandingCleanup?: OutstandingCleanupRequest[];
     knowledgeCandidates: KnowledgeCandidateRequest[];
-    /**
-     * Project-scoped only, and only when no candidate request is open, at least 5 uncovered Sessions are
-     * high value, and the last request is over 7 days old (or none). Offer it to the user once; never request unasked.
-     */
     knowledgeBacklog?: {
       uncoveredSessions: number;
       highValueSessions: number;
       requestWith: "work_request_knowledge_candidates";
     };
-    /** Number only; decision content is reviewed in the Web UI. */
     agentDecisions: number;
-    /** Knowledge pages to inspect: explicit update request, cited-source review, or at least three accumulated new Sessions; ordered by priority. */
     knowledgePages: Array<{
       slug: string;
       title: string;
@@ -3074,28 +2702,11 @@ export interface ContextResult {
       needsReview?: boolean;
     }>;
   };
-  /** Present when the context query named a task or paths: records ranked for that work. */
   relevant?: RelevantContext;
-  /** Standing answers about the project, bounded in size; read these before searching. */
   knowledgePages: KnowledgePageDigest[];
-  /** Per-section pointers for content left out or de-duplicated to fit this response. */
   omitted?: ContextOmission[];
 }
 
-/**
- * A small pointer to what one context section left out. Items already shown elsewhere in the response are only
- * counted (`duplicates`); budget omissions list up to three `ids` plus `moreIds`; left-out items flagged
- * possiblyStale or needsReview are listed under `entries` with their id and flags, so budget never hides a trust
- * signal. Details such as page review sections and cited Session ids are read with `readWith`.
- *
- * When the focus has `paths`, Knowledge that matched one of them (its `references` or `appliesTo`) and is not listed
- * in `relevant.knowledge` (budget-trimmed, or ranked beyond the five relevant slots) is listed under the
- * `relevant.knowledge` omission as an entry that also carries a short `title` (at most 60 characters) and one matched
- * `path` (project-relative stored path or pattern), so an Agent about to edit those files can see which Knowledge
- * covers which file. At most five entries carry them; they take the place of plain `ids`, are never counted in
- * `moreIds`, and are shortened and dropped (back to plain ids or flagged entries) only after everything else is
- * trimmed. Read them with `work_get_file_history` (by path) or `work_search_knowledge`.
- */
 export interface ContextOmission {
   section: string;
   count: number;
@@ -3107,12 +2718,9 @@ export interface ContextOmission {
     id: string;
     /** Path-matched Knowledge only: its title, at most 60 characters. */
     title?: string;
-    /** Path-matched Knowledge only: one stored path or pattern that matched a focus path. */
     path?: string;
     possiblyStale?: true;
-    /** Only when the flag comes from a broad appliesTo: a touch says little about this Knowledge. */
     staleReason?: "broad_applies_to";
-    /** Later Sessions of over 20 changed files that touched appliesTo; present only above 0. */
     broadChangesSince?: number;
     needsReview?: true;
   }>;
@@ -3121,7 +2729,6 @@ export interface ContextOmission {
 
 export interface RelevantKnowledgePageDigest {
   id: string;
-  /** Left out in a project-scoped context, whose `project` names it once. */
   projectId?: string;
   projectName?: string;
   slug: string;
@@ -3142,7 +2749,6 @@ export interface RelevantKnowledgePageDigest {
   }>;
 }
 
-/** Where a recall hit matched; `raw` is a section of the imported handoff snapshot. */
 export type RecallField =
   | "title"
   | "summary"
@@ -3162,49 +2768,28 @@ export interface RecallHit {
   projectId: string;
   projectName?: string;
   title: string;
-  /** Knowledge kind; absent on Sessions. */
   kind?: KnowledgeKind;
-  /** Session completedAt or Knowledge updatedAt. */
   date: string;
-  /** Fields in which the record matched, strongest first; `path` last. Synonym matches count here too (see matchedVia). */
   matchedIn: RecallField[];
-  /**
-   * `synonym` when no query word and no path matched this record: it was found only through a built-in software
-   * synonym of a query word (for example "bug" for "defect"), so it is a weaker lead than a direct wording match.
-   */
   matchedVia?: "synonym";
-  /** Heading of the matched raw handoff section. */
   section?: string;
   excerpt: string;
-  /** Set when a context or recall response shortened this excerpt at a sentence boundary. */
   truncated?: boolean;
-  /** Stored paths that matched the queried paths. */
   matchedPaths?: string[];
   score: number;
-  /** Knowledge only: a later Session changed its appliesTo paths, or a Session contradicted it. */
   possiblyStale?: boolean;
-  /** Only when the flag comes from a broad appliesTo: a touch says little about this Knowledge. */
   staleReason?: "broad_applies_to";
-  /** Later Sessions of over 20 changed files that touched appliesTo; present only above 0. */
   broadChangesSince?: number;
   needsReview?: boolean;
-  /** Knowledge only: how many Sessions or people confirmed and contradicted it (ranking uses this). */
   evidence?: { confirmed: number; contradicted: number };
-  /** Linked, non-voided Sessions (planning ↔ implementation), so one hit leads to the other. */
   related?: Array<{ id: string; title: string; relation: SessionLinkDirection }>;
 }
 
-/**
- * Why a compact context supplement may be related to the task; it is not a literal match or evidence. `inferred_path`
- * means the task did not name this file: it was changed by similar past Sessions (`sourceSessionIds`), and the Knowledge
- * applies to it, so read the Knowledge (work_search_knowledge by its title) before relying on it.
- */
 export type ContextSupplementReason =
   | { kind: "related_session"; sourceSessionId: string; relation: "parent" | "related" }
   | { kind: "applied_knowledge"; sourceSessionId: string }
   | { kind: "inferred_path"; path: string; sourceSessionIds: string[] };
 
-/** A compact pointer to possibly related context; read the source record before relying on it. */
 export type ContextSupplementIndicator =
   | {
       type: "session";
@@ -3218,14 +2803,11 @@ export type ContextSupplementIndicator =
       title: string;
       includedBecause: Extract<ContextSupplementReason, { kind: "applied_knowledge" | "inferred_path" }>;
       possiblyStale?: boolean;
-      /** Only when the flag comes from a broad appliesTo: a touch says little about this Knowledge. */
       staleReason?: "broad_applies_to";
-      /** Later Sessions of over 20 changed files that touched appliesTo; present only above 0. */
       broadChangesSince?: number;
       needsReview?: boolean;
     };
 
-/** Per query word: how many in-scope records contain all of its terms. */
 export interface RecallTermHits {
   term: string;
   count: number;
@@ -3237,19 +2819,10 @@ export interface RecallResult {
   outcome: "recall";
   project?: ProjectRecord;
   hits: RecallHit[];
-  /** Whether the returned records provide enough evidence for the query; none means do not rely on the hits. */
   confidence: RecallConfidence;
-  /**
-   * The same none/low/high judgment as confidence, over the Knowledge hits alone. A Session can make confidence
-   * "high" while no Knowledge matched: knowledgeConfidence "none" then means no Knowledge text or path matched, not
-   * that none applies (Knowledge scoped by appliesTo is found through paths).
-   */
   knowledgeConfidence: RecallConfidence;
-  /** Present when some query word matched nothing, so the Agent can reshape the query. */
   termHits?: RecallTermHits[];
-  /** Set when the query had more than 32 distinct terms: words past the cap are not in termHits, not reported as 0. */
   termHitsTruncated?: true;
-  /** Present when the path comparison stopped at its text-scan limit; absent for ordinary queries. */
   warnings?: string[];
 }
 
@@ -3356,7 +2929,6 @@ export interface OutstandingCleanupProposal {
 export interface SubmitOutstandingCleanupProposalsInput {
   requestId: string;
   idempotencyKey: string;
-  /** Explicitly examined items with no proposal remain pending: no evidence means abstain. */
   examinedItemIds: string[];
   proposals: Array<{
     itemId: string;
@@ -3460,13 +3032,8 @@ export type AgentReviewRequestStatus = (typeof AGENT_REVIEW_REQUEST_STATUSES)[nu
 export type AgentReviewItemKind = "decision" | "candidate" | "knowledge";
 export type AgentReviewVerdictKind = "confirm" | "reject" | "promote" | "accept" | "archive" | "supersede";
 export type AgentReviewItemOutcome = "applied" | "skipped_stale" | "skipped_reviewed";
-/** open: no verdict yet; applied/skipped: this request decided it; stale: changed since the snapshot; reviewed: decided elsewhere. */
 export type AgentReviewItemState = "open" | "applied" | "skipped" | "stale" | "reviewed";
 
-/**
- * A bounded Agent review of a project's pending Agent decisions, proposed Knowledge candidates, and active Knowledge
- * that is possiblyStale or needs review.
- */
 export interface AgentReviewRequest {
   id: string;
   projectId: string;
@@ -3477,14 +3044,12 @@ export interface AgentReviewRequest {
   completedAt?: string;
   failureReason?: string;
   itemCount: number;
-  /** Eligible items the snapshot cap left out; a later request picks them up. */
   omittedCount: number;
   decisionCount: number;
   candidateCount: number;
   knowledgeCount: number;
   appliedCount: number;
   skippedCount: number;
-  /** Snapshot items without an outcome yet. */
   openCount: number;
 }
 
@@ -3539,10 +3104,8 @@ export type AgentReviewVerdict =
   | {
       itemKind: "knowledge";
       itemId: string;
-      /** confirm: still holds; archive: no longer holds; supersede: replaced by `knowledge`. */
       verdict: "confirm" | "archive" | "supersede";
       reason: string;
-      /** Supersede only. Omitted kind, tags, references and appliesTo keep the replaced Knowledge's values. */
       knowledge?: Partial<Pick<AgentReviewKnowledgeDraft, "kind" | "tags" | "references" | "appliesTo">> &
         Pick<AgentReviewKnowledgeDraft, "title" | "body">;
     };
@@ -3551,7 +3114,6 @@ export interface SubmitAgentReviewVerdictsInput {
   requestId: string;
   idempotencyKey: string;
   verdicts: AgentReviewVerdict[];
-  /** Completes the request even when snapshot items remain open. */
   complete?: boolean;
 }
 
@@ -3566,7 +3128,6 @@ export interface AgentReviewSessionContext {
   otherDecisionsTruncated?: boolean;
 }
 
-/** A later Session that changed files a Knowledge item's appliesTo covers. */
 export interface AgentReviewLaterSession {
   id: string;
   title: string;
@@ -3574,7 +3135,6 @@ export interface AgentReviewLaterSession {
   paths: string[];
 }
 
-/** Why an active Knowledge item is in the request: possiblyStale, contradicted (review), or both. */
 export interface AgentReviewKnowledgeDoubt {
   possiblyStale?: Pick<KnowledgeStaleness, "reason" | "sessionCount">;
   contradicted?: { sessionId?: string; sessionTitle?: string; at: string };
@@ -3585,10 +3145,8 @@ export interface AgentReviewContextItem {
   id: string;
   state: AgentReviewItemState;
   sourceSession?: AgentReviewSessionContext;
-  /** Decisions only. */
   text?: string;
   textTruncated?: boolean;
-  /** Candidates and Knowledge. */
   kind?: KnowledgeKind;
   title?: string;
   body?: string;
@@ -3599,14 +3157,11 @@ export interface AgentReviewContextItem {
   bodyTruncated?: boolean;
   rationaleTruncated?: boolean;
   titleTruncated?: boolean;
-  /** Knowledge only. */
   doubt?: AgentReviewKnowledgeDoubt;
   createdAt?: string;
   lastConfirmedAt?: string;
-  /** Knowledge only: newest first, fitted into what the page budget leaves after the items. */
   laterSessions?: AgentReviewLaterSession[];
   laterSessionsOmitted?: number;
-  /** Advisory only: stored for candidates, computed for decisions. */
   overlaps: KnowledgeCandidateOverlap[];
 }
 
@@ -3615,7 +3170,6 @@ export interface AgentReviewContext {
   request: AgentReviewRequest;
   items: AgentReviewContextItem[];
   pageInfo: PageInfo;
-  /** First page only: what the project already holds, so promotions do not repeat it. */
   existingKnowledge?: Array<{ id: string; kind: KnowledgeKind; title: string; status?: "archived" | "rejected" }>;
   existingKnowledgeOmitted?: number;
   truncated: boolean;
@@ -3636,9 +3190,7 @@ export type CreateAgentReviewRequestResult =
   | {
       outcome: "agent_review_request";
       request: AgentReviewRequest;
-      /** True when this idempotency key or an already open request of the project answered. */
       duplicate: boolean;
-      /** Eligible items the snapshot cap left out of a new request (same as request.omittedCount). */
       remaining?: number;
     }
   | { outcome: "agent_review_not_needed"; projectId: string; reason: string }
@@ -3657,7 +3209,6 @@ export type AgentReviewContextResult =
 export interface AgentReviewVerdictResult {
   itemKind: AgentReviewItemKind;
   itemId: string;
-  /** knowledge_rejected: the Knowledge write failed, nothing was applied and the item stays open for a corrected draft. */
   outcome: AgentReviewItemOutcome | "not_in_request" | "knowledge_rejected";
   knowledgeId?: string;
   knowledgeOutcome?: string;
@@ -3677,7 +3228,6 @@ export type SubmitAgentReviewVerdictsResult =
       results: AgentReviewVerdictResult[];
       duplicate: boolean;
       redactions?: RedactionSummary;
-      /** Present when the request completed with this submission. The server never writes pages; the Agent does. */
       completion?: { knowledgePages: AgentReviewKnowledgePage[] };
     }
   | AgentReviewFailure;
@@ -3697,17 +3247,11 @@ export type OverturnAgentReviewResult =
       itemKind: AgentReviewItemKind;
       decision?: SessionDecisionRecord;
       candidate?: KnowledgeCandidate;
-      /**
-       * Knowledge items: the reviewed Knowledge as it is now. confirmation_withdrawn: the verdict's confirmation was
-       * undone; restored: archived again by nobody else, so it is active again; unchanged: changed since the verdict.
-       */
       reviewedKnowledge?: {
         knowledge: KnowledgeRecord;
         action: "confirmation_withdrawn" | "restored" | "unchanged";
       };
-      /** What happened to the Knowledge the Agent verdict created: archived only while still active. */
       knowledge?: {
-        /** Absent when the Knowledge row no longer exists and its id was cleared with it. */
         id?: string;
         action: "archived" | "unchanged" | "missing";
         status?: KnowledgeStatus;
@@ -3719,21 +3263,18 @@ export interface AgentReviewedKnowledgeQuery {
   projectRoot?: string;
 }
 
-/** Knowledge whose latest Agent verdict still stands (not overturned), newest verdict first. */
 export interface AgentReviewedKnowledge {
   knowledge: KnowledgeRecord;
   verdict: "confirm" | "archive" | "supersede";
   reason: string;
   reviewedAt: string;
   requestId: string;
-  /** Supersede only: the Knowledge the verdict recorded in its place. */
   successor?: { id: string; title: string; status: KnowledgeStatus };
 }
 
 export type AgentReviewedKnowledgeListResult =
   { outcome: "agent_reviewed_knowledge"; items: AgentReviewedKnowledge[] } | AgentReviewSkippedResult;
 
-/** Bounded pointers to pending work; read the source Session before deciding its status. */
 export interface RelatedOutstandingItems {
   items: Array<{
     id: string;
@@ -3746,15 +3287,10 @@ export interface RelatedOutstandingItems {
   }>;
   total: number;
   omitted: number;
-  /** More pending items passed the relevance prefilter than one read scores; total counts the newest scored ones. */
   truncated?: true;
   hint?: string;
 }
 
-/**
- * Pending items in a focused context, bounded to what decides whether to read more: the item id, its source Session
- * id, and a text excerpt. The source Session's title is in relevant.sessions or one work_get_session away.
- */
 export interface ContextRelatedOutstandingItems extends Omit<RelatedOutstandingItems, "items"> {
   items: Array<{ id: string; sourceSessionId: string; text: string; textTruncated?: boolean }>;
 }
@@ -3762,36 +3298,20 @@ export interface ContextRelatedOutstandingItems extends Omit<RelatedOutstandingI
 export interface RelevantContext {
   task?: string;
   paths?: string[];
-  /** Confidence in the task-related retrieval; none means no result should be used as evidence. */
   confidence: RecallConfidence;
-  /**
-   * The same judgment over the Knowledge ranked for relevant.knowledge alone (its first five candidates, before the
-   * response budget trims any): "none" while confidence is "high" means only Sessions matched. It says nothing about
-   * Knowledge scoped to files that were not passed as paths.
-   */
   knowledgeConfidence: RecallConfidence;
-  /** Fixed pointer present when the focus has a task or paths and relevant.knowledge is empty. */
   knowledgeHint?: string;
-  /** Knowledge (gotchas, patterns, decisions, …) ranked for the task and paths. */
   knowledge: ProjectScopedItem<RecallHit>[];
-  /** workSummary.decisions of the relevant Sessions, each citing its Session. */
   decisions: RelevantDecisionDigest[];
-  /** Pending items ranked by their text, source paths, and source Session relevance. */
   outstandingItems?: ContextRelatedOutstandingItems;
   /** Pending items of the Sessions passed as linkedSessionIds (same project, at most 10); not repeated in outstandingItems. */
   continuedOutstandingItems?: ContextRelatedOutstandingItems;
-  /** Relevant Sessions, including those that changed the same paths, with their open items. */
   sessions: Array<ProjectScopedItem<RecallHit> & { openItems: string[] }>;
-  /** Optional compact pointers to possibly related Sessions or applied Knowledge; never literal-match evidence. */
   supplements?: ContextSupplementIndicator[];
-  /** Sections of standing Knowledge pages whose headings or content match this task. */
   knowledgePages?: RelevantKnowledgePageDigest[];
   termHits?: RecallTermHits[];
-  /** Set when the task had more than 32 distinct terms: words past the cap are not in termHits, not reported as 0. */
   termHitsTruncated?: true;
-  /** Paths from the request that recent Sessions changed often, or any of the first three that has history. */
   hotspots?: HotspotHint[];
-  /** Set when a hotspot path has more Sessions than this context shows: read them with that operation. */
   fileHistoryReadWith?: "work_get_file_history";
 }
 
@@ -3804,7 +3324,6 @@ export interface TimelineSession {
   id: string;
   projectId: string;
   title: string;
-  /** Absent when the start is unknown; the Session is then drawn as a point at completedAt. */
   startedAt?: string;
   completedAt: string;
   verificationStatus: ReportVerificationStatus;
@@ -3819,7 +3338,6 @@ export interface TimelineKnowledgeEvent {
   title: string;
   kind: TimelineKnowledgeEventKind;
   at: string;
-  /** The Session behind a confirmation or contradiction, or the Knowledge that replaced this one. */
   sessionId?: string;
   supersededById?: string;
 }
@@ -3839,7 +3357,6 @@ export type TimelineResult =
       sessions: TimelineSession[];
       knowledgeEvents: TimelineKnowledgeEvent[];
       links: TimelineLink[];
-      /** True when the range held more Sessions than one response carries (newest are kept). */
       truncated: boolean;
     }
   | SkippedContextResult;
@@ -3852,7 +3369,6 @@ export interface ActivityQuery {
   to: string;
 }
 
-/** A local calendar day on which at least one Session was completed. */
 export interface ActivityDay {
   date: string;
   sessions: number;
@@ -3880,41 +3396,33 @@ export interface HotspotSession {
   verificationStatus: ReportVerificationStatus;
 }
 
-/** A file or directory that many Sessions changed, with how often their verification failed or was not run. */
 export interface Hotspot {
   projectId: string;
   projectName: string;
-  /** Project-relative path of the file or directory ("." for files at the project root). */
   path: string;
   sessionCount: number;
   failedCount: number;
   notRunCount: number;
   lastChangedAt: string;
-  /** The newest five Sessions, newest first. */
   recentSessions: HotspotSession[];
 }
 
 export type HotspotResult =
   { outcome: "hotspots"; groupBy: HotspotGroup; from?: string; to?: string; items: Hotspot[] } | SkippedContextResult;
 
-/** A path an Agent is about to change that recent Sessions changed often. */
 export interface HotspotHint {
   path: string;
   days: number;
   sessionCount: number;
   failedCount: number;
   notRunCount: number;
-  /** Every non-voided Session that recorded the path, at any time and of any breadth. */
   totalSessions: number;
 }
 
 export interface SearchResult {
   session: SessionDigest;
-  /** The strongest matched field; absent when the hit has none to name. */
   matchedIn?: RecallField;
-  /** `synonym` when only a built-in synonym of a query word matched; see RecallHit.matchedVia. */
   matchedVia?: "synonym";
-  /** Heading of the matched raw handoff section. */
   section?: string;
   excerpt: string;
 }
@@ -3923,11 +3431,8 @@ export interface SearchQueryResult {
   outcome: "search";
   hits: SearchResult[];
   confidence: RecallConfidence;
-  /** Present when some query word matched nothing, so the Agent can reshape the query. */
   termHits?: RecallTermHits[];
-  /** Set when the query had more than 32 distinct terms: words past the cap are not in termHits, not reported as 0. */
   termHitsTruncated?: true;
-  /** Present when the path comparison stopped at its text-scan limit; absent for ordinary queries. */
   warnings?: string[];
 }
 
@@ -3938,7 +3443,6 @@ export interface SkippedContextResult {
   reason: string;
 }
 
-/** A projectRoot-scoped context call that the policy gate skipped: tracking status only, never project data. */
 export interface SkippedProjectContextResult extends SkippedContextResult {
   tracked: false;
 }
@@ -3951,14 +3455,10 @@ export interface ProjectReader {
 
 export * from "./insights.js";
 
-/** Read-only recording state for one workspace root; never grants or changes tracking. */
-/** The server's clock, so an Agent can take the current time from it instead of estimating. */
 export interface ServerClock {
-  /** Current time, UTC ISO. */
   serverTime: string;
   /** IANA time zone of the machine running Work Intelligence, e.g. `Asia/Taipei`. */
   timeZone: string;
-  /** Its current UTC offset, e.g. `+08:00`. */
   utcOffset: string;
 }
 
@@ -3972,7 +3472,6 @@ export interface ProjectStatusResult {
   reason?: string;
 }
 
-/** Raw handoff snapshot metadata without its content, for bounded Agent payloads. */
 export type RawSnapshotSummary = Omit<RawSnapshotRecord, "content"> & { contentLength: number };
 
 export interface SessionDetailResult extends Omit<SessionDetail, "session" | "rawSnapshots"> {
@@ -3981,7 +3480,7 @@ export interface SessionDetailResult extends Omit<SessionDetail, "session" | "ra
   rawSnapshots: Array<RawSnapshotRecord | RawSnapshotSummary>;
 }
 
-/** Fixed Agent read groups. These values never become client-controlled SQL identifiers. */
+/** These values never become client-controlled SQL identifiers. */
 export const SESSION_READ_FIELDS = [
   "session.summary",
   "session.workSummary.outcomes",
@@ -4010,13 +3509,8 @@ export interface SessionAgentReadQuery {
   includeRawSnapshots?: boolean;
   view?: SessionReadView;
   select?: SessionReadField[];
-  /** The revision of a body the Agent still holds in full; a match returns SessionUnchangedResult. */
   knownRevision?: string;
 }
-/**
- * Content hash of the Session's full Agent detail (without raw snapshot content or the project record), the same
- * for full and projected reads of one Session state.
- */
 export interface AgentSessionRevision {
   revision: string;
 }
@@ -4054,7 +3548,6 @@ export interface SessionProjectionResult {
   diagrams?: SessionDiagramRecord[];
   rawSnapshots?: Array<RawSnapshotRecord | RawSnapshotSummary>;
 }
-/** work_get_session with a knownRevision that still matches: the Agent reuses the body it already holds. */
 export interface SessionUnchangedResult {
   outcome: "session_unchanged";
   session: Pick<WorkSessionRecord, "id" | "projectId" | "title" | "voided"> & AgentSessionRevision;
@@ -4069,7 +3562,6 @@ export interface SessionNotFoundResult {
 
 export type SessionDetailQueryResult = SessionDetailResult | SessionVerificationSkippedResult | SessionNotFoundResult;
 
-/** A commitSha prefix that matches Sessions of more than one commit in the scope; nothing is listed. */
 export interface AmbiguousCommitShaResult {
   outcome: "ambiguous_commit_sha";
   commitSha: string;
@@ -4082,7 +3574,6 @@ export type SessionListQueryResult =
 export type DatabaseBackupKind =
   "automatic" | "manual" | "migration" | "deletion" | "session_deletion" | "maintenance" | "import";
 
-/** One SQLite snapshot written beside the database; `createdAt` comes from its UTC file name. */
 export interface DatabaseBackup {
   kind: DatabaseBackupKind;
   fileName: string;
@@ -4091,13 +3582,12 @@ export interface DatabaseBackup {
 }
 
 export interface DatabaseBackupListData {
-  /** Maximum retained non-automatic copies, including manual and safety snapshots. */
   keep: number;
   automaticKeep: number;
   backups: DatabaseBackup[];
 }
 
-/** Backups of the database. File names only: the API never exposes filesystem paths. */
+/** File names only: the API never exposes filesystem paths. */
 export interface DatabaseBackupList extends DatabaseBackupListData {
   outcome: "database_backups";
 }
@@ -4138,49 +3628,35 @@ export interface DatabaseMaintenanceRecord {
   failureCode: DatabaseMaintenanceFailureCode | null;
 }
 
-/** Read-only system diagnostics returned by GET /api/system/status. */
 export type AgentSkillCopyState = "current" | "missing" | "stale" | "unreadable";
 
-/** `stale`: the hook is installed but uses an older matcher that misses current MCP operation calls. */
 export type AgentHookInstallState = "installed" | "stale" | "missing" | "disabled" | "unknown";
 
-/**
- * `direct` runs the server entry point instead of the launcher, so every build needs a reconnect; `other` is an entry
- * named work-intelligence whose command is not Work Intelligence (or points at a checkout that no longer exists).
- */
 export type AgentMcpRegistrationState = "registered" | "direct" | "other" | "missing" | "unknown";
 
-/** Who manages a registration: the desktop App's launcher, a source checkout, or the Agent's plugin. */
 export type AgentRegistrationSource = "app" | "checkout" | "plugin";
 
-/** Why a hook entry is `stale`: its script or shim is gone, or its matcher predates the current one. */
 export type AgentHookStaleReason = "script-missing" | "shim-differs" | "matcher-outdated";
 
-/** One hook the Agent needs: an event (with the matcher setup writes for it) and its state. */
 export interface AgentHookEventStatus {
   event: string;
   matcher: string | null;
-  /** Only required events decide the overall hook state. */
   required: boolean;
   state: AgentHookInstallState;
   source: AgentRegistrationSource | null;
   reason?: AgentHookStaleReason;
 }
 
-/** What an Agent host last saw of the MCP tool contract: today's (`current`), an older one (`stale`), or never (`none`). */
 export type AgentObservationState = "current" | "stale" | "none";
 
 export interface SystemAgentConnections {
   codex: {
-    /** Present only under the desktop App, which knows the installed contract; judged by the same code as its Agent tab. */
     observation?: AgentObservationState;
     mcpRegistered: AgentMcpRegistrationState;
-    /** Who manages the MCP registration when it is `registered`. */
     mcpSource?: AgentRegistrationSource | null;
     canonicalSkill: AgentSkillCopyState;
     legacySkill: AgentSkillCopyState;
     hook: AgentHookInstallState;
-    /** Who manages the hooks when `hook` is `installed`. */
     hookSource?: AgentRegistrationSource | null;
     hookEvents?: AgentHookEventStatus[];
   };
@@ -4210,43 +3686,28 @@ export interface UserServiceStatus {
   logPath: string;
 }
 
-/** The SQLite library the API process runs on, checked against the WAL-reset corruption fix (3.51.3, 3.50.7, 3.44.6). */
 export interface SqliteRuntimeStatus {
-  /** Output of `SELECT sqlite_version()`. */
   version: string;
-  /** False when this version still has the WAL-reset bug, or could not be recognized. */
   walResetFixed: boolean;
-  /** The nearest fixed release when the version is affected and recognized. */
   fixedIn?: string;
 }
 
-/** What the desktop App tells its backend about the machine it manages; the legacy fields are all optional. */
 export interface SystemDesktopStatus {
-  /** Always true: the backend runs as the desktop App's child process. */
   managed: true;
-  /** An older pnpm-bootstrap login service that may use the same database. */
   legacyService?: {
     running: "running" | "stopped" | "unknown";
   };
-  /** The port the App committed for this backend; the page shows it as the effective address. */
   activePort?: number;
-  /** The App's own login item: the user's choice and what the system reports. Absent from an older App. */
   loginItem?: {
     supported: boolean;
     desired: boolean;
     system: "enabled" | "disabled" | "needs-approval" | "unknown";
   };
-  /** The folder the App's backend really writes backups to (the same database the page shows under `database.path`). */
   backupDirectory?: string;
-  /** Positively detected risky database storage (DT-08); `unknown` is a soft note only. */
   storageRisk?: {
     risk: "network" | "removable" | "cloud-sync" | "hard-link" | "unknown";
     migrationBlocked: boolean;
   };
-  /**
-   * The App's language setting and the language it resolves to, so the Dashboard shows the App's language. Absent from
-   * an older App.
-   */
   language?: {
     preference: "system" | "zh-TW" | "en";
     locale: "zh-TW" | "en";
@@ -4255,16 +3716,13 @@ export interface SystemDesktopStatus {
 
 export interface SystemStatus {
   version: string;
-  /** The latest schema version supported by this application build. */
   schemaVersion: number;
   database: {
     path: string;
     bytes: number | null;
     state: DatabaseInspectionState;
     schemaVersion: number | null;
-    /** Free pages inside the file that a compaction would give back to the disk; absent when it could not be read. */
     reclaimableBytes?: number;
-    /** The free space is large enough to be worth a compaction. */
     reclaimSuggested?: boolean;
   };
   backups: {
@@ -4274,11 +3732,8 @@ export interface SystemStatus {
     totalBytes: number;
   };
   maintenance: DatabaseMaintenanceRecord | null;
-  /** Read-only state of this user's optional login service. */
   userService: UserServiceStatus;
-  /** Present only when the desktop App manages this backend (never in a standalone install). */
   desktop?: SystemDesktopStatus;
-  /** Shared MCP heartbeat status for this installation root. */
   mcp: {
     restartRequired: boolean;
     monitoringAvailable: boolean;
@@ -4287,24 +3742,14 @@ export interface SystemStatus {
     updateAvailableProcesses: number;
     updateAvailable?: boolean;
     message?: string;
-    /**
-     * An Agent host has been observed connecting (its observation file) yet no live MCP lease is visible here: either the
-     * Agent has disconnected since, or its lease is kept somewhere this backend does not look.
-     */
     agentObservedWithoutLease?: boolean;
-    /**
-     * Present with `agentObservedWithoutLease`: why. The ids are opaque hashes (no path); the Agent's MCP records its own
-     * in the observation and the backend compares it with its scope.
-     */
     leaseDiagnosis?: {
-      /** `lease_unreported`: an older MCP; `directory_unwritable`; `scope_mismatch`; `agent_disconnected`. */
       cause: "lease_unreported" | "directory_unwritable" | "scope_mismatch" | "agent_disconnected";
       backendScopeId: string;
       observedScopeId?: string;
       directoryWritable?: boolean;
     };
   };
-  /** Read-only snapshots of registered Agent clients, skill copies, and reminder hooks. */
   agents: SystemAgentConnections;
   sseConnections: number;
   sqlite: SqliteRuntimeStatus;
@@ -4350,12 +3795,10 @@ export const PROJECT_DATA_TABLES = [
 export type ProjectDataTable = (typeof PROJECT_DATA_TABLES)[number];
 export type ProjectDataValue = string | number | null;
 
-/** One validated SQLite row in a portable project export. */
 export type ProjectDataRow = Record<string, ProjectDataValue>;
 
 export type ProjectDataExportScope = { type: "all" } | { type: "project"; projectId: string };
 
-/** Portable project data; derived search indexes are rebuilt after import. */
 export interface ProjectDataExport {
   format: "work-intelligence-export";
   formatVersion: 1;
@@ -4371,9 +3814,8 @@ export interface ProjectPathRemap {
 }
 
 /**
- * How rows that already exist locally with different content are resolved.
- * `merge` adds new rows only; `newer-wins` also replaces a mutable row when the imported copy is newer.
- * In both, a local row that is newer than the imported copy is kept.
+ * `merge` adds new rows only; `newer-wins` also replaces a mutable row when the imported copy is newer. A newer local
+ * row is always kept.
  */
 export const PROJECT_DATA_IMPORT_STRATEGIES = ["merge", "newer-wins"] as const;
 export type ProjectDataImportStrategy = (typeof PROJECT_DATA_IMPORT_STRATEGIES)[number];
@@ -4387,9 +3829,6 @@ export interface ProjectDataImportInput {
 
 export type ProjectDataCounts = Partial<Record<ProjectDataTable, number>>;
 
-/** Why a row could not be imported: the project root, newer or differing content, a unique key, or a dependency. */
-/** `missing_parent`: the file itself lacks the project, Session or other row this row belongs to, so it is not imported. */
-/** `deleted`: the user deleted this Knowledge page here, so an older export does not bring it back. */
 export type ProjectDataImportConflictCategory =
   "path" | "newer_content" | "content" | "unique" | "dependency" | "missing_parent" | "deleted";
 
@@ -4400,7 +3839,6 @@ export interface ProjectDataImportConflict {
   category?: ProjectDataImportConflictCategory;
 }
 
-/** All conflicts of one table that share one reason, so large imports are summarized instead of truncated. */
 export interface ProjectDataImportConflictGroup {
   category: ProjectDataImportConflictCategory;
   table: ProjectDataTable;
@@ -4409,7 +3847,6 @@ export interface ProjectDataImportConflictGroup {
   sampleIds: string[];
 }
 
-/** A project whose ID already exists locally under another root; the import reuses the local root. */
 export interface ProjectDataAutoRemap {
   projectId: string;
   from: string;
@@ -4428,20 +3865,15 @@ export interface ProjectDataImportPreview {
   additions: ProjectDataCounts;
   skipped: ProjectDataCounts;
   conflicts: ProjectDataCounts;
-  /** Existing rows that will be replaced by a newer imported copy (`newer-wins` only). */
   updates: ProjectDataCounts;
-  /** Existing rows kept because the local copy is newer than the imported one. */
   keptLocal: ProjectDataCounts;
-  /** Knowledge page versions (local or imported) renumbered by time so both machines' versions are kept. */
   renumbered: ProjectDataCounts;
   selectedProjects: Array<{
     id: string;
     name: string;
-    /** Root path from the source export before any remap is applied. */
     sourceRootPath: string;
     rootPath: string;
     resolution: "existing" | "new" | "conflict";
-    /** Added by the local API after checking only the effective root path with stat. */
     folderStatus?: ProjectFolderStatus;
   }>;
   remappedPaths: ProjectDataPathRemapCount[];
@@ -4451,7 +3883,6 @@ export interface ProjectDataImportPreview {
   conflictGroups: ProjectDataImportConflictGroup[];
 }
 
-/** What the import page shows about a staged export file before anything is chosen. */
 export interface ProjectDataImportStagedHeader {
   schemaVersion: number;
   exportedAt: string;
@@ -4459,10 +3890,6 @@ export interface ProjectDataImportStagedHeader {
   projects: Array<{ id: string; name: string }>;
 }
 
-/**
- * An export file the API saved for an import (`POST /api/import/staged`): later previews and the import refer to it by
- * `stagingId` instead of sending it again. It is removed after a successful import, on cancel, or at `expiresAt`.
- */
 export interface ProjectDataImportStaged {
   stagingId: string;
   expiresAt: string;
@@ -4471,20 +3898,16 @@ export interface ProjectDataImportStaged {
   preview: ProjectDataImportPreview;
 }
 
-/** The choices of a staged import or preview; the bundle is the staged file. */
 export type ProjectDataStagedImportOptions = Omit<ProjectDataImportInput, "bundle">;
 
 export interface ProjectDataImportResult extends Omit<ProjectDataImportPreview, "outcome"> {
   outcome: "project_data_imported";
   importedAt: string;
-  /** False when every row was already present, so nothing was written and no snapshot was taken. */
   changed: boolean;
   redactions?: RedactionSummary;
-  /** The checked snapshot written just before the import; absent when nothing changed or for an in-memory database. */
   backupFileName?: string;
 }
 
-/** The folder chosen in the native dialog the API server shows when adding a project. */
 export type FolderPickResult =
   | { outcome: "folder_picked"; path: string; name: string }
   | { outcome: "folder_pick_cancelled" }

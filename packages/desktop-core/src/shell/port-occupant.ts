@@ -1,12 +1,9 @@
 import { realpath } from "node:fs/promises";
 
-/** How long the other server gets to answer; a port that holds something silent is not a Work Intelligence server. */
 const PROBE_TIMEOUT_MS = 1500;
 
 export interface PortOccupantProbe {
-  /** The port another program holds. */
   readonly port: number;
-  /** The database file the App is about to start on. */
   readonly databasePath: string;
   readonly fetchStatus?: (url: string, timeoutMs: number) => Promise<unknown>;
   readonly realPath?: (path: string) => Promise<string>;
@@ -30,12 +27,6 @@ async function resolved(path: string, realPath: (path: string) => Promise<string
   }
 }
 
-/**
- * Whether the program that holds `port` is another Work Intelligence server (a CLI or standalone one) that serves the
- * same database file. A start that fell back to another port would then run a second server on one database, so the
- * fallback must not be tried. Asks the loopback status endpoint only; any failure, silence or a different database
- * answers false (the port really belongs to something else). Never throws.
- */
 export async function isSameDatabaseServer(probe: PortOccupantProbe): Promise<boolean> {
   const platform = probe.platform ?? process.platform;
   const realPath = probe.realPath ?? realpath;

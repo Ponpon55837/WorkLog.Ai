@@ -20,39 +20,26 @@ import { writeVerifiedCache, type CachedFile } from "./verified-cache.js";
 import { currentPermissionPolicy } from "./permissions.js";
 import { verifyRuntime, type VerifiedRuntime, type VerifyRuntimeOptions } from "./verify.js";
 
-/** What an installer decides about a runtime whose files are already in `runtimes/<runtimeId>/`. */
 export interface RuntimeDefinition {
   readonly runtimeId: string;
   readonly runtimeKind: RuntimeKind;
-  /** Relative path of the Node (or Electron) executable. */
   readonly executable: string;
   readonly actions: RuntimeActions;
 }
 
-/** The result of installing one runtime. */
 export interface InstalledRuntime {
   readonly manifest: RuntimeManifest;
   readonly runtimeDirectory: string;
-  /**
-   * The verification run right after writing the manifest. By default it accepts the hashes computed while the
-   * manifest was built (through the fingerprint cache); with `fullVerification` it re-reads every file.
-   */
   readonly verification: VerifiedRuntime;
 }
 
-/** Options of {@link installRuntime}. */
 export interface InstallRuntimeOptions {
-  /** Re-read and re-hash every file after writing the manifest instead of trusting the hashes just computed. */
   readonly fullVerification?: boolean;
-  /** Windows: how the ACLs are read (tests inject fixtures). */
   readonly aclReader?: VerifyRuntimeOptions["aclReader"];
-  /** Platform and uid for the permission check, as in VerifyRuntimeOptions (tests run the Windows policy on any platform). */
   readonly policy?: VerifyRuntimeOptions["policy"];
-  /** Windows: false for a runtime installed on a build machine (content only, `acl: "skipped"`); see VerifyRuntimeOptions. */
   readonly checkAcl?: boolean;
 }
 
-/** A manifest, and the fingerprints its files had while they were hashed (for files that did not change meanwhile). */
 export interface MeasuredRuntime {
   readonly manifest: RuntimeManifest;
   readonly cache: ReadonlyMap<string, CachedFile>;
@@ -62,7 +49,6 @@ const HASH_CONCURRENCY = 4;
 const MANIFEST_MODE = 0o644;
 const SHIM_MODE = 0o755;
 
-/** Writes `content` atomically unless the file already holds it, so installing twice does not touch a live shim. */
 async function writeIfChanged(target: string, content: string, mode: number): Promise<void> {
   try {
     if ((await fs.readFile(target, "utf8")) === content) return;
@@ -73,9 +59,8 @@ async function writeIfChanged(target: string, content: string, mode: number): Pr
 }
 
 /**
- * Writes the two fixed shims into `<root>/bin`, leaving a shim that already holds the right text untouched, and makes
- * sure `<root>/leases` exists. The folder is created here, before the verification stamps the root, so a launcher that
- * creates its lease later does not change the root and cost the next start an ACL read.
+ * `leases` is created here, before verification stamps the root, so a later lease does not cost the next start an ACL
+ * read.
  */
 export async function writeShims(root: string): Promise<void> {
   const { binDirectory, leasesDirectory } = runtimeLayout(root);
@@ -84,15 +69,6 @@ export async function writeShims(root: string): Promise<void> {
   await writeIfChanged(path.join(binDirectory, WINDOWS_SHIM_NAME), renderWindowsShim(), SHIM_MODE);
 }
 
-/**
- * Computes the manifest of a staged runtime directory: every file's size and SHA-256 (streamed, four at a time) and
- * every symlink with its target. The manifest and the cache themselves are excluded. The result is validated with the
- * same schema the launcher uses, so an installer cannot produce a manifest the launcher would refuse for format, and
- * every symlink must resolve (links followed) to a place inside the directory.
- *
- * Each file's fingerprint is taken before hashing and again after; only a file whose fingerprint did not change while
- * it was read gets a cache entry, so the returned cache never vouches for a file that was modified during the hash.
- */
 export async function measureRuntime(
   runtimeDirectory: string,
   definition: RuntimeDefinition,
@@ -123,7 +99,6 @@ export async function measureRuntime(
   return { manifest, cache };
 }
 
-/** {@link measureRuntime}, keeping only the manifest. */
 export async function buildRuntimeManifest(
   runtimeDirectory: string,
   definition: RuntimeDefinition,
@@ -131,13 +106,7 @@ export async function buildRuntimeManifest(
   return (await measureRuntime(runtimeDirectory, definition)).manifest;
 }
 
-/**
- * Installs a runtime whose files were already copied to `<root>/runtimes/<runtimeId>/`: writes the launch file and the
- * immutable manifest, makes sure the fixed shims exist in `<root>/bin`, then verifies the runtime. Every file is hashed
- * once, while the manifest is built; that measurement also seeds the fingerprint cache, so the verification here (and
- * the one in {@link commitCurrent}) only checks structure, permissions and fingerprints. Pass `fullVerification` to read
- * every file a second time instead. It does NOT switch `current`; call {@link commitCurrent} after the installer is happy.
- */
+/** Does not switch `current`: call commitCurrent once the installer is satisfied. */
 export async function installRuntime(
   root: string,
   definition: RuntimeDefinition,
@@ -174,12 +143,6 @@ export async function installRuntime(
   return { manifest, runtimeDirectory, verification };
 }
 
-/**
- * Makes `runtimeId` the current runtime: verifies it completely, then replaces `current` atomically (temp file,
- * fsync, rename). A reader sees the old id or the new one, never a torn file, and an invalid runtime is never pointed at.
- * On Windows the ACLs are read again here unless `options.reuseAclStamp` (the `aclStamp` of the verification
- * {@link installRuntime} just returned) matches every object exactly; see {@link VerifyRuntimeOptions.reuseAclStamp}.
- */
 export async function commitCurrent(
   root: string,
   runtimeId: string,
@@ -192,11 +155,8 @@ export async function commitCurrent(
     await writeFileAtomic(currentFile, `${runtimeId}\n`, { mode: MANIFEST_MODE });
     return verification;
   }
-  // Windows reads the ACLs once, and the change times it stamps include `current` and the root, which the switch itself
-  // moves. Taken before the switch, that stamp was stale on arrival and the first start after every install read the
-  // ACLs again, on an Agent's hook (M-09). So the pointer moves first and the one complete verification follows it; a
-  // runtime that fails is not left named: the previous pointer is put back. A launcher verifies on every start, so the
-  // short window never runs anything unverified.
+  // Windows stamps the ACL read with change times that the switch itself moves (M-09), so the pointer moves first and one
+  // full verification follows; a runtime that fails verification is not left named (the previous pointer is restored).
   const previous = await fs.readFile(currentFile, "utf8").catch(() => undefined);
   await writeFileAtomic(currentFile, `${runtimeId}\n`, { mode: MANIFEST_MODE });
   try {

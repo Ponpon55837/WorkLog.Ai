@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Internal
+
+- One comment rule for every file type (worklog-code-layout §8): no comment by default, a short why only where removing it would likely get the code broken. `packages/core`, `packages/shared` and `packages/desktop-core` were cleaned to it; only comments changed, and every touched file prints the same with comments stripped.
+
 ## [1.6.81] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.81.md).

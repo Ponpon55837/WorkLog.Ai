@@ -13,30 +13,22 @@ import {
 } from "../internal/atomic-file.js";
 import { parseDesktopSettings, type DesktopSettingsV1 } from "./schema.js";
 
-/** Minimal file handle surface the writer needs; lets tests fail any single step. */
 export type SettingsFileHandle = AtomicFileHandle;
 
-/** Injectable filesystem operations: the shared atomic-file ones plus the re-read used by the verify step. */
 export interface SettingsWriteDeps extends AtomicFileDeps {
   readFile(filePath: string): Promise<string>;
 }
 
-/** Step of the write procedure that failed. */
 export type SettingsWriteStep =
   "validate" | "write" | "fsync" | "verify" | "recovery" | "rename" | "directory-fsync" | "refuse-downgrade";
 
-/** Result of a successful atomic write. */
 export interface SettingsWriteResult {
-  /** A recovery copy of the previous valid file was written. */
   readonly recoveryWritten: boolean;
-  /** Directory fsync ran; false means the platform does not support it (documented capability). */
   readonly directorySynced: boolean;
 }
 
-/** Failure of the write procedure. The target is never left truncated or partially written. */
 export class DesktopSettingsWriteError extends Error {
   readonly step: SettingsWriteStep;
-  /** True when the rename already replaced the target (only the directory fsync failed afterwards). */
   readonly committed: boolean;
 
   constructor(step: SettingsWriteStep, message: string, options: { cause?: unknown; committed?: boolean } = {}) {
@@ -47,26 +39,22 @@ export class DesktopSettingsWriteError extends Error {
   }
 }
 
-/** Recovery copy path for a settings file. */
 export function recoveryPathFor(filePath: string): string {
   return `${filePath}.recovery`;
 }
 
-/** Real filesystem dependencies. */
 export function createNodeSettingsWriteDeps(): SettingsWriteDeps {
   return { ...createNodeAtomicFileDeps(), readFile: (filePath) => fs.readFile(filePath, "utf8") };
 }
 
 const FILE_MODE = 0o600;
 
-/** Re-label a primitive failure with the settings step it belongs to (`write` is stage-specific). */
 function toWriteError(error: unknown, stage: SettingsWriteStep): unknown {
   if (!(error instanceof AtomicFileError)) return error;
   const step: SettingsWriteStep = error.step === "write" ? stage : error.step;
   return new DesktopSettingsWriteError(step, error.message, { cause: error.cause, committed: error.committed });
 }
 
-/** Re-read what is really on disk and require identical, schema-valid content. */
 async function verifyTemp(deps: SettingsWriteDeps, tempPath: string, expected: string): Promise<void> {
   let actual: string;
   try {
@@ -85,7 +73,6 @@ async function verifyTemp(deps: SettingsWriteDeps, tempPath: string, expected: s
   }
 }
 
-/** Stage `content` as a verified temp file next to `finalPath`; the caller renames it into place. */
 async function stageVerified(
   deps: SettingsWriteDeps,
   finalPath: string,
@@ -107,11 +94,6 @@ async function stageVerified(
   return tempPath;
 }
 
-/**
- * Previous primary: its content when it is valid settings (never preserve garbage as recovery); `unsupported`
- * when it carries a version this build cannot parse, which must never be overwritten (a downgrade would destroy
- * settings a newer app wrote).
- */
 async function inspectPrevious(
   deps: SettingsWriteDeps,
   filePath: string,
@@ -126,12 +108,6 @@ async function inspectPrevious(
   }
 }
 
-/**
- * Atomically replace the settings file: validate, stage a verified temp file in the same directory,
- * keep a recovery copy of the previous valid file, rename over the target, then fsync the directory.
- * The target is only ever replaced by a complete, re-validated file, so a crash at any point leaves
- * either the old or the new content. On failure only temp files created here are removed.
- */
 export async function writeDesktopSettingsAtomic(
   filePath: string,
   settings: DesktopSettingsV1,

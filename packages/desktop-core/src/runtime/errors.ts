@@ -1,4 +1,3 @@
-/** Stable codes for every way a runtime can be refused; the launcher prints them and the App maps them to repair steps. */
 export const RUNTIME_ERROR_CODES = [
   "RUNTIME_POINTER_MISSING",
   "RUNTIME_POINTER_INVALID",
@@ -14,17 +13,11 @@ export const RUNTIME_ERROR_CODES = [
   "RUNTIME_ALREADY_INSTALLED",
   "RUNTIME_BUNDLE_INVALID",
   "RUNTIME_INSTALL_FAILED",
-  /** The runtime directory to replace is held by a running process (an Agent on Windows): close it and retry. */
   "RUNTIME_IN_USE",
 ] as const;
 
-/** One of {@link RUNTIME_ERROR_CODES}. */
 export type RuntimeErrorCode = (typeof RUNTIME_ERROR_CODES)[number];
 
-/**
- * Errors that mean the installed files are wrong (damaged, replaced, incomplete): a clean reinstall fixes them. Anything
- * else (permissions, an ACL that cannot be read, a bad pointer) is not fixed by copying again and goes to the repair flow.
- */
 export const REINSTALLABLE_CODES: ReadonlySet<string> = new Set<RuntimeErrorCode>([
   "RUNTIME_FILE_TAMPERED",
   "RUNTIME_MANIFEST_INVALID",
@@ -33,7 +26,6 @@ export const REINSTALLABLE_CODES: ReadonlySet<string> = new Set<RuntimeErrorCode
   "RUNTIME_SYMLINK_REJECTED",
 ]);
 
-/** What a refusal is about: the offending file and what was expected versus found. */
 export interface RuntimeErrorDetail {
   readonly file?: string;
   readonly expected?: string;
@@ -42,7 +34,6 @@ export interface RuntimeErrorDetail {
 
 const REPAIR_HINT = "請從 App 重新安裝 runtime。";
 
-/** A runtime that must not be launched. The message names the file and says how to repair it. */
 export class RuntimeError extends Error {
   readonly code: RuntimeErrorCode;
   readonly detail: RuntimeErrorDetail;
@@ -64,7 +55,6 @@ function formatMessage(code: RuntimeErrorCode, summary: string, detail: RuntimeE
   return parts.join("；");
 }
 
-/** The error code of any thrown value, or undefined when it is not a {@link RuntimeError}. */
 export function runtimeErrorCode(error: unknown): RuntimeErrorCode | undefined {
   return error instanceof RuntimeError ? error.code : undefined;
 }

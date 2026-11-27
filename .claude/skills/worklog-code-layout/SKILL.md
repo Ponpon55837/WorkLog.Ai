@@ -1,6 +1,6 @@
 ---
 name: worklog-code-layout
-description: Fixed placement order for code in every Work Intelligence file type — Vue <script setup> sections (imports, types, macros, stores/composables, state, computed, functions, watchers, lifecycle, defineExpose), Pinia setup stores, composables, backend TypeScript modules and classes, and tests — plus the declare-before-use rule. Use whenever writing, moving, or reviewing code in apps/ or packages/ so every file reads in the same order; enforced by pnpm lint.
+description: Fixed placement order for code in every Work Intelligence file type — Vue <script setup> sections (imports, types, macros, stores/composables, state, computed, functions, watchers, lifecycle, defineExpose), Pinia setup stores, composables, backend TypeScript modules and classes, and tests — plus the declare-before-use rule and the comment rule. Use whenever writing, moving, or reviewing code in apps/ or packages/ so every file reads in the same order; enforced by pnpm lint.
 ---
 
 # Work Intelligence code layout (pointer)

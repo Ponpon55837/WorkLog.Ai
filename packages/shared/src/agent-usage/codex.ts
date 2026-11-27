@@ -22,7 +22,6 @@ type Raw = Record<string, any>;
 type Usage = Record<string, number>;
 type Mapped = { input: number; output: number; cacheRead: number; cacheCreation: number; reasoningOutput: number };
 
-/** The first delta of a rollout that continues a compacted thread, with where it was credited. */
 export interface FirstCredit {
   mapped: Mapped;
   model: string;
@@ -49,7 +48,6 @@ export interface CodexContext {
   tokenCountSum: number;
   carryover: number;
   compactedFrom: string | null;
-  /** Latest model id from `turn_context` / `session_meta` ("" until one passes the allowlist). */
   model: string;
   firstCredited: FirstCredit | null;
   fallback: {
@@ -60,9 +58,7 @@ export interface CodexContext {
   };
   stash: Map<string, number>;
   turnCounters: TurnCounter[];
-  /** What the conversation shows about its project; set only for rollouts of a shared source. */
   evidence: SessionEvidence | null;
-  /** Index in `state.events` where this file's usage events start, to tag them with the conversation's key. */
   eventStart: number;
 }
 
@@ -87,7 +83,6 @@ function readCodexUsage(record: Raw): Usage {
   return usage;
 }
 
-/** Maps a raw Codex token delta to Anthropic semantics (input = uncached only). */
 function mapCodexUsage(delta: Usage): Mapped {
   const input = delta.input_tokens ?? 0;
   const cached = delta.cached_input_tokens ?? 0;
@@ -149,7 +144,6 @@ function createCodexContext(state: ScanState): CodexContext {
   };
 }
 
-/** Classifies a Codex tool name; `namespaced` marks a name that arrived with a namespace. */
 function classifyCodexTool(fullName: unknown, namespaced: boolean, args: unknown): ToolInfo {
   if (typeof fullName !== "string" || !SAFE_TOOL_NAME.test(fullName))
     return { name: "(other)", work: false, mcp: false };
@@ -279,7 +273,6 @@ function creditCodexResult(state: ScanState, ctx: CodexContext, callId: string |
   }
 }
 
-/** Context outputs Codex adds by itself (no call_id, `additional_context_tool_output: true`) answer no tool call. */
 function isAdditionalContextOutput(line: Raw, payload: Raw): boolean {
   const passthrough = payload.internal_chat_message_metadata_passthrough;
   return [line.metadata, payload.metadata, passthrough, isRecord(passthrough) ? passthrough.metadata : null].some(
@@ -341,9 +334,8 @@ function handleTokenCount(
   const event = recordUsageEvent(state, "codex", time, mapped);
   ctx.tokenCountSum += mappedSum(mapped);
   if (first && ctx.compactedFrom !== null) {
-    // A rollout continuing a compacted thread replays that thread's total (and its last response, which has no
-    // token_usage_record here). Keep the whole first delta out of the source comparison; the scan subtracts
-    // the previous thread's usage once all files are read, so the order of files does not matter.
+    // A rollout continuing a compacted thread replays that thread's total: keep its first delta out of the source
+    // comparison; the scan subtracts the previous thread's usage after all files are read.
     ctx.carryover += mappedSum(mapped);
     ctx.firstCredited = { mapped, model: ctx.model, time, event };
     return;
@@ -400,7 +392,6 @@ function mcpItemResultLength(result: unknown): number {
   return mcpResultLength(result);
 }
 
-/** Registers the call like mcp_tool_call_begin (deduped by item.id) and stashes its result like mcp_tool_call_end. */
 function handleMcpItem(state: ScanState, ctx: CodexContext, item: Raw, ranged: boolean): void {
   const callId = typeof item.id === "string" && item.id !== "" ? item.id : null;
   handleMcpBegin(
@@ -419,13 +410,11 @@ function isPlainUserPrompt(payload: Raw): boolean {
   return first !== undefined && !first.text.trim().startsWith("<");
 }
 
-/** Remembers the model a `turn_context` or `session_meta` line names; an unsafe value clears it. */
 function updateModel(ctx: CodexContext, payload: Raw): void {
   if (!("model" in payload)) return;
   ctx.model = safeModelId(payload.model);
 }
 
-/** A compacted line before any token_count that names another thread marks this rollout as that thread's sequel. */
 function handleCompacted(ctx: CodexContext, payload: Raw): void {
   const record = payload.latest_token_usage_record;
   if (ctx.hasTokenCount || ctx.compactedFrom !== null || !isRecord(record)) return;
@@ -502,12 +491,10 @@ function handleCodexResponseItem(
   }
 }
 
-/** True for a line the Codex parser owns (checked after the Claude Code parser). */
 export function isCodexLine(line: Raw): boolean {
   return typeof line.type === "string" && isRecord(line.payload) && !("message" in line);
 }
 
-/** Codex CLI rollout lines (experimental): tracking state always advances; metrics are credited only in range. */
 export function handleCodexLine(state: ScanState, line: Raw): void {
   state.file.codex ??= createCodexContext(state);
   const ctx = state.file.codex;
@@ -540,7 +527,6 @@ export function handleCodexLine(state: ScanState, line: Raw): void {
   if (!handled) state.codexIgnoredLines += 1;
 }
 
-/** Closes the current file's Codex context: credits stashed MCP results and merges it into its session. */
 export function endCodexFile(state: ScanState): void {
   const ctx = state.file.codex;
   if (!ctx) return;
@@ -590,11 +576,6 @@ export function endCodexFile(state: ScanState): void {
   mergeMetrics(sessionFor(state, key), ctx.metrics);
 }
 
-/**
- * A rollout that continues a compacted thread starts from that thread's cumulative total. When the previous thread's
- * rollout was read too, its credited usage is already counted: subtract it (never more than the first delta) and drop
- * the replayed response. Otherwise the carried usage stays and `codexCompactionCarryovers` says so.
- */
 export function linkCodexCompactions(state: ScanState): void {
   for (const { key, previous, first } of state.codexContinuations) {
     const credited = state.codexThreadCredited.get(previous);

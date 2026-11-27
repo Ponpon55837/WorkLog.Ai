@@ -8,120 +8,72 @@ import {
 } from "@work-intelligence/shared/windows-system-tool";
 import { RuntimeError } from "./errors.js";
 
-/** One access control entry, reduced to what the trust decision needs. */
 export interface ParsedAce {
-  /** The SDDL ace type: `A` allow, `D` deny, `XA` callback allow, `ZA` ... */
   readonly type: string;
-  /** Inheritance flag letters, e.g. `OICIIO`. */
   readonly flags: string;
-  /** The access mask as a number; every right code of the SDDL text is expanded to its numeric value. */
   readonly rights: number;
-  /**
-   * A full upper-case SID (`S-1-5-18`). Every fixed-SID alias is expanded; the domain- and machine-relative aliases
-   * (`DA`, `LA`, ...) cannot be, and stay as two letters: an unknown principal, never trusted.
-   */
+  /** A full upper-case SID; domain- and machine-relative aliases (`DA`, `LA`, ...) cannot be expanded and stay two letters: unknown, never trusted. */
   readonly sid: string;
-  /** The alias the SDDL used for `sid` (`BU` for `S-1-5-32-545`), kept only to name the principal in messages. */
   readonly alias?: string;
 }
 
-/** The owner and the entries of one descriptor. */
 export interface ParsedSddl {
   readonly ownerSid: string;
-  /** The alias the SDDL used for the owner, if any. */
   readonly ownerAlias?: string;
   /** `D:NO_ACCESS_CONTROL`: no DACL at all, which grants everyone everything. */
   readonly nullDacl: boolean;
   readonly aces: readonly ParsedAce[];
 }
 
-/** The principals that may own and write the runtime: the current user plus the well-known system ones. */
 export interface AclTrust {
   readonly currentUserSid: string;
 }
 
-/** What one read of the Windows security descriptors returns. */
 export interface AclSnapshot {
   readonly currentUserSid: string;
-  /** One SDDL string per requested path, in order. */
   readonly sddls: readonly string[];
-  /** Set when a prewarmed PowerShell answered: milliseconds from its spawn to its first output (how long its start-up took). */
   readonly prewarmMs?: number;
 }
 
-/**
- * How the descriptors are read: `dotnet` calls the .NET security API directly (no module needed); `get-acl` runs the
- * `Get-Acl` cmdlet and `whoami`, for a PowerShell in Constrained Language Mode where method calls are refused.
- */
 export type AclReadTier = "dotnet" | "get-acl";
 
-/** Why a tier failed: it ran out of time, exited non-zero, could not start, was refused by Constrained Language Mode, or answered badly. */
 export type AclFailureKind = "timeout" | "exit" | "spawn" | "constrained-language" | "invalid";
 
-/** One try of one read tier: how long it took (milliseconds, rounded to 0.1), whether it read and parsed, and why not. */
 export interface AclReadAttempt {
   readonly tier: AclReadTier;
   readonly ms: number;
   readonly ok: boolean;
-  /** Set when `ok` is false. */
   readonly failure?: AclFailureKind;
 }
 
-/** Which tier answered an ACL check and what every tier tried cost; the evidence for the first-launch cost on Windows. */
 export interface AclReadReport {
-  /** The tier whose read was used. */
   readonly tier: AclReadTier;
-  /** Every tier tried, in order; the last one is the successful `tier`. */
   readonly attempts: readonly AclReadAttempt[];
-  /**
-   * Set when the answering tier ran in a prewarmed PowerShell: how long that process took from spawn to its first output.
-   * The `ms` of the answering attempt is then only the wait after the paths were handed over, so the start-up cost that
-   * overlapped the file copy shows here and nowhere else.
-   */
   readonly prewarmMs?: number;
 }
 
-/**
- * A started prewarm. `release` kills the process unless a read took it over; call it on every exit path. There is one
- * prewarm per reader: a second `prewarm()` while one is waiting returns a handle to the same process, and `release()`
- * of any of those handles ends that shared process for all of them.
- */
+/** `release` kills the process unless a read took it over; a second `prewarm()` shares the one process, and any `release()` ends it for all. */
 export interface AclPrewarm {
   release(): void;
 }
 
-/** Reads the current user's SID and the SDDL of each path; injectable so tests need no Windows. */
 export interface WindowsAclReader {
   read(paths: readonly string[], tier?: AclReadTier): Promise<AclSnapshot>;
-  /**
-   * Starts the tier-1 PowerShell now, so its start-up (about 2 s cold) overlaps work the caller does before it knows the
-   * paths. The next `read(paths, "dotnet")` hands the paths to that process; any other read, or a prewarm that died, hung
-   * or was refused by Constrained Language Mode, behaves as if there had been no prewarm. Never throws. Absent on a
-   * reader that has nothing to warm.
-   */
+  /** Starts the tier-1 PowerShell now (about 2 s cold) so its start-up overlaps the caller's work. Never throws. */
   prewarm?(): AclPrewarm;
 }
 
-/**
- * What a failed child process carries (see `nodeExec`); a fake `ExecFileLike` rejects with the same shape. The message
- * never contains the command line or the script.
- */
 export interface ExecFileFailure extends Error {
-  /** The numeric exit code, when the process ran and exited. */
   readonly exitCode?: number;
-  /** The string error code (`ENOENT`, `ETIMEDOUT`, ...), when the process could not run. */
   readonly errno?: string;
   readonly signal?: string;
   readonly killed: boolean;
-  /** The process was killed by the timeout, or ran for at least `timeoutMs`. */
   readonly timedOut: boolean;
   readonly elapsedMs: number;
   readonly timeoutMs: number;
-  /** The cleaned, truncated standard error (see `cleanPowerShellStderr`). */
   readonly stderr: string;
 }
 
-/** What the fixed `execFile` seam needs; injectable so the reader is testable on any platform. A failure rejects with an `ExecFileFailure`. */
 export type ExecFileLike = (
   file: string,
   args: readonly string[],
@@ -133,19 +85,13 @@ export type ExecFileLike = (
   },
 ) => Promise<{ readonly stdout: string }>;
 
-/** A started child process whose standard input the caller feeds; see {@link SpawnAclLike}. */
 export interface AclChild {
-  /** Resolves with the standard output when the process exits with code 0; rejects with an `ExecFileFailure` otherwise. */
   readonly exited: Promise<{ readonly stdout: string }>;
-  /** Resolves when the process wrote its first output (it is running and past its start-up). Never rejects. */
   readonly ready: Promise<void>;
-  /** Writes `input` to the standard input and closes it. */
   send(input: string): void;
-  /** Kills the process; a no-op once it has exited. */
   kill(): void;
 }
 
-/** What the fixed `spawn` seam needs for the prewarmed process; injectable so the reader is testable on any platform. */
 export type SpawnAclLike = (
   file: string,
   args: readonly string[],
@@ -156,25 +102,17 @@ export type SpawnAclLike = (
   },
 ) => AclChild;
 
-/** The prewarmed tier-1 process as the reader holds it. */
 interface PrewarmedProcess {
-  /** Hands over the paths and resolves with the process's standard output; rejects like `ExecFileLike` does. */
   read(paths: readonly string[]): Promise<string>;
-  /** Milliseconds from its spawn to its first output, once it has written any. */
   readyMs(): number | undefined;
   kill(): void;
 }
 
-/** An error that names its failure kind; the reader throws it when it composes several processes into one tier failure. */
 interface TierFailure extends Error {
   readonly kind: AclFailureKind;
 }
 
-/**
- * Every SDDL alias with a fixed SID (sddl.h), expanded before any judgment. The domain- and machine-relative aliases
- * (LA, LG, DA, DU, DG, DC, DD, CA, SA, EA, PA, RS, RO, CN, AP, KA, EK) are deliberately absent: they need the domain or
- * machine identifier, so they stay as two letters and read as an unknown, untrusted principal.
- */
+/** Domain- and machine-relative aliases are deliberately absent: they need the domain or machine id, so they stay unknown and untrusted. */
 const SID_ALIASES: Readonly<Record<string, string>> = {
   WD: "S-1-1-0",
   CO: "S-1-3-0",
@@ -229,7 +167,6 @@ const ADMINISTRATORS_SID = "S-1-5-32-544";
 const CREATOR_OWNER_SID = "S-1-3-0";
 const OWNER_RIGHTS_SID = "S-1-3-4";
 const TRUSTED_INSTALLER_SID = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
-/** In an entry, SYSTEM, Administrators, TrustedInstaller, CREATOR OWNER and OWNER RIGHTS may hold any right. */
 const TRUSTED_WRITERS: ReadonlySet<string> = new Set([
   SYSTEM_SID,
   ADMINISTRATORS_SID,
@@ -239,16 +176,14 @@ const TRUSTED_WRITERS: ReadonlySet<string> = new Set([
 ]);
 /** The owner can always rewrite the ACL, so it is narrower: CREATOR OWNER and OWNER RIGHTS are placeholders, never an owner. */
 const TRUSTED_OWNERS: ReadonlySet<string> = new Set([SYSTEM_SID, ADMINISTRATORS_SID, TRUSTED_INSTALLER_SID]);
-/** SDDL's alias for the local built-in administrator account, which is trusted only when it is the current user. */
 const LOCAL_ADMIN_ALIAS = "LA";
 const BUILTIN_ADMIN_RID_SUFFIX = /-500$/;
 const SDDL_SID_FIELD = /^S-1-\d+(?:-\d+)+$/i;
 const SDDL_ALIAS_FIELD = /^[A-Z]{2}$/;
 
 /**
- * The two-letter SDDL right codes with their numeric values (sddl.h). The directory-service codes (CC, DC, LC, SW, RP, WP,
- * DT, LO, CR) mean something else on a directory service object, but a file system ACL stores the same bits, where they
- * are FILE_WRITE_DATA (0x2), FILE_APPEND_DATA (0x4), FILE_WRITE_EA (0x10), ...: judging the numeric mask is what counts.
+ * The directory-service codes (CC, DC, LC, SW, RP, WP, DT, LO, CR) mean something else on a directory object, but a file
+ * ACL stores the same bits (FILE_WRITE_DATA, ...): the numeric mask is what is judged.
  */
 const RIGHT_CODES: Readonly<Record<string, number>> = {
   CC: 0x1,
@@ -278,21 +213,12 @@ const RIGHT_CODES: Readonly<Record<string, number>> = {
   KX: 0x20019,
 };
 
-/**
- * Any right that lets a principal change the runtime: FILE_WRITE_DATA, FILE_APPEND_DATA, FILE_WRITE_EA, FILE_DELETE_CHILD,
- * FILE_WRITE_ATTRIBUTES, DELETE, WRITE_DAC, WRITE_OWNER, GENERIC_WRITE and GENERIC_ALL. Read, execute and traverse alone
- * are fine (`Read & execute` is 0x1200a9).
- */
+/** Read, execute and traverse alone are fine (`Read & execute` is 0x1200a9); any other right can change the runtime. */
 const WRITE_MASK = 0x2 | 0x4 | 0x10 | 0x40 | 0x100 | 0x10000 | 0x40000 | 0x80000 | 0x40000000 | 0x10000000;
 
-/** Ace types that only take rights away; every other type is treated as granting them. */
 const DENY_TYPES: ReadonlySet<string> = new Set(["D", "OD", "XD", "ZD"]);
 
-/**
- * Timeouts per process. CI (windows-latest) measured tier 1 (.NET) at about 0.4 s and tier 2 (`Get-Acl`) at about 6 s
- * typical, with a heavy tail (one run took 28.7 s, another hit a 30 s limit). The values leave room for that tail; they
- * are to be tightened from field data. A timeout is retried once for the same tier (the second start is warm).
- */
+/** CI (windows-latest) measured tier 1 at about 0.4 s and tier 2 at about 6 s, with a tail up to 28.7 s. A timeout is retried once (the second start is warm). */
 const DOTNET_TIMEOUT_MS = 20_000;
 const GET_ACL_TIMEOUT_MS = 60_000;
 const WHOAMI_TIMEOUT_MS = 15_000;
@@ -300,16 +226,12 @@ const WHOAMI_TIMEOUT_MS = 15_000;
 const CONSTRAINED_LANGUAGE_EXIT_CODE = 3;
 const TIMEOUT_RETRIES = 1;
 const ACL_MAX_BUFFER = 1024 * 1024;
-/**
- * How long a prewarmed PowerShell may wait for its paths before it is killed: the copy it overlaps takes seconds, so this
- * only bounds a caller that never gets to the read (the read then spawns a fresh process).
- */
+/** Only bounds a caller that never gets to the read; the read then spawns a fresh process. */
 const PREWARM_IDLE_LIMIT_MS = 120_000;
 const PATH_SEPARATOR = "|";
 const PATHS_VARIABLE = "WI_ACL_PATHS";
 const SID_PATTERN = /^S-1-\d+(?:-\d+)+$/;
 const WHOAMI_SID_PATTERN = /"(S-1-\d+(?:-\d+)+)"\s*$/;
-/** `-InputFormat None` and a closed stdin: PowerShell never waits for input. */
 const POWERSHELL_ARGUMENTS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-InputFormat", "None", "-Command"] as const;
 /** The prewarmed process reads its paths from stdin, so it must not be started with `-InputFormat None`. */
 const PREWARM_ARGUMENTS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"] as const;
@@ -335,44 +257,29 @@ const INHERITED_VARIABLES = [
   "PATHEXT",
   "ComSpec",
 ] as const;
-/**
- * No progress records (CLIXML on stdout or stderr) and no module auto-loading, which would scan the PSModulePath for any
- * cmdlet that is not in Microsoft.PowerShell.Core. Plain variable assignments, so they are allowed in Constrained
- * Language Mode. Both scripts start with them.
- */
+/** No CLIXML progress records and no module auto-loading (it scans the PSModulePath); plain assignments, so allowed in Constrained Language Mode. */
 const SCRIPT_PREFERENCES = "$ProgressPreference='SilentlyContinue';$PSModuleAutoLoadingPreference='None';";
 /**
- * Tier 1, no cmdlets and so no module autoload: the first output line is the current user's SID, then one SDDL line per
- * path, from the .NET Framework security API of Windows PowerShell 5.1. The paths travel in an environment variable,
- * never in the command text, so no quoting can be abused. With auto-loading off it must stay cmdlet-free. Outside Full Language Mode the method calls would fail with a
- * localized message, so the script exits with a fixed code instead (CONSTRAINED_LANGUAGE_EXIT_CODE).
+ * Tier 1 must stay cmdlet-free (no module autoload). The paths travel in an environment variable, never in the command
+ * text, so no quoting can be abused. Outside Full Language Mode it exits with CONSTRAINED_LANGUAGE_EXIT_CODE instead of a localized error.
  */
 const DOTNET_HEAD =
   `${SCRIPT_PREFERENCES}if($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage'){exit 3};` +
   "$ErrorActionPreference='Stop';try{$s=[Security.AccessControl.AccessControlSections]'Owner,Group,Access';" +
   "[Console]::Out.WriteLine([Security.Principal.WindowsIdentity]::GetCurrent().User.Value);";
-/** Writes the SDDL line of the object at `$p`. */
 const DOTNET_READ_ONE =
   "if([IO.Directory]::Exists($p)){$a=[IO.Directory]::GetAccessControl($p,$s)}else{$a=[IO.File]::GetAccessControl($p,$s)}" +
   "[Console]::Out.WriteLine($a.GetSecurityDescriptorSddlForm($s))";
 const DOTNET_TAIL = "}catch{[Console]::Error.WriteLine($_.Exception.Message);exit 1}";
 const DOTNET_SCRIPT = `${DOTNET_HEAD}foreach($p in $env:WI_ACL_PATHS.Split('|')){${DOTNET_READ_ONE}}${DOTNET_TAIL}`;
-/**
- * Tier 1 for a prewarmed process: the same checks and the same output, but the paths arrive on stdin after the SID line
- * is written (the process is loaded and its .NET types are warm by then). One path per line, each the Base64 of its UTF-8
- * bytes, so the transport is pure ASCII whatever the console code page (`C:\Users\測試 使用者\...`) and no character
- * of a path can be taken for syntax. Stdin ending finishes the loop; a parent that died closes it, so no process waits forever.
- */
+/** Paths arrive on stdin, one per line as Base64 of UTF-8, so the transport is ASCII whatever the console code page. A dead parent closes stdin. */
 const DOTNET_STDIN_SCRIPT =
   `${DOTNET_HEAD}$e=[Text.Encoding]::UTF8;` +
   "while($null -ne ($l=[Console]::In.ReadLine())){if($l.Length -eq 0){continue};" +
   `$p=$e.GetString([Convert]::FromBase64String($l));${DOTNET_READ_ONE}}${DOTNET_TAIL}`;
 /**
- * Tier 2, for Constrained Language Mode, where tier 1's method calls fail: one SDDL line per path. The security module
- * is imported by absolute path first (allowed in Constrained Language Mode for a system module): without it `Get-Acl`
- * finds its module by auto-loading, which analyses every module on the PSModulePath and is slow. Only language
- * constructs and Microsoft.PowerShell.Core cmdlets are used before the import (no `Join-Path`, which would trigger the
- * auto-loading it is meant to avoid).
+ * Tier 2 (Constrained Language Mode). The security module is imported by absolute path first: auto-loading would analyse
+ * every module on the PSModulePath. Before the import only language constructs and Microsoft.PowerShell.Core cmdlets (no `Join-Path`).
  */
 const GET_ACL_SCRIPT =
   `${SCRIPT_PREFERENCES}$ErrorActionPreference='Stop';` +
@@ -384,7 +291,6 @@ function isExecFailure(error: unknown): error is ExecFileFailure {
   return error instanceof Error && typeof candidate.timedOut === "boolean" && typeof candidate.elapsedMs === "number";
 }
 
-/** `exit=3 412 ms`, `timeout after 60000 ms`, `ENOENT 3 ms`, each with the cleaned stderr; `meaning` names a known exit code. */
 function describeExecFailure(
   failure: Pick<ExecFileFailure, "exitCode" | "errno" | "signal" | "timedOut" | "elapsedMs" | "timeoutMs" | "stderr">,
   meaning?: string,
@@ -400,7 +306,6 @@ function describeExecFailure(
   return stderr === "" || meaning ? head : `${head}, stderr: ${stderr}`;
 }
 
-/** A tier failure whose message already says everything, and whose kind decides whether the tier is retried. */
 function tierFailure(message: string, kind: AclFailureKind): TierFailure {
   return Object.assign(new Error(message), { kind });
 }
@@ -420,29 +325,22 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** One failure for a message: what ran and how it ended; `ms` is the time of the whole attempt, for errors that carry none. */
 function describeFailure(error: unknown, ms: number): string {
   if (isExecFailure(error)) return describeExecFailure(error);
   return isTierFailure(error) ? error.message : `${messageOf(error)} (${ms} ms)`;
 }
 
-/** `describeFailure` for one process of a tier, where no timing of the whole attempt exists. */
 function describePart(error: unknown): string {
   return isExecFailure(error) ? describeExecFailure(error) : messageOf(error);
 }
 
-/** Decodes `_xHHHH_` escapes and XML entities of CLIXML text. */
 function decodeClixml(text: string): string {
   return text
     .replace(/&(lt|gt|amp|quot|apos);/g, (_match, name: string) => XML_ENTITIES[name] as string)
     .replace(/_x([0-9a-fA-F]{4})_/g, (_match, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
 }
 
-/**
- * Windows PowerShell writes errors to stderr as CLIXML (`#< CLIXML` and an `<Objs>` document) when its output is
- * redirected. This keeps the text of the `<S S="Error">` elements, decoded, and drops everything else (progress records
- * included); plain text stays as it is. The result is trimmed and cut to about 500 characters.
- */
+/** Windows PowerShell writes errors to stderr as CLIXML when redirected; keeps the `<S S="Error">` text, decoded. */
 export function cleanPowerShellStderr(raw: string): string {
   const text = raw.trim();
   const cleaned = text.startsWith(CLIXML_HEADER)
@@ -452,7 +350,6 @@ export function cleanPowerShellStderr(raw: string): string {
   return normalized.length > STDERR_LIMIT ? `${normalized.slice(0, STDERR_LIMIT)}…` : normalized;
 }
 
-/** A rejection of `nodeExec`: the facts of the failed run, and a message without the command line. */
 function execFailure(error: ExecFileException, stderr: string, elapsedMs: number, timeoutMs: number): ExecFileFailure {
   const killed = error.killed === true;
   const signal = error.signal ?? undefined;
@@ -469,7 +366,6 @@ function execFailure(error: ExecFileException, stderr: string, elapsedMs: number
   return Object.assign(new Error(""), failure, { message: describeExecFailure(failure) });
 }
 
-/** `execFile` (no shell: the arguments are an argv) as a promise, with stdin closed and a structured failure. */
 export const nodeExec: ExecFileLike = (file, args, options) =>
   new Promise((resolve, reject) => {
     const started = performance.now();
@@ -477,12 +373,10 @@ export const nodeExec: ExecFileLike = (file, args, options) =>
       if (error) reject(execFailure(error, stderr, performance.now() - started, options.timeout));
       else resolve({ stdout });
     });
-    // Nothing is ever written: destroying the pipe closes it at once (the child reads end of input), and unlike `end()`
-    // it leaves no pending write that could fail with EPIPE when the child exits first.
+    // Destroy the pipe: the child reads end of input at once, and unlike `end()` no pending write can fail with EPIPE.
     child.stdin?.destroy();
   });
 
-/** A rejection of a run that was killed because it outlived `timeoutMs`; its time is measured from the start of the wait. */
 function timeoutFailure(elapsedMs: number, timeoutMs: number): ExecFileFailure {
   const failure = {
     exitCode: undefined,
@@ -497,11 +391,7 @@ function timeoutFailure(elapsedMs: number, timeoutMs: number): ExecFileFailure {
   return Object.assign(new Error(""), failure, { message: describeExecFailure(failure) });
 }
 
-/**
- * `spawn` (no shell: the arguments are an argv) with piped standard streams, for a process that is started now and fed
- * later. Output is collected up to `maxBuffer`; a write to a process that already exited is ignored (its exit is the
- * result). Timeouts are the caller's: this one never kills by time.
- */
+/** No shell; a write to an already-exited process is ignored. Timeouts are the caller's: this never kills by time. */
 export const nodeSpawn: SpawnAclLike = (file, args, options) => {
   const started = performance.now();
   const child = nodeSpawnProcess(file, [...args], { env: options.env, windowsHide: true });
@@ -559,7 +449,6 @@ export const nodeSpawn: SpawnAclLike = (file, args, options) => {
   };
 };
 
-/** The numeric mask of an SDDL rights string: hex, decimal, or concatenated two-letter codes. Throws on anything else. */
 function parseRights(text: string): number {
   if (/^0x[0-9a-f]{1,8}$/i.test(text)) return Number.parseInt(text, 16) >>> 0;
   if (/^\d{1,10}$/.test(text)) return Number.parseInt(text, 10) >>> 0;
@@ -574,7 +463,6 @@ function parseRights(text: string): number {
   return rights >>> 0;
 }
 
-/** The text of every top-level `( ... )` group of `text`; nested groups (conditions) stay inside their parent. */
 function splitAces(text: string): string[] {
   const aces: string[] = [];
   let depth = 0;
@@ -594,7 +482,6 @@ function splitAces(text: string): string[] {
   return aces;
 }
 
-/** An SDDL principal as a SID, with the alias it was written as. Anything that is neither a SID nor a two-letter alias throws. */
 function normalizePrincipal(field: string): { readonly sid: string; readonly alias?: string } {
   const token = field.trim();
   if (Object.hasOwn(SID_ALIASES, token)) return { sid: SID_ALIASES[token] as string, alias: token };
@@ -603,12 +490,7 @@ function normalizePrincipal(field: string): { readonly sid: string; readonly ali
   throw new RangeError(`unrecognized principal "${token}"`);
 }
 
-/**
- * Parses the `O:` owner and the `D:` entries of an SDDL string (the name-free form that `Get-Acl` returns in `.Sddl`).
- * Every principal is normalized first: a fixed-SID alias becomes its SID (the alias is kept for messages), a domain- or
- * machine-relative alias stays as two letters. Throws a RangeError for text that is not SDDL, a principal that is
- * neither, or a right code it does not know, so the caller fails closed instead of reading the unknown as "no rights".
- */
+/** Throws RangeError for anything it does not know, so the caller fails closed instead of reading it as "no rights". */
 export function parseSddl(sddl: string): ParsedSddl {
   const text = sddl.trim();
   const owner = /^O:(.+?)(?=G:|D:|S:|$)/.exec(text)?.[1];
@@ -640,7 +522,6 @@ function isCurrentUser(sid: string, trust: AclTrust): boolean {
   return sid === trust.currentUserSid.toUpperCase();
 }
 
-/** The local administrator alias is the built-in account: trusted only when that account is the current user. */
 function isCurrentLocalAdmin(sid: string, trust: AclTrust): boolean {
   return sid === LOCAL_ADMIN_ALIAS && BUILTIN_ADMIN_RID_SUFFIX.test(trust.currentUserSid);
 }
@@ -653,18 +534,13 @@ function isTrustedOwner(sid: string, trust: AclTrust): boolean {
   return TRUSTED_OWNERS.has(sid) || isCurrentUser(sid, trust) || isCurrentLocalAdmin(sid, trust);
 }
 
-/** The SID, with the alias the SDDL used in parentheses: `S-1-5-32-545 (BU)`. A relative alias (`DA`) is its own name. */
 function principalName(sid: string, alias: string | undefined): string {
   return alias === undefined ? sid : `${sid} (${alias})`;
 }
 
 /**
- * Why a descriptor cannot be trusted, or undefined: a missing DACL (everyone may do everything), an owner (who can
- * always rewrite the ACL) that is not the current user, SYSTEM, Administrators or TrustedInstaller (CREATOR OWNER and
- * OWNER RIGHTS are never an owner), or any granting entry with a write right for another principal. Only the deny types
- * D, OD, XD and ZD are skipped; every other type counts as a grant. An inheritance-only entry is NOT ignored: it does not
- * apply to the object itself but it is copied to every child created or re-inherited later. Entries are judged by SID,
- * never by name, so a localized Windows reads the same.
+ * Only deny types D, OD, XD and ZD are skipped. An inheritance-only entry still counts: it is copied to every child
+ * created later. Entries are judged by SID, never by name, so a localized Windows reads the same.
  */
 export function aclProblem(descriptor: ParsedSddl, trust: AclTrust): string | undefined {
   if (descriptor.nullDacl) return "沒有存取控制清單（DACL 為空），任何人都能寫入";
@@ -681,7 +557,6 @@ export function aclProblem(descriptor: ParsedSddl, trust: AclTrust): string | un
   return undefined;
 }
 
-/** The SID in the output of `whoami /user /fo csv /nh` (`"HOST\\user","S-1-5-21-..."`), read from its last non-empty line. */
 export function parseWhoamiSid(output: string): string {
   const lastLine = output
     .split(/\r?\n/)
@@ -692,11 +567,6 @@ export function parseWhoamiSid(output: string): string {
   return sid;
 }
 
-/**
- * The environment of the child PowerShell: only the allow-listed variables copied from the parent (names matched
- * case-insensitively), then a module path, a search path and, when `paths` is given, the ACL paths set here (the prewarmed process gets none: its paths come on stdin). A parent's PSModulePath (PowerShell 7
- * entries make Windows PowerShell 5.1 fail to load its own modules) and Path never reach the child. One key per name.
- */
 function powerShellEnvironment(env: NodeJS.ProcessEnv, paths?: readonly string[]): NodeJS.ProcessEnv {
   const child: NodeJS.ProcessEnv = {};
   for (const name of INHERITED_VARIABLES) {
@@ -714,22 +584,12 @@ function powerShellEnvironment(env: NodeJS.ProcessEnv, paths?: readonly string[]
 
 const roundMs = (ms: number) => Math.round(ms * 10) / 10;
 
-/**
- * The real reader. Both tiers start Windows PowerShell 5.1 by absolute path, without a shell, in a clean environment (see
- * powerShellEnvironment), and fail on any error, a malformed SID or a wrong line count. Tier `dotnet` is the default; its
- * script exits with CONSTRAINED_LANGUAGE_EXIT_CODE in Constrained Language Mode, which is reported as such. Tier
- * `get-acl` takes the SID from `whoami` (cached for this reader) because it must not call .NET methods. The reader makes
- * one try per call: retrying a timeout is the caller's decision (see assertWindowsAcl). `prewarm` starts a tier-1
- * process (`spawn` seam) that reads its paths from stdin; the next tier-1 read takes it over, and every way it can fail
- * falls back to the one-shot read described above.
- */
 export function createWindowsAclReader(
   exec: ExecFileLike = nodeExec,
   env: NodeJS.ProcessEnv = process.env,
   spawn: SpawnAclLike = nodeSpawn,
 ): WindowsAclReader {
   let whoamiSid: string | undefined;
-  /** The prewarmed tier-1 process nobody has read from yet; at most one. */
   let pending: PrewarmedProcess | undefined;
 
   const run = (file: string, args: readonly string[], childEnv: NodeJS.ProcessEnv, timeout: number) =>
@@ -749,13 +609,11 @@ export function createWindowsAclReader(
     return { sid: parseWhoamiSid(stdout), ms: performance.now() - started };
   };
 
-  // PowerShell may still write a serialized progress record ("#< CLIXML" then one `<Objs …>` line) to stdout on the first
-  // use of a module; it is never an SID or SDDL line, so it is dropped before the line count is checked.
+  // A serialized progress record ("#< CLIXML") may reach stdout; it is never an SID or SDDL line, so it is dropped first.
   const lines = (stdout: string) =>
     stdout.split(/\r?\n/).filter((line) => line.trim() !== "" && !/^(#< CLIXML|<Objs\b)/.test(line.trim()));
 
   const readGetAcl = async (paths: readonly string[]): Promise<AclSnapshot> => {
-    // whoami and PowerShell are independent processes: they run side by side, and both outcomes are reported.
     const [sid, acls] = await Promise.allSettled([
       whoamiSid === undefined ? readWhoami() : Promise.resolve(undefined),
       runPowerShell(GET_ACL_SCRIPT, paths, GET_ACL_TIMEOUT_MS),
@@ -780,7 +638,6 @@ export function createWindowsAclReader(
     return { currentUserSid: whoamiSid as string, sddls };
   };
 
-  /** A tier-1 exit with CONSTRAINED_LANGUAGE_EXIT_CODE is Constrained Language Mode, whichever process produced it. */
   const classifyDotnetFailure = (error: unknown): unknown =>
     isExecFailure(error) && !error.timedOut && error.exitCode === CONSTRAINED_LANGUAGE_EXIT_CODE
       ? tierFailure(describeExecFailure(error, "ConstrainedLanguage"), "constrained-language")
@@ -823,7 +680,6 @@ export function createWindowsAclReader(
       read: async (paths) => {
         clearTimeout(idleTimer);
         if (ended) {
-          // It ended before it had any paths: its failure, or (exit 0 without input) a protocol that cannot have worked.
           return exited.then(() => {
             throw new RangeError("the prewarmed PowerShell ended before it was given the paths");
           });
@@ -846,11 +702,7 @@ export function createWindowsAclReader(
     };
   };
 
-  /**
-   * Reads through the prewarmed process, if one is waiting. Its answer, a timeout of its read and Constrained Language
-   * Mode count as the tier's outcome; every other failure (it died before it had paths, bad output, an error exit) says
-   * nothing about the paths, so the read is made again in a fresh process, exactly as without a prewarm.
-   */
+  /** Its answer, a read timeout and Constrained Language Mode are the tier's outcome; any other failure re-reads in a fresh process. */
   const readPrewarmed = async (paths: readonly string[]): Promise<AclSnapshot | undefined> => {
     const warm = pending;
     pending = undefined;
@@ -885,7 +737,6 @@ export function createWindowsAclReader(
       try {
         pending = startPrewarmed();
       } catch {
-        // The read will meet the same problem (no PowerShell, a bad SystemRoot) and report it.
         return { release: () => undefined };
       }
     }
@@ -919,10 +770,6 @@ async function readAndParse(
   };
 }
 
-/**
- * One tier: reads and parses, and tries once more when (and only when) the first try timed out, because the second start
- * is warm. Every try is recorded in `attempts`; `failure` reads `get-acl: timeout after 60000 ms, then exit=1 3 ms`.
- */
 async function readTier(
   paths: readonly string[],
   reader: WindowsAclReader,
@@ -949,15 +796,7 @@ async function readTier(
   return { failure: `${tier}: ${failures.join(", then ")}`, error: lastError };
 }
 
-/**
- * Checks the ACL of every path. The descriptors are read with the .NET API first and, only when that read or its parse
- * fails (spawn error, timeout, bad output, Constrained Language Mode), with `Get-Acl`; a timeout is retried once within
- * its tier. When both fail the result is RUNTIME_ACL_UNREADABLE with both tiers' reasons: an ACL that cannot be read is
- * not trusted, and it is not a reason to reinstall. A verdict is final: the first object owned or writable by someone
- * other than the trusted principals throws RUNTIME_UNSAFE_PERMISSIONS and the second tier is never asked. The owner is
- * part of the check, which is why no tier reads the DACL alone. The report says which tier answered and lists every
- * attempt with its duration and failure kind.
- */
+/** An ACL that cannot be read is not trusted (RUNTIME_ACL_UNREADABLE), and it is not a reason to reinstall. */
 export async function assertWindowsAcl(paths: readonly string[], reader: WindowsAclReader): Promise<AclReadReport> {
   const attempts: AclReadAttempt[] = [];
   let outcome = await readTier(paths, reader, "dotnet", attempts);

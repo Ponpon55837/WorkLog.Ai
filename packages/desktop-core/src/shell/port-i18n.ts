@@ -1,18 +1,14 @@
 import type { ShellLocale } from "./i18n.js";
 import type { PortProblem } from "./port-policy.js";
 
-/** The strings of the port change: the Settings tab's section and the native confirmation. */
 export interface PortMessages {
   readonly heading: string;
-  /** `{port}` is the port the backend serves now. */
   readonly current: string;
   readonly intro: string;
   readonly inputLabel: string;
   readonly apply: string;
   readonly applying: string;
-  /** `{port}` is the new port; the Dashboard reopens there. */
   readonly done: string;
-  /** Shown after `done` when the change threw away an idle staged import preview. */
   readonly importPreviewDiscarded: string;
   readonly unchanged: string;
   readonly cancelled: string;
@@ -21,17 +17,13 @@ export interface PortMessages {
   readonly busyOperation: string;
   readonly busyActivity: string;
   readonly busyUnknown: string;
-  /** `{port}` is the old port the backend is back on. */
   readonly failedRolledBack: string;
   readonly failedNotRunning: string;
   readonly invalid: string;
-  /** Pasted preferences of the Dashboard page wait in memory for this change. */
   readonly handoffNote: string;
   readonly problems: Readonly<Record<PortProblem, string>>;
-  /** The native confirmation: `{from}` and `{to}` are ports. */
   readonly confirmMessage: string;
   readonly confirmDetail: string;
-  /** Added to the detail when a staged import preview exists: the restart discards it. */
   readonly confirmImportNote: string;
   readonly confirmButton: string;
   readonly cancelButton: string;

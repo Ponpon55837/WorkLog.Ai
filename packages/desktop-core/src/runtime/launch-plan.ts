@@ -4,23 +4,17 @@ import { readCurrentRuntimeId } from "./layout.js";
 import { isRuntimeAction, type RuntimeAction, type RuntimeKind, type RuntimeManifest } from "./manifest.js";
 import { verifyRuntime, type VerifyRuntimeOptions } from "./verify.js";
 
-/** A process to start: argv array and environment, never a shell command line. */
 export interface LaunchPlan {
   readonly command: string;
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string | undefined>>;
 }
 
-/**
- * What makes the Electron executable behave as plain Node: run scripts instead of the App, and read `.asar` files as
- * ordinary files (Electron's asar support otherwise reports `default_app.asar` as a 0-byte directory to the verifier).
- */
 export const ELECTRON_AS_NODE_ENV: Readonly<Record<string, string>> = {
   ELECTRON_RUN_AS_NODE: "1",
   ELECTRON_NO_ASAR: "1",
 };
 
-/** Throws unless `action` is one of the fixed actions; checked before any file is read. */
 export function assertAllowedAction(action: string): asserts action is RuntimeAction {
   if (!isRuntimeAction(action)) {
     throw new RuntimeError("RUNTIME_ACTION_NOT_ALLOWED", "不允許的 action", {
@@ -30,10 +24,6 @@ export function assertAllowedAction(action: string): asserts action is RuntimeAc
   }
 }
 
-/**
- * The process that runs `action` for an already verified runtime: the bundled executable, the action's entry script,
- * the action's fixed arguments and then `argv`. Electron runtimes get {@link ELECTRON_AS_NODE_ENV}.
- */
 export function buildLaunchPlan(
   runtimeDirectory: string,
   manifest: RuntimeManifest,
@@ -56,14 +46,11 @@ export function buildLaunchPlan(
   };
 }
 
-/** Options of {@link planLaunch}: verification, the base environment and, optionally, the one runtime kind accepted. */
 export interface PlanLaunchOptions extends VerifyRuntimeOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
-  /** When set, a verified runtime of any other kind is refused with `RUNTIME_KIND_NOT_ALLOWED`. */
   readonly requiredRuntimeKind?: RuntimeKind;
 }
 
-/** Reads `current`, verifies that runtime completely and plans how to start `action` in it. */
 export async function planLaunch(
   root: string,
   action: string,

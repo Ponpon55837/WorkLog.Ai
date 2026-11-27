@@ -42,7 +42,6 @@ async function expandPaths(paths: string[], options: UsageScanOptions): Promise<
   return files;
 }
 
-/** sha256 of the bytes just before `offset` (at most 4 KiB); distinguishes an appended file from a rewritten one. */
 async function hashPrefix(path: string, offset: number): Promise<string> {
   const length = Math.min(PREFIX_BYTES, offset);
   const hash = createHash("sha256");
@@ -86,7 +85,6 @@ function entryFrom(
   };
 }
 
-/** Processes one file: serves it from the cache, reads only its appended bytes, or parses it in full. */
 async function scanFile(
   state: ScanState,
   file: string,
@@ -101,7 +99,6 @@ async function scanFile(
   const key = resolve(file);
   state.file = { path: file, codex: null, group, cwd: "" };
   const evidence = group !== null;
-  // A file cached before it became a shared source has no evidence in its records: read it again.
   const cached = cache?.get(key);
   const entry = cached && (cached.evidence || !evidence) ? cached : undefined;
   let current: UsageCacheEntry | undefined;
@@ -154,10 +151,6 @@ async function scanFile(
   endCodexFile(state);
 }
 
-/**
- * The files to read, each with the shared-source group it belongs to (null: a project's own source or a manual folder).
- * A file listed by `paths` is never also a group's file, and no file is read twice for the groups.
- */
 async function planFiles(
   paths: string[],
   options: UsageScanOptions,
@@ -177,11 +170,6 @@ async function planFiles(
   return plan;
 }
 
-/**
- * Summarizes jsonl session logs (Claude Code incrementally through `options.cache`, Codex rollouts experimental and
- * reparsed on every scan). Sessions carry only a label and a short hash. A file whose mtime precedes `since` is skipped
- * unread, so its lines count in no total (not even `formats` or `skippedLines`).
- */
 export async function summarizeFiles(paths: string[], options: UsageScanOptions = {}): Promise<UsageReport> {
   const state = createState(options);
   const counts: UsageCacheCounts = { reused: 0, appended: 0, parsed: 0, bytesRead: 0 };
@@ -190,8 +178,6 @@ export async function summarizeFiles(paths: string[], options: UsageScanOptions 
     await scanFile(state, file, group, options, counts);
   }
   linkCodexCompactions(state);
-  // Conversations of shared sources go to exactly one bucket; those the selection leaves out are dropped from every
-  // total, the 5-hour blocks included.
   const { allocation, excluded } = allocateSessions(state);
   for (const key of excluded) state.sessions.delete(key);
   if (excluded.size > 0)
@@ -258,10 +244,6 @@ function shapeDiscriminator(value: unknown): string {
   return typeof value === "string" && SAFE_DISCRIMINATOR.test(value) ? value : "(other)";
 }
 
-/**
- * Describes the structure of log lines for format debugging: per `type`/`payload.type` pair a count and the key
- * paths (depth 4) with their JS types. Values and JSON embedded in strings are never read or printed.
- */
 export async function summarizeShapes(paths: string[]): Promise<ShapeReport> {
   const shapes = new Map<string, { count: number; paths: Map<string, Set<string>> }>();
   let skippedLines = 0;

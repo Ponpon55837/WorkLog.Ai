@@ -2,16 +2,13 @@ import fs from "node:fs/promises";
 import { recoveryPathFor } from "./atomic-write.js";
 import { parseDesktopSettings, type DesktopSettingsV1 } from "./schema.js";
 
-/** Reasons a settings read needs the user (or a repair flow) instead of silently continuing. */
 export type SettingsRepairReason = "unreadable" | "invalid-json" | "invalid-schema" | "unsupported-version" | "denied";
 
-/** Result of reading the settings file; fail-closed, never a silent default. */
 export type DesktopSettingsReadResult =
   | {
       readonly kind: "ok";
       readonly settings: DesktopSettingsV1;
       readonly source: "primary" | "recovery";
-      /** True when the primary is missing or damaged and the recovery copy was used. Reading never repairs it. */
       readonly primaryDamaged: boolean;
       readonly primaryReason?: SettingsRepairReason | "missing";
     }
@@ -24,7 +21,6 @@ export type DesktopSettingsReadResult =
       readonly recoveryReason?: SettingsRepairReason | "missing";
     };
 
-/** Injectable read dependencies. */
 export interface SettingsReadDeps {
   readFile(filePath: string): Promise<string>;
 }
@@ -34,7 +30,6 @@ type FileState =
   | { readonly state: "missing" }
   | { readonly state: "failed"; readonly reason: SettingsRepairReason; readonly detail: string };
 
-/** Primary failures that mean "damaged" and may fall back to the recovery copy. */
 const RECOVERABLE_REASONS: ReadonlySet<SettingsRepairReason> = new Set([
   "invalid-json",
   "invalid-schema",
@@ -73,14 +68,6 @@ function stateLabel(state: FileState): SettingsRepairReason | "missing" | undefi
   return state.state === "missing" ? "missing" : state.reason;
 }
 
-/**
- * Read the settings file fail-closed. `new-install` is returned only when both the primary and the
- * recovery copy are absent and no other sources exist; anything corrupt, denied or unknown is
- * `needs-repair`. A valid recovery copy is returned (flagged) only when the primary is missing or DAMAGED
- * (invalid JSON/schema, unreadable); an `unsupported-version` or `denied` primary is never replaced by the older
- * recovery copy. This
- * function never writes, renames or deletes anything.
- */
 export async function readDesktopSettings(
   filePath: string,
   deps: SettingsReadDeps = NODE_READ_DEPS,

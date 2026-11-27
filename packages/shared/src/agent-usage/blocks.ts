@@ -4,12 +4,10 @@ const BLOCK_MS = 5 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
 
-/** Minutes east of UTC at an instant, from the host's time zone. */
 function localOffsetMinutes(time: number): number {
   return -new Date(time).getTimezoneOffset();
 }
 
-/** The instant of the local hour that contains `time`. Works for zones with a half-hour offset. */
 function floorToLocalHour(time: number, offsetMinutes: number): number {
   const local = time + offsetMinutes * MINUTE_MS;
   return local - (((local % HOUR_MS) + HOUR_MS) % HOUR_MS) - offsetMinutes * MINUTE_MS;
@@ -50,12 +48,6 @@ function finishBlock(agent: UsageAgentId, block: OpenBlock, now: number): UsageB
   };
 }
 
-/**
- * ccusage `blocks` rules per Agent: the first usage opens a block starting at its local hour and lasting 5 hours; usage
- * 5 hours after the block start, or 5 hours after the previous usage, closes it and opens the next. Only each Agent's
- * last block is returned, and only while it is active (`now` before its end and under 5 hours since the last usage).
- * `offsetMinutes` is injectable so tests do not depend on the host's time zone.
- */
 export function buildActiveBlocks(
   events: readonly UsageEvent[],
   now: number,

@@ -1,12 +1,9 @@
 import type { DayUsage, ModelUsage, OperationUsage, TokenCounts, UsageAgentId, UsageMetrics } from "./types.js";
 
-/** Metrics plus the numeric bounds and the keyed breakdowns; converted by `publicMetrics` before output. */
 export type MetricsAcc = Omit<UsageMetrics, "models" | "daily"> & {
   firstMs?: number;
   lastMs?: number;
-  /** Keyed by `agent|model`. */
   byModel: Record<string, ModelUsage>;
-  /** Keyed by local date. */
   byDay: Record<string, TokenCounts>;
 };
 
@@ -45,7 +42,6 @@ export function bump(map: Record<string, number>, key: string, amount = 1): void
   map[key] = (map[key] ?? 0) + amount;
 }
 
-/** Adds to one operation key's calls or result characters. */
 export function bumpOperation(
   metrics: Pick<UsageMetrics, "workIntelligenceOperations">,
   key: string,
@@ -60,14 +56,12 @@ function addCounts(target: TokenCounts, source: TokenCounts): void {
   for (const [field] of TOKEN_FIELDS) target[field] += source[field];
 }
 
-/** The server's local calendar date of an instant, `YYYY-MM-DD`. */
 export function localDate(time: number): string {
   const date = new Date(time);
   const pad = (value: number): string => String(value).padStart(2, "0");
   return `${String(date.getFullYear()).padStart(4, "0")}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/** The model entry of an Agent, created on first use. */
 export function modelEntry(metrics: MetricsAcc, agent: UsageAgentId, model: string): ModelUsage {
   return (metrics.byModel[`${agent}|${model}`] ??= {
     agent,
@@ -77,7 +71,6 @@ export function modelEntry(metrics: MetricsAcc, agent: UsageAgentId, model: stri
   });
 }
 
-/** Credits tokens (and responses) to an Agent and model and to the local day of `time` (none when null). */
 export function creditBreakdown(
   metrics: MetricsAcc,
   agent: UsageAgentId,
@@ -93,7 +86,6 @@ export function creditBreakdown(
   addCounts((metrics.byDay[localDate(time)] ??= { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }), tokens);
 }
 
-/** Records a timestamp (epoch ms) as the session's first/last bound; the ISO string is built only on a new bound. */
 export function touchTimestamps(metrics: MetricsAcc, time: number | null): void {
   if (time === null) return;
   if (metrics.firstMs === undefined || time < metrics.firstMs) {
@@ -143,7 +135,6 @@ export function mergeMetrics(target: MetricsAcc, source: MetricsAcc): void {
   }
 }
 
-/** Drops the internal bounds and turns the keyed breakdowns into sorted lists. */
 export function publicMetrics(metrics: MetricsAcc): UsageMetrics {
   const { firstMs: _firstMs, lastMs: _lastMs, byModel, byDay, ...rest } = metrics;
   const primary = (entry: ModelUsage): number => entry.tokens.input + entry.tokens.output;

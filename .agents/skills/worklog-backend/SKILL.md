@@ -120,6 +120,7 @@ Before adding a write on a read path or bookkeeping table, check which revision 
 - Fictional fixtures only; never real user data, paths, or the private evaluation questions.
 - Use `new WorkIntelligenceStore(":memory:")` for logic, a temp directory for anything touching files or backups, and fake timers when ordering by time matters.
 - Cover the boundary cases a batch or index can get wrong (several records with different start times, empty input, the first/last element).
+- Comments in source and tests follow `worklog-code-layout` §8: none by default; test names carry the meaning.
 
 ## 9. Before opening a PR
 

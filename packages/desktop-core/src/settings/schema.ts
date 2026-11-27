@@ -2,23 +2,18 @@ import path from "node:path";
 import { z } from "zod";
 import { databaseIdentitySchema } from "../db-source/identity-schema.js";
 
-/** Why a raw settings value was rejected; `unsupported-version` is deliberately distinct so callers never coerce it. */
 export type DesktopSettingsParseFailureKind = "invalid-schema" | "unsupported-version";
 
-/** Outcome of validating a raw settings value. */
 export type DesktopSettingsParseResult =
   | { readonly ok: true; readonly settings: DesktopSettingsV1 }
   | { readonly ok: false; readonly kind: DesktopSettingsParseFailureKind; readonly detail: string };
 
-/** Accept POSIX and win32 absolute forms regardless of the host OS (settings may be read on either). */
 function isAbsolutePath(value: string): boolean {
   return !value.includes("\0") && (path.posix.isAbsolute(value) || path.win32.isAbsolute(value));
 }
 
-/** Why a database path is refused; `undefined` means it is supported. */
 export type DatabasePathProblem = "empty" | "not-absolute" | "unc" | "device";
 
-/** The App's reason for each refusal, in both UI languages (first-run page and any other surface show these). */
 export const DATABASE_PATH_PROBLEM_MESSAGES: Readonly<Record<DatabasePathProblem, { "zh-TW": string; en: string }>> = {
   empty: { "zh-TW": "請輸入資料庫路徑。", en: "Enter a database path." },
   "not-absolute": { "zh-TW": "資料庫路徑必須是絕對路徑。", en: "The database path must be absolute." },
@@ -35,12 +30,7 @@ export const DATABASE_PATH_PROBLEM_MESSAGES: Readonly<Record<DatabasePathProblem
 
 const WINDOWS_DRIVE_ROOT = /^[A-Za-z]:[\\/]/;
 
-/**
- * The one database path rule the App (settings schema, first-run page) and the Agent launcher share. A path must be
- * absolute and must not be a UNC (`\\\\server\\share`, `//server/share`) or device (`\\\\?\\`, `\\\\.\\`) path: SQLite over
- * SMB is risky. With `platform` the form must fit that OS (a drive path on win32, `/…` elsewhere); without it either
- * absolute form passes, because settings may be read on either OS.
- */
+/** Shared by the App and the Agent launcher. UNC and device paths are refused: SQLite over SMB is risky. */
 export function databasePathProblem(value: string, platform?: NodeJS.Platform): DatabasePathProblem | undefined {
   if (!value || value.includes("\0")) return "empty";
   if (/^[\\/]{2}[?.][\\/]/.test(value)) return "device";
@@ -51,7 +41,6 @@ export function databasePathProblem(value: string, platform?: NodeJS.Platform): 
   return fits ? undefined : "not-absolute";
 }
 
-/** True when {@link databasePathProblem} finds nothing wrong. */
 export function isSupportedDatabasePath(value: string, platform?: NodeJS.Platform): boolean {
   return databasePathProblem(value, platform) === undefined;
 }
@@ -69,10 +58,6 @@ const absolutePathSchema = z.string().min(1).refine(isAbsolutePath, { message: "
 const portSchema = z.number().int().min(1).max(65535);
 const runtimeVersionSchema = z.string().min(1);
 
-/**
- * Version 1 of the desktop settings file. `installId` is an install label only and is not an
- * auth secret. `desired` is user intent; `active`/`lastKnownGood` are what the supervisor last ran.
- */
 export const desktopSettingsV1Schema = z.strictObject({
   configVersion: z.literal(1),
   installId: z.string().min(1),
@@ -101,7 +86,6 @@ export const desktopSettingsV1Schema = z.strictObject({
     .optional(),
 });
 
-/** Validated version-1 settings. */
 export type DesktopSettingsV1 = z.infer<typeof desktopSettingsV1Schema>;
 
 function parseV1(raw: unknown): DesktopSettingsParseResult {
@@ -113,11 +97,6 @@ function parseV1(raw: unknown): DesktopSettingsParseResult {
 
 const VERSION_PARSERS: ReadonlyMap<number, (raw: unknown) => DesktopSettingsParseResult> = new Map([[1, parseV1]]);
 
-/**
- * Version dispatcher: reads `configVersion` and routes to that version's parser. Any integer version
- * without a parser (future or ancient) fails closed as `unsupported-version`; it is never coerced,
- * because a newer app may have written fields this build would silently drop.
- */
 export function parseDesktopSettings(raw: unknown): DesktopSettingsParseResult {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { ok: false, kind: "invalid-schema", detail: "settings must be a JSON object" };

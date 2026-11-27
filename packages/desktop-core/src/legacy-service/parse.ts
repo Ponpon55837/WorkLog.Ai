@@ -12,12 +12,10 @@ export interface InterpretedDefinition {
   recognised: boolean;
   repositoryRoot?: string;
   databasePath?: string;
-  /** Where the service writes its backups (absolute in what the installer writes); only from a recognised definition. */
   backupDirectory?: string;
   port?: number;
 }
 
-/** node, runner, repository root, database, backup directory, package manager, log: the tail `service:install` passes. */
 const RUNNER_ARGUMENT_COUNT = 7;
 const UNRECOGNISED: InterpretedDefinition = { recognised: false };
 
@@ -55,7 +53,6 @@ function parsePort(value: string | undefined): number | undefined {
   return value !== undefined && Number.isInteger(port) && port > 0 && port < 65536 ? port : undefined;
 }
 
-/** Splits a systemd command line made of the double-quoted words `quoteSystemdArgument` writes. */
 function splitSystemdWords(line: string): string[] | undefined {
   const words: string[] = [];
   let index = 0;
@@ -89,7 +86,6 @@ function splitSystemdWords(line: string): string[] | undefined {
   return words;
 }
 
-/** Splits a Windows command line the way `quoteWindowsArgument` writes it (CommandLineToArgvW rules). */
 function splitWindowsWords(line: string): string[] {
   const words: string[] = [];
   let word = "";
@@ -158,7 +154,6 @@ function interpretRunnerArguments(
   if (workingDirectory !== repositoryRoot) return UNRECOGNISED;
   let databasePath: string | undefined;
   try {
-    // The installer passes an absolute path; the checkout rule also covers a hand-edited relative one.
     databasePath = databasePathFor(repositoryRoot, {
       standalone: false,
       environment: { WORK_INTELLIGENCE_DB: rawDatabase },
@@ -217,14 +212,12 @@ function interpretWindowsTask(text: string): InterpretedDefinition {
   return interpretRunnerArguments("win32", words.slice(1), workingDirectory);
 }
 
-/** Decides whether the text is what `service:install` writes for this platform, and pulls out what it runs. */
 export function interpretLegacyDefinition(platform: LegacyServicePlatform, text: string): InterpretedDefinition {
   if (platform === "darwin") return interpretLaunchAgent(text);
   if (platform === "linux") return interpretSystemdUnit(text);
   return interpretWindowsTask(text);
 }
 
-/** UTF-8, or the UTF-16LE (BOM) file `service:install` writes for Task Scheduler. */
 export function decodeLegacyDefinition(buffer: Buffer): string {
   if (buffer[0] === 0xff && buffer[1] === 0xfe) return buffer.subarray(2).toString("utf16le");
   return buffer.toString("utf8");

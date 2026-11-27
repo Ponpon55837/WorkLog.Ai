@@ -4,19 +4,13 @@ export type StopAttempt =
   { readonly status: "stopped"; readonly report: BackendStopReport } | { readonly status: "busy" };
 
 export interface QuitFlowDeps {
-  /** The native confirmation; true to go on. Not called when the quit was not asked for by the user. */
   confirm(): Promise<boolean>;
-  /** Asks the coordinator to cancel the running operation, if it can be cancelled. */
   cancelOperation(): Promise<void>;
-  /** Stops through the managed service; `busy` while an operation holds the lock. */
   tryManagedStop(): Promise<StopAttempt>;
-  /** Stops the child this App spawned, whatever else is going on. */
   forceStop(): Promise<BackendStopReport>;
   sleep(ms: number): Promise<void>;
   log(line: string): void;
-  /** The backend could not be proven stopped: tell the user (a dialog, or only the log in background mode). */
   warnIncompleteStop(report: BackendStopReport | undefined): Promise<void>;
-  /** How long to wait for a running operation to end before stopping the child directly. Default 10 s. */
   readonly waitLimitMs?: number;
   readonly pollMs?: number;
 }
@@ -26,11 +20,6 @@ export type QuitResult = "exit" | "cancelled" | "ignored";
 const DEFAULT_WAIT_LIMIT_MS = 10_000;
 const DEFAULT_POLL_MS = 100;
 
-/**
- * The quit path shared by the tray, `before-quit` and signals. Re-entry is refused; the user's confirmation comes first;
- * then a running operation is cancelled and waited for (bounded); and in every case the child this App started is stopped
- * and the report checked before the process may exit, so an exit never leaves an orphan backend unnoticed.
- */
 export class QuitFlow {
   private readonly deps: QuitFlowDeps;
   private active = false;

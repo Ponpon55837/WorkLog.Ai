@@ -1,9 +1,7 @@
 import { STANDALONE } from "./database-location.js";
 
-/** The command a standalone package installs (package.json `bin`). */
 export const STANDALONE_COMMAND_NAME = "work-intelligence";
 
-/** Root package scripts whose standalone subcommand is not simply the script name or `db <name>`. */
 const STANDALONE_SUBCOMMANDS: Readonly<Record<string, string>> = {
   bootstrap: "setup",
   "setup:agents": "setup-agents",
@@ -14,10 +12,6 @@ const STANDALONE_SUBCOMMANDS: Readonly<Record<string, string>> = {
   "start:server": "start",
 };
 
-/**
- * The command a person types for a root package script, as shown in messages: `pnpm db:backup` in a checkout,
- * `work-intelligence db backup` in a standalone package. The single place that knows both spellings.
- */
 export function commandName(script: string, standalone: boolean = STANDALONE): string {
   if (!standalone) return `pnpm ${script}`;
   const subcommand =

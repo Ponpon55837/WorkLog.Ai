@@ -9,9 +9,7 @@ import type {
 import { storagePolicy } from "./storage-policy.js";
 
 export interface DecideOptions {
-  /** True when the volume holding this directory is known to be offline (an unplugged drive). */
   isOfflineVolume?: (directory: string) => boolean;
-  /** Returns the parent directory of a path; injected only so decide stays free of platform path rules. */
   parentDirectory: (path: string) => string;
 }
 
@@ -22,7 +20,6 @@ function groupsOfKinds(groups: readonly DbSourceGroup[], kinds: ReadonlySet<DbSo
   return groups.filter((group) => group.candidates.some((candidate) => kinds.has(candidate.kind)));
 }
 
-/** A choice made by the user: authoritative, so an unavailable one blocks instead of falling through. */
 function decideChoice(group: DbSourceGroup, kind: DbSourceKind, reason: UseReason): DbSourceDecision {
   if (group.probeStatus === "ok") return { kind: "use", group, reason };
   return {
@@ -34,11 +31,6 @@ function decideChoice(group: DbSourceGroup, kind: DbSourceKind, reason: UseReaso
   };
 }
 
-/**
- * Picks among sources nobody chose explicitly (legacy configs, then defaults): they must agree to be used. A `missing`
- * group is a stale pointer with nothing to preserve, so it is ignored; any other unusable group might be a different
- * real database, so it makes the picture unverifiable. Returns null when every group is missing.
- */
 function decideInferred(groups: readonly DbSourceGroup[], reason: UseReason): DbSourceDecision | null {
   const present = groups.filter((group) => group.probeStatus !== "missing");
   if (present.length === 0) return null;
@@ -51,8 +43,7 @@ function decideInferred(groups: readonly DbSourceGroup[], reason: UseReason): Db
   const only = ok[0]!;
   if (only.status === "conflict") return { kind: "needs-user-choice", groups: [only], reason: "conflict" };
   if (present.length > 1) return { kind: "needs-user-choice", groups: present, reason: "unverifiable" };
-  // A network share, a removable disk, a sync folder, a hard link, or storage nobody could classify is never taken on
-  // one click: the user picks it on purpose (and a positive risk also ticks a consent).
+  // Network share, removable disk, sync folder, hard link or unclassified storage is never taken on one click.
   if (storagePolicy(only.storageRisk?.risk).note) {
     return { kind: "needs-user-choice", groups: [only], reason: "risky-storage" };
   }
@@ -75,9 +66,8 @@ function offerNewDatabase(
 }
 
 /**
- * Selection is priority of CHOICE, not error fallback: committed > explicit > consistent legacy > default. Once a
- * higher tier has any candidate it alone decides; an unavailable chosen source blocks rather than quietly using a
- * lower one (an unplugged drive must never lead to a fresh empty database). Never creates anything.
+ * Priority of choice, not error fallback: an unplugged drive must never lead to a fresh empty database. Never creates
+ * anything.
  */
 export function decideDbSource(
   groups: readonly DbSourceGroup[],
@@ -99,7 +89,6 @@ export function decideDbSource(
   const defaults = groupsOfKinds(groups, DEFAULT_KINDS);
   const fromDefaults = decideInferred(defaults, "default");
   if (fromDefaults) return fromDefaults;
-  // Only missing paths remain. A dangling legacy pointer means a database was expected somewhere: ask, don't create.
   if (legacyGroups.length > 0) return { kind: "needs-user-choice", groups: legacyGroups, reason: "unverifiable" };
   return offerNewDatabase(defaults, candidates, options);
 }

@@ -1,7 +1,6 @@
 import { normalizePathForCompare } from "@work-intelligence/shared/file-identity";
 import type { DbPreview, DbProbeStatus, DbSourceGroup, ResolvedCandidate } from "./types.js";
 
-/** Disjoint-set with path halving and union by size: near-constant amortised time per operation. */
 class UnionFind {
   private readonly parent: number[];
   private readonly size: number[];
@@ -40,8 +39,7 @@ function mergeEqualKeys(candidates: readonly ResolvedCandidate[], sets: UnionFin
   const byPath = new Map<string, number>();
   candidates.forEach((candidate, index) => {
     const id = fileKey(candidate);
-    // Path equality only counts when no file id exists for this candidate: an id is the stronger evidence, and two
-    // different ids at one string path (the file was replaced between probes) must stay apart.
+    // An id is stronger evidence than a path: two ids at one path (file replaced between probes) must stay apart.
     const map = id ?? normalizePathForCompare(candidate.identity?.realPath ?? candidate.absolutePath, platform);
     const table = id ? byFileId : byPath;
     const first = table.get(map);
@@ -70,7 +68,6 @@ function buildGroup(id: string, members: ResolvedCandidate[]): DbSourceGroup {
   };
 }
 
-/** Marks every group whose lineage also appears in another group (copies of one history) as `conflict`. */
 function markLineageConflicts(groups: DbSourceGroup[]): void {
   const byLineage = new Map<string, DbSourceGroup[]>();
   for (const group of groups) {
@@ -86,12 +83,6 @@ function markLineageConflicts(groups: DbSourceGroup[]): void {
   }
 }
 
-/**
- * Groups candidates that point at one physical database. Same file id (device+inode) ⇒ same group, so a symlink or
- * hard link dedupes while every source kind stays as evidence; with no file id on a candidate, equal normalised real
- * paths merge. Different file ids sharing a lineage id stay separate but are both marked `conflict`. One pass over
- * hash maps plus union-find: O(n α(n)).
- */
 export function groupCandidates(candidates: readonly ResolvedCandidate[], platform: NodeJS.Platform): DbSourceGroup[] {
   const sets = new UnionFind(candidates.length);
   mergeEqualKeys(candidates, sets, platform);

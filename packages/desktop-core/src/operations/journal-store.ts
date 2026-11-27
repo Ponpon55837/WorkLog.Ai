@@ -2,10 +2,9 @@ import { readFile, rename } from "node:fs/promises";
 import { writeFileAtomic } from "../internal/atomic-file.js";
 import { OPERATION_JOURNAL_VERSION, operationJournalFileSchema, type OperationJournalFile } from "./journal-record.js";
 
-/** Why a journal could not be loaded or saved. */
 export type JournalStoreErrorCode = "unreadable" | "invalid" | "unwritable" | "newer-version";
 
-/** Fail-closed error: callers must treat the journal state as unknown and go to repair, never "empty". */
+/** Fail closed: callers treat the journal state as unknown and go to repair, never as empty. */
 export class JournalStoreError extends Error {
   readonly code: JournalStoreErrorCode;
 
@@ -16,14 +15,11 @@ export class JournalStoreError extends Error {
   }
 }
 
-/** Persistence port for the journal; injected so tests and other platforms can swap it. */
 export interface OperationJournalStore {
-  /** `null` only when no journal exists yet; every other failure throws {@link JournalStoreError}. */
   load(): Promise<OperationJournalFile | null>;
   save(file: OperationJournalFile): Promise<void>;
 }
 
-/** Volatile store for tests and dry runs. Stores a deep copy so callers cannot mutate persisted state. */
 export class InMemoryOperationJournalStore implements OperationJournalStore {
   private snapshot: string | null = null;
 
@@ -36,27 +32,17 @@ export class InMemoryOperationJournalStore implements OperationJournalStore {
   }
 }
 
-/** Told when a journal that could not be parsed was moved aside so the next start begins from an empty one. */
 export interface JournalQuarantine {
   readonly from: string;
   readonly to: string;
-  /** Why the file was rejected (a parse error or the first schema issue); never the file's content. */
   readonly reason: string;
 }
 
 export interface FileOperationJournalStoreOptions {
-  /** Called once per quarantined file (the App logs it). */
   readonly onQuarantine?: (quarantine: JournalQuarantine) => void;
   readonly clock?: () => Date;
 }
 
-/**
- * File-backed store: atomic replace with mode 0o600. Only ENOENT means "no journal". A file that is there but cannot be
- * read stays fail-closed (`unreadable`), and so does one written by a newer App (`newer-version`, left untouched). A file
- * that cannot be parsed (corrupt, truncated, a shape this version does not know) is moved
- * aside to `<file>.corrupt-<time>` and the journal starts empty, so one damaged file cannot stop every later start;
- * the records it held cannot be recovered, which the caller's log line records.
- */
 export class FileOperationJournalStore implements OperationJournalStore {
   private readonly filePath: string;
   private readonly onQuarantine: ((quarantine: JournalQuarantine) => void) | undefined;
@@ -82,7 +68,7 @@ export class FileOperationJournalStore implements OperationJournalStore {
     } catch (error) {
       return this.quarantine(error);
     }
-    // A journal written by a newer App is not damaged: it is left exactly where it is and nothing is started on it.
+    // A journal written by a newer App is not damaged: leave it in place and start nothing on it.
     const version = (parsed as { journalVersion?: unknown } | null)?.journalVersion;
     if (typeof version === "number" && version > OPERATION_JOURNAL_VERSION) {
       throw new JournalStoreError("newer-version", `operation journal ${this.filePath} was written by a newer version`);

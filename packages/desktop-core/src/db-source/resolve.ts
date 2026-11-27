@@ -8,18 +8,11 @@ export interface ResolveDbSourceOptions {
   candidates: readonly DbCandidate[];
   probe: DbProbe;
   platform?: NodeJS.Platform;
-  /** True when the volume holding this directory is known to be offline; blocks offering a new database there. */
   isOfflineVolume?: (directory: string) => boolean;
-  /** Maximum probes in flight at once (positive integer); unbounded when omitted. */
   concurrency?: number;
-  /**
-   * Classifies the storage of a group's database (DT-08); the verdict is kept on the group and read by the decision.
-   * It never throws (a failure is `unknown`), and is called once per group, all together.
-   */
   classifyStorage?: (absolutePath: string) => Promise<StorageRiskResult>;
 }
 
-/** Run `task` over `items` with at most `limit` in flight; results keep the input order. */
 async function mapWithLimit<T, R>(items: readonly T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
@@ -51,12 +44,6 @@ function toResolved(candidate: DbCandidate, result: DbProbeResult): ResolvedCand
   };
 }
 
-/**
- * Probes every distinct path once (in parallel, capped by `concurrency`; see {@link DbProbe} for the threading
- * contract of synchronous probes), groups the results by physical database, and decides. Strictly
- * read-only: it never creates, opens for writing or repairs anything; creating a database is a separate, explicitly
- * consented step.
- */
 export async function resolveDbSource(options: ResolveDbSourceOptions): Promise<DbSourceResolution> {
   const platform = options.platform ?? process.platform;
   const results = new Map<string, Promise<DbProbeResult>>();

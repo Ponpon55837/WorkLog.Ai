@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 
-/** What one streamed read of a file produced. */
 export interface FileDigest {
   readonly sha256: string;
   readonly bytes: number;
@@ -9,7 +8,6 @@ export interface FileDigest {
 
 const READ_CHUNK_BYTES = 1024 * 1024;
 
-/** SHA-256 of a file read as a stream, so a 100 MB executable never sits in memory. */
 export async function hashFile(filePath: string): Promise<FileDigest> {
   const hash = createHash("sha256");
   let bytes = 0;

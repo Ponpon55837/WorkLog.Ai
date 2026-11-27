@@ -5,7 +5,6 @@ import { sanitizeNotes } from "./sanitize.js";
 import { installerAssetFor, isOurReleaseUrl } from "./urls.js";
 import { isNewerThanRunning, parseReleaseTag, parseRunningVersion, compareSemver, type ParsedTag } from "./version.js";
 
-/** Only the fields the check needs; everything else in the response is dropped. */
 export const releaseListSchema = z.array(
   z.object({
     tag_name: z.string(),
@@ -19,7 +18,6 @@ export const releaseListSchema = z.array(
 );
 export type ReleaseList = z.infer<typeof releaseListSchema>;
 
-/** The answer and the links main keeps for `openUpdateLink`. */
 export interface UpdateOutcome {
   readonly result: UpdateCheckResult;
   readonly links: UpdateLinks;
@@ -39,7 +37,6 @@ function publishedIso(value: string | null | undefined): string | null {
   return Number.isNaN(time) ? null : new Date(time).toISOString();
 }
 
-/** The highest stable release: not a draft, not a pre-release, and a tag that is exactly `vX.Y.Z`. */
 function newestStable(releases: ReleaseList): { release: ReleaseList[number]; tag: ParsedTag } | null {
   let best: { release: ReleaseList[number]; tag: ParsedTag } | null = null;
   for (const release of releases) {
@@ -50,14 +47,12 @@ function newestStable(releases: ReleaseList): { release: ReleaseList[number]; ta
   return best;
 }
 
-/** Decides what the release list means for the running version, and which links go with it. */
 export function evaluateReleases(releases: ReleaseList, inputs: EvaluateInputs): UpdateOutcome {
   const slug = inputs.slug ?? RELEASE_REPO_SLUG;
   const running = parseRunningVersion(inputs.currentVersion);
   if (!running) return { result: { kind: "error", reason: "bad-version" }, links: NO_LINKS };
   const newest = newestStable(releases);
-  // No stable release in the list (an empty list, only drafts and pre-releases, or odd tags) says nothing about whether
-  // this version is current, so it is not "up to date": the error keeps the releases page as the one link.
+  // No stable release in the list says nothing about whether this version is current, so it is not "up to date".
   if (!newest) {
     return { result: { kind: "error", reason: "no-release" }, links: { asset: null, page: releasesPageUrl(slug) } };
   }
@@ -65,7 +60,6 @@ export function evaluateReleases(releases: ReleaseList, inputs: EvaluateInputs):
     return { result: { kind: "up-to-date", current: inputs.currentVersion }, links: NO_LINKS };
   }
   const { release, tag } = newest;
-  // A release page that is not the one this tag has means the response is odd: the releases list is the safe link.
   const page = release.html_url === releaseTagUrl(tag.tag, slug) ? release.html_url : releasesPageUrl(slug);
   const wanted = installerAssetFor(tag.version, inputs.platform, inputs.arch);
   const url = wanted ? releaseAssetUrl(tag.tag, wanted.name, slug) : null;

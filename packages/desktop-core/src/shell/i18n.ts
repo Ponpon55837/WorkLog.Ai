@@ -3,87 +3,64 @@ import type { OperationKind, RecoveryNoticeKind } from "../operations/journal-re
 import type { AppTab } from "./app-tabs.js";
 import type { RepairBusyReason, RepairBusyWhat } from "./repair-busy.js";
 
-/** Languages the shell speaks: Traditional Chinese for any `zh-*` locale, English for everything else. */
 export type ShellLocale = "zh-TW" | "en";
 
-/** Codes of failures that happen in the shell itself, before or around the backend child. */
 export type ShellErrorCode =
   | "RUNTIME_INSTALL_FAILED"
-  /** Windows: an Agent still runs from the runtime folder that has to be replaced (M-08). */
   | "RUNTIME_IN_USE"
   | "RUNTIME_UNSAFE_PERMISSIONS"
   | "RUNTIME_ACL_UNREADABLE"
   | "LEGACY_SERVICE_ACTIVE"
   | "DB_INTEGRITY_CHECK_FAILED"
-  /** The database is on a network drive (DT-08): the App stops and does not use it. */
   | "DB_STORAGE_NETWORK"
-  /** The diagnostics file was not made: a last check still found a secret or a path in it (DT-19). Nothing was written. */
   | "DIAGNOSTICS_SCAN_FAILED";
 
-/** One error code as the user reads it: what happened and what to try. */
 export interface ErrorMessage {
   readonly title: string;
   readonly hint: string;
 }
 
-/** Every string of the tray, the quit confirmation and the repair window. Both languages must define all of it. */
 export interface ShellMessages {
   readonly appName: string;
   readonly trayOpenDashboard: string;
-  /** Opens the App window; `{name}` is `appName`. */
   readonly trayOpenApp: string;
   readonly trayQuit: string;
-  /** `{reason}` is one of the `trayReason*` texts. */
   readonly trayDisabledTemplate: string;
   readonly trayReasonStarting: string;
   readonly trayReasonNeedsRepair: string;
   readonly trayReasonStopped: string;
   readonly trayTooltipManaged: string;
   readonly trayTooltipNeedsRepair: string;
-  /** `{location}` is the platform's name for the tray area. */
   readonly trayBackgroundHint: string;
   readonly trayLocationMac: string;
   readonly trayLocationWindows: string;
   readonly trayLocationOther: string;
-  /** The window's tab labels, in the page's language. */
   readonly tabLabels: Readonly<Record<AppTab, string>>;
-  /** Accessible name of the tab strip. */
   readonly tabListLabel: string;
-  /** Spoken after a tab's name when it has the attention dot or the busy mark. */
   readonly tabAttentionLabel: string;
   readonly tabBusyLabel: string;
-  /** The Status tab's one-line database state links to the Data tab with this text. */
   readonly statusOpenData: string;
-  /** The banner about an operation a crash interrupted (what happened, what to do, how to dismiss it). */
   readonly recoveryHeading: string;
-  /** `{port}` is the port in use, `{attempted}` the one the interrupted change was moving to, `{operation}` its name. */
   readonly recoveryNotices: Readonly<Record<RecoveryNoticeKind, string>>;
-  /** What the user can do next; names the tab and the button where that is. */
   readonly recoveryNextSteps: Readonly<Record<RecoveryNoticeKind, string>>;
   readonly recoveryOperationNames: Readonly<Record<OperationKind, string>>;
-  /** `{tab}` is the tab's label. */
   readonly recoveryOpenTab: string;
   readonly recoveryDismiss: string;
-  /** macOS menu bar: `{name}` is `appName`. */
   readonly menuAbout: string;
   readonly menuEdit: string;
   readonly menuWindow: string;
   readonly menuCloseWindow: string;
   readonly quitTitle: string;
   readonly quitMessage: string;
-  /** `{time}` is the local time of the last successful backup. */
   readonly quitLastBackup: string;
   readonly quitNoBackup: string;
   readonly quitUnknownBackup: string;
   readonly quitConfirm: string;
   readonly quitCancel: string;
   readonly notifyTitle: string;
-  /** The native error box shown when the App cannot even find its data folder and must close. */
   readonly startupFailedTitle: string;
   readonly startupFailedMessage: string;
-  /** The operations journal was written by a newer App: nothing is started on it and nothing is changed. */
   readonly journalNewerVersion: string;
-  /** `{title}` is the error title. */
   readonly notifyBody: string;
   readonly repairIntro: string;
   readonly repairServiceHeading: string;
@@ -94,44 +71,28 @@ export interface ShellMessages {
   readonly repairCandidates: string;
   readonly repairConfirmCandidate: string;
   readonly repairBusy: string;
-  /** Another operation holds the App (a restart, an import, a backup, a port change): not an error, try again later. */
   readonly repairBusyOperation: string;
-  /** Names what holds the App, as a gerund phrase for `repairBusyNamed`. */
   readonly repairBusyWhat: Readonly<Record<RepairBusyWhat, string>>;
-  /** `{what}` is one of `repairBusyWhat`. */
   readonly repairBusyNamed: string;
-  /** The Dashboard itself is importing, backing up or exporting. */
   readonly repairBusyActivity: string;
-  /** The App could not tell whether the Dashboard is working on data. */
   readonly repairBusyUnknown: string;
-  /** Confirm button for a database whose schema must be updated; pressing it is the user's consent. */
   readonly repairConfirmMigrate: string;
   readonly repairMigrationNote: string;
-  /** The App's own database needs a schema update this version can do (SCHEMA_MIGRATION_BLOCKED): what happens next. */
   readonly repairOwnMigrationNote: string;
-  /** The same, when its storage refuses the update (DT-08): the copy to a local folder is the way. */
   readonly repairOwnMigrationCopyNote: string;
-  /** The primary button that backs up and updates the App's own database; pressing it is the user's consent. */
   readonly actionApproveMigration: string;
-  /** The primary button that copies the App's own database to a local folder and updates the copy. */
   readonly actionCopyAndMigrate: string;
-  /** After the App's own database was updated. */
   readonly migrationDone: string;
   readonly repairCandidateNotUsable: string;
-  /** Shown when the App exits without proof that the backend stopped (never in background mode). */
   readonly quitStopIncompleteTitle: string;
   readonly quitStopIncompleteMessage: string;
   readonly quitStopIncompleteOk: string;
   readonly repairDone: string;
-  /** After the App's database was changed: Agents that are already open keep writing to the old one (M-07). */
   readonly databaseChangedDone: string;
-  /** Heading of the card the repair window shows once a repair the user started has worked. */
   readonly repairRecovered: string;
   readonly repairRecoveredHint: string;
-  /** `{count}` is the number of projects in the database. */
   readonly repairProjectCount: string;
   readonly repairProjectCountLabel: string;
-  /** The system notification that says the App can be used again. */
   readonly notifyRecoveredTitle: string;
   readonly notifyRecoveredBody: string;
   readonly repairFailedGeneric: string;
@@ -141,11 +102,8 @@ export interface ShellMessages {
   readonly actionOpenBackups: string;
   readonly actionOpenLogs: string;
   readonly actionExport: string;
-  /** Shown instead of a diff when a file is too large to compare. */
   readonly agentsTooLargeNote: string;
-  /** The box the user ticks before applying a preview that has a file without a shown diff. */
   readonly agentsAckUndiffable: string;
-  /** The LEGACY_SERVICE_ACTIVE hint when the page has no "start anyway" button for the database that was refused. */
   readonly legacyActiveNoOverrideHint: string;
   readonly ownerLabel: string;
   readonly backendLabel: string;
@@ -734,33 +692,27 @@ const en: ShellMessages = {
   },
 };
 
-/** `zh-*` (any region or script) reads Traditional Chinese; every other locale reads English. */
 export function resolveShellLocale(systemLocale: string | undefined): ShellLocale {
   return typeof systemLocale === "string" && /^zh(?:[-_]|$)/i.test(systemLocale.trim()) ? "zh-TW" : "en";
 }
 
-/** The string table of `locale`. */
 export function shellMessages(locale: ShellLocale): ShellMessages {
   return locale === "zh-TW" ? zhTW : en;
 }
 
-/** Fills `{name}` placeholders; a placeholder without a value stays visible so a missing value is noticed. */
 export function formatMessage(template: string, values: Readonly<Record<string, string>>): string {
   return template.replace(/\{(\w+)\}/g, (placeholder, name: string) => values[name] ?? placeholder);
 }
 
-/** The hint of an error; the legacy-service one only names "start anyway" where that button exists. */
 export function errorHintFor(messages: ShellMessages, code: string, startAnywayAvailable: boolean): string {
   if (code === "LEGACY_SERVICE_ACTIVE" && !startAnywayAvailable) return messages.legacyActiveNoOverrideHint;
   return errorMessageFor(messages, code).hint;
 }
 
-/** The message of an error code, or the generic repair one for a code this build does not know. */
 export function errorMessageFor(messages: ShellMessages, code: string): ErrorMessage {
   return (messages.errors as Readonly<Record<string, ErrorMessage>>)[code] ?? messages.errors.REPAIR_REQUIRED;
 }
 
-/** The sentence for what holds the App back; it names the real reason, and is generic only when the reason is unknown. */
 export function busyReasonText(messages: ShellMessages, reason: RepairBusyReason | undefined): string {
   switch (reason?.source) {
     case "operation":
