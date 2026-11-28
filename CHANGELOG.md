@@ -4,6 +4,14 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.99] - 2026-11-28
+
+[繁體中文更新說明](docs/releases/1.6.99.md).
+
+### Changed
+
+- `work_get_knowledge_page_context` with `reviewOnly: true` no longer sends the Agent back for a second read. When the answer is `review: "use_full_read"` (most sections need review) or `"full_rewrite"` (an empty or requested page), the same response is the plain read of the page, with `mode`, the page, the Session previews (including `previewSeen` stubs from `sessionsSeenIn`) and the `reviewToken` a plain read issues, plus `reviewOnly: true` and `review` saying why. It obeys the plain read's existing budgets, and a save with its `reviewToken` works as before. `sections`, `new_sessions`, `none` and `truncated` reads are unchanged.
+
 ## [1.6.98] - 2026-11-28
 
 [繁體中文更新說明](docs/releases/1.6.98.md).
