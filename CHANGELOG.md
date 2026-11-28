@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.96] - 2026-11-28
+
+[繁體中文更新說明](docs/releases/1.6.96.md).
+
 ### Changed
 
 - The 資料備份 tab now opens with a short guide to which export to use: 「匯出專案資料」/「匯入專案資料」 (JSON) for a new computer or merging two computers, 「匯出整份資料」 (.sqlite) for whole-machine recovery. Export and import are separate boxes, and the .sqlite restore steps are collapsed under 「進階：用指令還原」.
