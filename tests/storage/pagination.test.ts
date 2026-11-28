@@ -32,4 +32,17 @@ describe("createPageInfo", () => {
       truncated: false,
     });
   });
+
+  it("clamps an out-of-range page by default and keeps it when clamping is off", () => {
+    expect(createPageInfo(9, 10, 25)).toMatchObject({ page: 3, from: 21, to: 25, hasNext: false });
+    expect(createPageInfo(9, 10, 25, 200, { clampPage: false })).toMatchObject({
+      page: 9,
+      totalPages: 3,
+      from: 0,
+      to: 0,
+      hasPrevious: true,
+      hasNext: false,
+    });
+    expect(createPageInfo(2, 10, 0, 200, { clampPage: false })).toMatchObject({ page: 2, from: 0, to: 0 });
+  });
 });

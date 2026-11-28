@@ -578,7 +578,7 @@ export class AgentReviewService {
         .prepare("SELECT COUNT(*) AS count FROM agent_review_request_items WHERE request_id = ?")
         .get(requestRow.id) as { count: number }
     ).count;
-    const pageInfo = createPageInfo(input.page, input.pageSize ?? 10, total, 10);
+    const pageInfo = createPageInfo(input.page, input.pageSize ?? 10, total, 10, { clampPage: false });
     const itemRows = this.db
       .prepare("SELECT * FROM agent_review_request_items WHERE request_id = ? ORDER BY position LIMIT ? OFFSET ?")
       .all(requestRow.id, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as ItemRow[];

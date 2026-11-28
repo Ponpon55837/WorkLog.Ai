@@ -359,6 +359,17 @@ describe("outstanding cleanup requests", () => {
     expect(context.sessions).toHaveLength(10);
     expect(context.sessionPageInfo).toMatchObject({ pageSize: 10, total: 12, hasNext: true });
     expect(context.items.every((item) => item.sourceSessionId === source.id)).toBe(true);
+    const beyond = store.getOutstandingCleanupContext({ requestId: request.id, itemPage: 1, sessionPage: 9 });
+    if (beyond.outcome !== "outstanding_cleanup_context") throw new Error("Expected an empty session page.");
+    expect(beyond.sessions).toEqual([]);
+    expect(beyond.sessionPageInfo).toMatchObject({
+      page: 9,
+      totalPages: 2,
+      from: 0,
+      to: 0,
+      hasPrevious: true,
+      hasNext: false,
+    });
     expect(context.items[0]).toMatchObject({ sourceSessionTitleTruncated: true });
     expect(context.items.some((item) => item.textTruncated)).toBe(true);
     expect(context.sessions.some((session) => session.titleTruncated)).toBe(true);

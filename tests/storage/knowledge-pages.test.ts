@@ -1121,7 +1121,11 @@ describe("Knowledge pages", () => {
       if ("heading" in value && "sourcedThrough" in value) return true;
       return Object.values(value).some(hasSectionBaseline);
     };
-    type SectionChange = { upsertSections?: KnowledgePageSection[]; removeHeadings?: string[] };
+    type SectionChange = {
+      upsertSections?: KnowledgePageSection[];
+      removeHeadings?: string[];
+      checkedThroughSessionId?: string;
+    };
 
     function sectionPage() {
       const context = setup();
@@ -1545,6 +1549,134 @@ describe("Knowledge pages", () => {
           imported.outcome === "knowledge_pages" &&
             (imported.items[0]!.reviewSections ?? []).map((section) => section.heading).sort(),
         ).toEqual(["Feeding", "Hive layout"]);
+      });
+    });
+
+    describe("identical sections", () => {
+      const feeding = (a: string) => ({
+        heading: "Feeding",
+        content: "Feed syrup in autumn.",
+        sourceSessionIds: [a],
+      });
+
+      it("saves nothing for identical sections that need no review, except the review cursor", () => {
+        const { a, b, sectionUpdate, versionCount, rawPage } = sectionPage();
+        const before = rawPage();
+        const result = sectionUpdate("identical-state", {
+          upsertSections: [feeding(a)],
+          checkedThroughSessionId: b,
+        });
+        expect(result).toMatchObject({
+          outcome: "knowledge_page_saved",
+          duplicate: false,
+          sectionChanges: { replaced: [], added: [], removed: [], unchanged: ["Feeding"] },
+          page: { version: 1 },
+        });
+        expect(rawPage()).toEqual({ ...before, checked_through_session_id: b });
+        expect(versionCount()).toBe(1);
+      });
+
+      it("returns the same result when the same save is retried, even after a source changed", () => {
+        const { a, b, sectionUpdate, touch, rawPage } = sectionPage();
+        const change = { upsertSections: [feeding(a)], checkedThroughSessionId: b };
+        const first = sectionUpdate("identical-retry", change);
+        const saved = rawPage();
+        touch(b, "touch-b");
+        expect(sectionUpdate("identical-retry", change)).toMatchObject({
+          duplicate: false,
+          sectionChanges: (first as { sectionChanges: unknown }).sectionChanges,
+          page: { version: 1 },
+        });
+        expect(rawPage()).toEqual(saved);
+      });
+
+      it("keeps the cursor forward-only like marking the page checked", () => {
+        const { a, b, sectionUpdate } = sectionPage();
+        sectionUpdate("cursor-forward", { upsertSections: [feeding(a)], checkedThroughSessionId: b });
+        expect(
+          sectionUpdate("cursor-back", { upsertSections: [feeding(a)], checkedThroughSessionId: a }),
+        ).toMatchObject({ outcome: "invalid_cursor" });
+      });
+
+      it("treats other content, sources or headings as a replacement", () => {
+        const { a, b, sectionUpdate, versionCount } = sectionPage();
+        expect(
+          sectionUpdate("differs-content", {
+            upsertSections: [{ ...feeding(a), content: "Feed syrup in autumn!" }],
+          }),
+        ).toMatchObject({ sectionChanges: { replaced: ["Feeding"] }, page: { version: 2 } });
+        expect(
+          sectionUpdate("differs-sources", {
+            upsertSections: [{ ...feeding(a), content: "Feed syrup in autumn!", sourceSessionIds: [a, b] }],
+          }),
+        ).toMatchObject({ sectionChanges: { replaced: ["Feeding"] }, page: { version: 3 } });
+        expect(
+          sectionUpdate("differs-heading", {
+            upsertSections: [{ heading: "feeding", content: "Feed syrup in autumn!", sourceSessionIds: [a, b] }],
+          }),
+        ).toMatchObject({ sectionChanges: { replaced: ["feeding"] }, page: { version: 4 } });
+        expect(versionCount()).toBe(4);
+      });
+
+      it("counts re-saving an identical section whose sources changed as the source check", () => {
+        const { a, sectionUpdate, touch, versionCount, reviewHeadings, rawPage } = sectionPage();
+        touch(a, "touch-a");
+        expect(reviewHeadings()).toEqual(["Feeding", "Hive layout"]);
+        const result = sectionUpdate("identical-review", { upsertSections: [feeding(a)] });
+        expect(result).toMatchObject({
+          sectionChanges: { replaced: [], added: [], removed: [], unchanged: ["Feeding"] },
+          page: { version: 2 },
+        });
+        expect(versionCount()).toBe(2);
+        expect(rawPage().version).toBe(2);
+        expect(reviewHeadings()).toEqual(["Hive layout"]);
+      });
+
+      it("lists unchanged beside replaced, added and removed in one new version", () => {
+        const { a, b, sectionUpdate, versionCount, headings } = sectionPage();
+        const result = sectionUpdate("identical-mixed", {
+          upsertSections: [
+            { heading: "Hive layout", content: "Queen excluders go on first.", sourceSessionIds: [a] },
+            { ...feeding(a), content: "Feed syrup until frost." },
+            { heading: "Pests", content: "Check for mites.", sourceSessionIds: [b] },
+          ],
+          removeHeadings: ["Winter care"],
+        });
+        expect(result).toMatchObject({
+          sectionChanges: {
+            replaced: ["Feeding"],
+            added: ["Pests"],
+            removed: ["Winter care"],
+            unchanged: ["Hive layout"],
+          },
+          page: { version: 2 },
+        });
+        expect(versionCount()).toBe(2);
+        expect(headings()).toEqual(["Hive layout", "Feeding", "Pests"]);
+      });
+
+      it("imports into another machine with newer-wins and no conflict after a no-op save", () => {
+        const { store, project, a, b, sectionUpdate, root } = sectionPage();
+        const destination = new WorkIntelligenceStore(join(root, "identical-destination.sqlite"));
+        stores.push(destination);
+        destination.importProjectData({
+          bundle: store.exportProjectData({ type: "project", projectId: project.id }),
+          remap: [],
+        });
+        sectionUpdate("identical-export", { upsertSections: [feeding(a)], checkedThroughSessionId: b });
+
+        const into = {
+          bundle: store.exportProjectData({ type: "project", projectId: project.id }),
+          strategy: "newer-wins" as const,
+        };
+        const preview = destination.previewProjectDataImport(into);
+        expect(preview.conflictGroups).toEqual([]);
+        destination.importProjectData(into);
+        const destinationDb = (destination as unknown as { db: DatabaseSync }).db;
+        expect(destinationDb.prepare("SELECT version, checked_through_session_id FROM knowledge_pages").get()).toEqual({
+          version: 1,
+          checked_through_session_id: b,
+        });
       });
     });
 

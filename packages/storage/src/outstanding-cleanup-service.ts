@@ -236,7 +236,7 @@ export class OutstandingCleanupService {
         .prepare("SELECT COUNT(*) AS count FROM outstanding_cleanup_request_items WHERE request_id = ?")
         .get(request.id) as { count: number }
     ).count;
-    const itemPageInfo = createPageInfo(input.itemPage, input.itemPageSize ?? 5, total, 5);
+    const itemPageInfo = createPageInfo(input.itemPage, input.itemPageSize ?? 5, total, 5, { clampPage: false });
     const rows = this.db
       .prepare(`${SNAPSHOT_SELECT} WHERE ci.request_id = ? ORDER BY ci.position, ci.id LIMIT ? OFFSET ?`)
       .all(request.id, itemPageInfo.pageSize, (itemPageInfo.page - 1) * itemPageInfo.pageSize) as SnapshotRow[];
@@ -269,7 +269,9 @@ export class OutstandingCleanupService {
         count: number;
       }
     ).count;
-    const sessionPageInfo = createPageInfo(input.sessionPage, input.sessionPageSize ?? 10, sessionTotal, 10);
+    const sessionPageInfo = createPageInfo(input.sessionPage, input.sessionPageSize ?? 10, sessionTotal, 10, {
+      clampPage: false,
+    });
     const sessionRows = this.db
       .prepare(`SELECT * FROM sessions WHERE ${sourceWhere} ORDER BY completed_at DESC, id DESC LIMIT ? OFFSET ?`)
       .all(

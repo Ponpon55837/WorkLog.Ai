@@ -542,6 +542,19 @@ function serializeStoredSections(
   );
 }
 
+function isSameSection(current: KnowledgePageSection, update: KnowledgePageSection): boolean {
+  return (
+    current.heading === update.heading &&
+    current.content === update.content &&
+    current.sourceSessionIds.length === update.sourceSessionIds.length &&
+    current.sourceSessionIds.every((id, index) => id === update.sourceSessionIds[index])
+  );
+}
+
+function hasContentChange({ replaced, added, removed }: KnowledgePageSectionChanges): boolean {
+  return replaced.length + added.length + removed.length > 0;
+}
+
 function headingKey(heading: string): string {
   return heading.trim().toLowerCase();
 }
@@ -556,6 +569,7 @@ function mergeSections(
   const removals = new Set((update.removeHeadings ?? []).map(headingKey));
   const matched = new Set<string>();
   const changes: KnowledgePageSectionChanges = { replaced: [], added: [], removed: [] };
+  const unchanged: string[] = [];
   const sections: StoredKnowledgePageSection[] = [];
   for (const section of current) {
     const key = headingKey(section.heading);
@@ -567,7 +581,7 @@ function mergeSections(
     } else if (upsert) {
       matched.add(key);
       sections.push(upsert);
-      changes.replaced.push(upsert.heading);
+      (isSameSection(section, upsert) ? unchanged : changes.replaced).push(upsert.heading);
     } else {
       sections.push(keep(section));
     }
@@ -579,7 +593,7 @@ function mergeSections(
     sections.push(section);
     changes.added.push(section.heading);
   }
-  return { sections, changes };
+  return { sections, changes: unchanged.length > 0 ? { ...changes, unchanged } : changes };
 }
 
 function emptyPageHint(row: PageRow, sections: readonly KnowledgePageSection[]): { emptyPageHint?: string } {
@@ -1521,6 +1535,15 @@ export class KnowledgePageService {
         checkedThroughId = cursor.id;
       }
       const redacted = storedSections(merged.sections);
+      const coverage = sessionCoverage(current) ?? { completedAt: "" };
+      if (!hasContentChange(merged.changes) && !this.needsSourceCheck(current, merged.changes.unchanged ?? [])) {
+        if (update.checkedThroughSessionId !== undefined) {
+          this.db
+            .prepare("UPDATE knowledge_pages SET checked_through_session_id = ? WHERE id = ?")
+            .run(checkedThroughId, current.id);
+        }
+        return { changes: merged.changes, redactions: redacted.redactions };
+      }
       const version = current.version + 1;
       this.insertVersion(
         current,
@@ -1531,7 +1554,6 @@ export class KnowledgePageService {
         update.idempotencyKey,
         now,
       );
-      const coverage = sessionCoverage(current) ?? { completedAt: "" };
       this.db
         .prepare(
           `UPDATE knowledge_pages
@@ -1567,6 +1589,11 @@ export class KnowledgePageService {
       ...(dropped.length > 0 ? { droppedSourceSessionIds: dropped } : {}),
       ...nearLimitFields(knowledgePageLimits(page.sections)),
     };
+  }
+
+  private needsSourceCheck(row: PageRow, headings: readonly string[]): boolean {
+    const keys = new Set(headings.map(headingKey));
+    return (this.recordFor(row).reviewSections ?? []).some((section) => keys.has(headingKey(section.heading)));
   }
 
   private replayChecked(pageId: string, projectId: string, throughSessionId: string): boolean {

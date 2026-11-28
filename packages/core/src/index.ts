@@ -2632,6 +2632,8 @@ export interface KnowledgePageSectionChanges {
   replaced: string[];
   added: string[];
   removed: string[];
+  /** Upserted sections identical to the stored ones; absent when none. A save with no other change creates no version. */
+  unchanged?: string[];
 }
 
 export type SaveKnowledgePageResult =
