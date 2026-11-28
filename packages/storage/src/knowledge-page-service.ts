@@ -1536,22 +1536,12 @@ export class KnowledgePageService {
       }
       const redacted = storedSections(merged.sections);
       const coverage = sessionCoverage(current) ?? { completedAt: "" };
-      if (!hasContentChange(merged.changes)) {
-        this.db
-          .prepare(
-            `UPDATE knowledge_pages
-             SET sections_json = ?, sourced_through = ?, covered_through_completed_at = ?,
-                 covered_through_session_id = ?, checked_through_session_id = ?
-             WHERE id = ?`,
-          )
-          .run(
-            serializeStoredSections(redacted.value, merged.sections),
-            now,
-            coverage.completedAt,
-            coverage.id ?? null,
-            checkedThroughId,
-            current.id,
-          );
+      if (!hasContentChange(merged.changes) && !this.needsSourceCheck(current, merged.changes.unchanged ?? [])) {
+        if (update.checkedThroughSessionId !== undefined) {
+          this.db
+            .prepare("UPDATE knowledge_pages SET checked_through_session_id = ? WHERE id = ?")
+            .run(checkedThroughId, current.id);
+        }
         return { changes: merged.changes, redactions: redacted.redactions };
       }
       const version = current.version + 1;
@@ -1599,6 +1589,11 @@ export class KnowledgePageService {
       ...(dropped.length > 0 ? { droppedSourceSessionIds: dropped } : {}),
       ...nearLimitFields(knowledgePageLimits(page.sections)),
     };
+  }
+
+  private needsSourceCheck(row: PageRow, headings: readonly string[]): boolean {
+    const keys = new Set(headings.map(headingKey));
+    return (this.recordFor(row).reviewSections ?? []).some((section) => keys.has(headingKey(section.heading)));
   }
 
   private replayChecked(pageId: string, projectId: string, throughSessionId: string): boolean {
