@@ -1258,7 +1258,7 @@
     "nothingToImport": "Nothing to import",
     "nothingToImportDetail": "Nothing in the file would be written to this computer, so importing would change nothing.",
     "finishImport": "Done",
-    "deletedHereNote": "{count} items were deleted on this computer and will not come back.",
+    "deletedHereNote": "Deleted on this computer, so not imported again: {count}.",
     "additionsMeaning": "Not here yet; will be added",
     "updatesMeaning": "Imported copy is newer; will update",
     "keptLocalMeaning": "Local version kept",
