@@ -8,6 +8,7 @@ import type {
   KnowledgeCandidateContextResult,
   KnowledgeCandidateBacklog,
   KnowledgeCandidateBacklogCounts,
+  ExistingKnowledge,
   KnowledgeCandidateContext,
   KnowledgeCandidateInput,
   KnowledgeCandidateListInput,
@@ -47,7 +48,9 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 
 const MAX_SOURCE_SESSIONS = 10;
-const EXISTING_KNOWLEDGE_LIMITS = { active: 150, archived: 30, rejected: 20, proposed: 30 } as const;
+const EXISTING_KNOWLEDGE_LIMITS = { active: 300, archived: 30, rejected: 20, proposed: 30 } as const;
+const EXISTING_KNOWLEDGE_CHAR_CAP = 12_000;
+const EXISTING_TITLE_LIMIT = 120;
 const HANDOFF_BUDGET = 40_000;
 const PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
 const OPEN_STATUSES: readonly KnowledgeCandidateRequestStatus[] = ["pending", "processing", "failed"];
@@ -79,7 +82,13 @@ type RequestRow = {
   candidate_count: number;
 };
 
-type TitleRow = { id: string; kind: KnowledgeKind; title: string; total: number };
+type TitleRow = { kind: KnowledgeKind; title: string; total: number };
+type ExistingKnowledgeStatus = keyof ExistingKnowledge;
+interface ExistingKnowledgeEntry {
+  status: ExistingKnowledgeStatus;
+  kind: KnowledgeKind;
+  title: string;
+}
 
 export type CandidateRow = {
   id: string;
@@ -219,61 +228,98 @@ function skipped(decision: PolicyDecision): KnowledgeCandidateSkippedResult {
 export function loadExistingKnowledge(
   db: DatabaseSync,
   projectId: string,
-): {
-  existingKnowledge: Array<{ id: string; kind: KnowledgeKind; title: string; status?: "archived" | "rejected" }>;
-  omitted: number;
-} {
+): { entries: ExistingKnowledgeEntry[]; omitted: number } {
   const select = (sql: string, limit: number): TitleRow[] => db.prepare(sql).all(projectId, limit) as TitleRow[];
-  const groups: Array<{ status?: "archived" | "rejected"; rows: TitleRow[]; limit: number }> = [
+  const groups: Array<{ status: ExistingKnowledgeStatus; rows: TitleRow[] }> = [
     {
+      status: "active",
       rows: select(
-        `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge
+        `SELECT kind, title, COUNT(*) OVER () AS total FROM knowledge
          WHERE project_id = ? AND status = 'active' ORDER BY updated_at DESC, id ASC LIMIT ?`,
         EXISTING_KNOWLEDGE_LIMITS.active,
       ),
-      limit: EXISTING_KNOWLEDGE_LIMITS.active,
     },
     {
       status: "archived",
       rows: select(
-        `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge
+        `SELECT kind, title, COUNT(*) OVER () AS total FROM knowledge
          WHERE project_id = ? AND status = 'archived' ORDER BY updated_at DESC, id ASC LIMIT ?`,
         EXISTING_KNOWLEDGE_LIMITS.archived,
       ),
-      limit: EXISTING_KNOWLEDGE_LIMITS.archived,
     },
     {
       status: "rejected",
       rows: select(
-        `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge_candidates
+        `SELECT kind, title, COUNT(*) OVER () AS total FROM knowledge_candidates
          WHERE project_id = ? AND status = 'rejected' ORDER BY decided_at DESC, id ASC LIMIT ?`,
         EXISTING_KNOWLEDGE_LIMITS.rejected,
       ),
-      limit: EXISTING_KNOWLEDGE_LIMITS.rejected,
     },
   ];
   return {
-    existingKnowledge: groups.flatMap(({ status, rows }) =>
-      rows.map((row) => ({ id: row.id, kind: row.kind, title: row.title, ...(status ? { status } : {}) })),
-    ),
-    omitted: groups.reduce((sum, { rows }) => sum + Math.max(0, (rows[0]?.total ?? 0) - rows.length), 0),
+    entries: uniqueEntries(groups.flatMap(({ status, rows }) => rows.map((row) => toEntry(status, row)))),
+    omitted: groups.reduce((sum, { rows }) => sum + omittedOf(rows), 0),
   };
+}
+
+export function groupExistingKnowledge(entries: readonly ExistingKnowledgeEntry[]): ExistingKnowledge {
+  const grouped: ExistingKnowledge = {};
+  for (const { status, kind, title } of entries) {
+    const kinds = (grouped[status] ??= {});
+    (kinds[kind] ??= []).push(title);
+  }
+  return grouped;
+}
+
+/** The grouped shape with empty titles: what the group and kind keys cost, whichever titles are kept. */
+export function reserveExistingKnowledge(entries: readonly ExistingKnowledgeEntry[]): ExistingKnowledge {
+  const reserved: ExistingKnowledge = {};
+  for (const { status, kind } of entries) (reserved[status] ??= {})[kind] = [""];
+  return reserved;
+}
+
+export function existingKnowledgeWeight(entry: ExistingKnowledgeEntry): number {
+  return JSON.stringify(entry.title).length + 1;
+}
+
+function capExistingKnowledge(
+  entries: readonly ExistingKnowledgeEntry[],
+  omitted: number,
+): { existingKnowledge: ExistingKnowledge; omitted: number } {
+  let remaining = EXISTING_KNOWLEDGE_CHAR_CAP - JSON.stringify(reserveExistingKnowledge(entries)).length;
+  const kept = entries.filter((entry) => (remaining -= existingKnowledgeWeight(entry)) >= 0);
+  return { existingKnowledge: groupExistingKnowledge(kept), omitted: omitted + entries.length - kept.length };
+}
+
+function toEntry(status: ExistingKnowledgeStatus, row: TitleRow): ExistingKnowledgeEntry {
+  return { status, kind: row.kind, title: row.title.slice(0, EXISTING_TITLE_LIMIT) };
+}
+
+function omittedOf(rows: readonly TitleRow[]): number {
+  return Math.max(0, (rows[0]?.total ?? 0) - rows.length);
+}
+
+function uniqueEntries(entries: readonly ExistingKnowledgeEntry[]): ExistingKnowledgeEntry[] {
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    const key = JSON.stringify([entry.status, entry.kind, entry.title]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function loadProposedKnowledge(
   db: DatabaseSync,
   projectId: string,
-): { entries: KnowledgeCandidateContext["existingKnowledge"]; omitted: number } {
+): { entries: ExistingKnowledgeEntry[]; omitted: number } {
   const rows = db
     .prepare(
-      `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge_candidates
+      `SELECT kind, title, COUNT(*) OVER () AS total FROM knowledge_candidates
        WHERE project_id = ? AND status = 'proposed' ORDER BY created_at DESC, id ASC LIMIT ?`,
     )
     .all(projectId, EXISTING_KNOWLEDGE_LIMITS.proposed) as TitleRow[];
-  return {
-    entries: rows.map((row) => ({ id: row.id, kind: row.kind, title: row.title, status: "proposed" as const })),
-    omitted: Math.max(0, (rows[0]?.total ?? 0) - rows.length),
-  };
+  return { entries: rows.map((row) => toEntry("proposed", row)), omitted: omittedOf(rows) };
 }
 
 const REQUEST_SELECT = `SELECT r.*, p.name AS project_name
@@ -384,8 +430,10 @@ export class KnowledgeCandidateService {
     });
     const known = loadExistingKnowledge(this.db, request.projectId);
     const proposed = loadProposedKnowledge(this.db, request.projectId);
-    const existingKnowledge = [...known.existingKnowledge, ...proposed.entries];
-    const omitted = known.omitted + proposed.omitted;
+    const { existingKnowledge, omitted } = capExistingKnowledge(
+      [...known.entries, ...proposed.entries],
+      known.omitted + proposed.omitted,
+    );
     return {
       outcome: "knowledge_candidate_context",
       request: this.getRequest(request.id)!,

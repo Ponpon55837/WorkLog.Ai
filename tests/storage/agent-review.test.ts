@@ -255,7 +255,7 @@ describe("Agent review context", () => {
       { id: sessionId, title: "Session a", completedAt: BASE_TIME, outcomes: ["Outcome of a"], otherDecisions: [] },
     ]);
     expect(context.items[2]).toMatchObject({ title: "Cache keys include the lockfile", kind: "gotcha" });
-    expect(context.existingKnowledge).toEqual([]);
+    expect(context.existingKnowledge).toEqual({});
     expect(context.pageInfo).toMatchObject({ page: 1, total: 3 });
     expect(context.truncated).toBe(false);
     expect(JSON.stringify(context).length).toBeLessThanOrEqual(24_000);
@@ -440,13 +440,54 @@ describe("Agent review context", () => {
       Array.from({ length: 10 }, (_, index) => `${index}-${long}`),
     );
     expect(context.items.some((item) => item.textTruncated)).toBe(false);
-    const kept = context.existingKnowledge ?? [];
+    const kept = context.existingKnowledge?.active?.decision ?? [];
     expect(kept.length).toBeGreaterThan(0);
     expect(context.existingKnowledgeOmitted).toBeGreaterThan(0);
     expect(kept.length + (context.existingKnowledgeOmitted ?? 0)).toBe(250);
-    expect(kept.some((entry) => entry.status === "archived")).toBe(false);
-    expect(kept.every((entry) => entry.title.length <= 120)).toBe(true);
+    expect(context.existingKnowledge).not.toHaveProperty("archived");
+    expect(kept.every((title) => title.length <= 120)).toBe(true);
+    const titleWeight = 123;
+    const reservedGroupKeys = 60;
+    expect(JSON.stringify(context).length + titleWeight + reservedGroupKeys).toBeGreaterThan(24_000 - 200);
     expect(JSON.stringify(context).length).toBeLessThanOrEqual(24_000);
+  });
+
+  it("groups existing Knowledge titles by status and kind, newest first, without ids or repeated titles", () => {
+    const fixture = setup();
+    finalize(fixture, "a", ["Alpha decision"]);
+    const titles: Array<[string, "decision" | "gotcha"]> = [
+      ["Oldest gate rule", "decision"],
+      ["Pump needs priming", "gotcha"],
+      ["Newest gate rule", "decision"],
+      ["Retired fence rule", "decision"],
+      ["Newest gate rule", "decision"],
+    ];
+    const ids = titles.map(([title, kind], index) => {
+      const recorded = fixture.store.recordKnowledge({
+        projectRoot: fixture.root,
+        idempotencyKey: `group-${index}`,
+        kind,
+        title: `${title} ${index}`,
+        body: `Body ${index}.`,
+      });
+      if (recorded.outcome !== "knowledge_recorded") throw new Error("Expected recorded Knowledge.");
+      fixture.db
+        .prepare("UPDATE knowledge SET title = ?, updated_at = ? WHERE id = ?")
+        .run(title, `2026-10-01T09:0${index}:00.000Z`, recorded.knowledge.id);
+      return recorded.knowledge.id;
+    });
+    fixture.store.updateKnowledge({ projectRoot: fixture.root, knowledgeId: ids[3]!, status: "archived" });
+    const request = openReview(fixture);
+
+    const context = fixture.store.getAgentReviewContext({ requestId: request.id });
+    if (context.outcome !== "agent_review_context") throw new Error("Expected context.");
+    expect(context.existingKnowledge).toEqual({
+      active: { decision: ["Newest gate rule", "Oldest gate rule"], gotcha: ["Pump needs priming"] },
+      archived: { decision: ["Retired fence rule"] },
+    });
+    expect(Object.keys(context.existingKnowledge ?? {})).toEqual(["active", "archived"]);
+    expect(context).not.toHaveProperty("existingKnowledgeOmitted");
+    expect(JSON.stringify(context.existingKnowledge)).not.toContain(ids[0]!);
   });
 
   it("marks items a person reviewed or that changed since the snapshot", () => {

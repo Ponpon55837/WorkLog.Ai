@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- `existingKnowledge` in `work_get_agent_review_context` (page 1) and `work_get_knowledge_candidate_context` is now compact: titles grouped by status (`active`, `archived`, `rejected`, `proposed`) and kind, newest first, without ids, with identical titles in a group listed once. The active limit rises from 150 to 300 so a project with a few hundred Knowledge entries is no longer cut off; the candidate context caps the section at 12,000 characters and 120-character titles and reports the rest in `existingKnowledgeOmitted`. Response budgets are unchanged. The tool descriptions, Agent contracts, `docs/mcp-tools.md` and the Agent guides describe it.
+
 ## [1.6.100] - 2026-11-28
 
 [繁體中文更新說明](docs/releases/1.6.100.md).

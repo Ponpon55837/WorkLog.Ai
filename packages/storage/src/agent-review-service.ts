@@ -42,7 +42,15 @@ import type {
   UpdateKnowledgeResult,
 } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
-import { CANDIDATE_SELECT, loadExistingKnowledge, toCandidate, type CandidateRow } from "./knowledge-candidates.js";
+import {
+  CANDIDATE_SELECT,
+  existingKnowledgeWeight,
+  groupExistingKnowledge,
+  loadExistingKnowledge,
+  reserveExistingKnowledge,
+  toCandidate,
+  type CandidateRow,
+} from "./knowledge-candidates.js";
 import {
   findKnowledgeCandidateOverlaps,
   parseStoredOverlaps,
@@ -160,6 +168,16 @@ type KnowledgeWriteFailure =
   | Exclude<UpdateKnowledgeResult, { outcome: "knowledge_updated" }>;
 
 type ContextResult = Extract<AgentReviewContextResult, { outcome: "agent_review_context" }>;
+interface FitList {
+  target: object;
+  key: string;
+  omittedKey: string;
+  count: number;
+  omitted: number;
+  reserved: unknown;
+  weigh: (position: number) => number;
+  shape: (kept: number) => unknown;
+}
 
 const MAX_SNAPSHOT_ITEMS = 500;
 const CONTEXT_BUDGET = 24_000;
@@ -176,7 +194,6 @@ const SIBLING_DECISIONS_SHOWN = 5;
 const SIBLING_DECISION_LIMIT = 240;
 const BODY_LIMIT = 2_000;
 const RATIONALE_LIMIT = 600;
-const EXISTING_TITLE_LIMIT = 120;
 const KNOWLEDGE_REASON_LIMIT = 200;
 const LATER_SESSIONS_SHOWN = 5;
 const REVIEWED_KNOWLEDGE_LIMIT = 200;
@@ -581,12 +598,7 @@ export class AgentReviewService {
         ),
       hint: CONTEXT_HINT,
     };
-    if (pageInfo.page === 1) {
-      const { existingKnowledge, omitted } = loadExistingKnowledge(this.db, request.projectId);
-      result.existingKnowledge = existingKnowledge;
-      if (omitted > 0) result.existingKnowledgeOmitted = omitted;
-    }
-    this.fitContext(result);
+    this.fitContext(result, pageInfo.page === 1 ? loadExistingKnowledge(this.db, request.projectId) : undefined);
     if (JSON.stringify(result).length > CONTEXT_BUDGET) {
       return { outcome: "rejected", reason: "context_too_large", requestId: request.id };
     }
@@ -980,14 +992,7 @@ export class AgentReviewService {
   }
 
   /** Every list is reserved at its largest omitted count before any is filled, so a later count never pushes it over. */
-  private fitContext(result: ContextResult): void {
-    const existing = result.existingKnowledge?.map((entry) => ({
-      ...entry,
-      title: entry.title.slice(0, EXISTING_TITLE_LIMIT),
-    }));
-    const existingOmitted = result.existingKnowledgeOmitted ?? 0;
-    delete result.existingKnowledge;
-    delete result.existingKnowledgeOmitted;
+  private fitContext(result: ContextResult, existing?: ReturnType<typeof loadExistingKnowledge>): void {
     const later = result.items.map((item) => {
       const sessions = item.laterSessions;
       const omitted = item.laterSessionsOmitted ?? 0;
@@ -1002,13 +1007,7 @@ export class AgentReviewService {
     ) {
       shortenContext(result, limit);
     }
-    const lists: Array<{
-      target: object;
-      key: string;
-      omittedKey: string;
-      entries: readonly unknown[];
-      omitted: number;
-    }> = [];
+    const lists: FitList[] = [];
     result.items.forEach((item, index) => {
       const list = later[index];
       if (list)
@@ -1016,8 +1015,11 @@ export class AgentReviewService {
           target: item,
           key: "laterSessions",
           omittedKey: "laterSessionsOmitted",
-          ...list,
-          entries: list.sessions,
+          count: list.sessions.length,
+          omitted: list.omitted,
+          reserved: [],
+          weigh: (position) => JSON.stringify(list.sessions[position]).length + 1,
+          shape: (kept) => list.sessions.slice(0, kept),
         });
     });
     if (existing) {
@@ -1025,42 +1027,34 @@ export class AgentReviewService {
         target: result,
         key: "existingKnowledge",
         omittedKey: "existingKnowledgeOmitted",
-        entries: existing,
-        omitted: existingOmitted,
+        count: existing.entries.length,
+        omitted: existing.omitted,
+        reserved: reserveExistingKnowledge(existing.entries),
+        weigh: (position) => existingKnowledgeWeight(existing.entries[position]!),
+        shape: (kept) => groupExistingKnowledge(existing.entries.slice(0, kept)),
       });
     }
     for (const list of lists) {
       const fields = list.target as Record<string, unknown>;
-      fields[list.key] = [];
-      fields[list.omittedKey] = list.omitted + list.entries.length;
+      fields[list.key] = list.reserved;
+      fields[list.omittedKey] = list.omitted + list.count;
     }
     for (const list of lists) {
-      const kept = this.fitList(result, list.target, list.key, list.omittedKey, list.entries, list.omitted);
-      if (kept < list.entries.length) result.truncated = true;
+      const kept = this.fitList(result, list);
+      if (kept < list.count) result.truncated = true;
     }
   }
 
-  /** The target must already carry its largest omitted count, so the final count always fits. */
-  private fitList(
-    result: ContextResult,
-    target: object,
-    key: string,
-    omittedKey: string,
-    entries: readonly unknown[],
-    omitted: number,
-  ): number {
-    const fields = target as Record<string, unknown>;
+  /** The list must already carry its reserved shape and largest omitted count, so the final result always fits. */
+  private fitList(result: ContextResult, list: FitList): number {
+    const fields = list.target as Record<string, unknown>;
     let remaining = CONTEXT_BUDGET - SERVER_STATUS_RESERVE - JSON.stringify(result).length;
     let kept = 0;
-    for (const entry of entries) {
-      remaining -= JSON.stringify(entry).length + 1;
-      if (remaining < 0) break;
-      kept += 1;
-    }
-    fields[key] = entries.slice(0, kept);
-    const dropped = entries.length - kept;
-    if (omitted + dropped > 0) fields[omittedKey] = omitted + dropped;
-    else delete fields[omittedKey];
+    while (kept < list.count && (remaining -= list.weigh(kept)) >= 0) kept += 1;
+    fields[list.key] = list.shape(kept);
+    const dropped = list.count - kept;
+    if (list.omitted + dropped > 0) fields[list.omittedKey] = list.omitted + dropped;
+    else delete fields[list.omittedKey];
     return kept;
   }
 

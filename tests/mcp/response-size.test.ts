@@ -2424,7 +2424,7 @@ describe("Knowledge candidate continuation response budgets", () => {
       "work_write_idempotent",
     );
     expect(context.value).toMatchObject({
-      existingKnowledge: [{ kind: "gotcha", title: "Synthetic gotcha", status: "proposed" }],
+      existingKnowledge: { proposed: { gotcha: ["Synthetic gotcha"] } },
     });
     expect(context.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.candidateContext);
   });

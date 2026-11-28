@@ -214,11 +214,12 @@ describe("Knowledge candidates", () => {
     finalize("second");
     const context = store.getKnowledgeCandidateContext({ requestId: openRequest(store, root) });
     if (context.outcome !== "knowledge_candidate_context") throw new Error("Expected candidate context");
-    expect(context.existingKnowledge).toEqual([
-      { id: active, kind: "gotcha", title: "Meadow gate opens inward" },
-      { id: archived, kind: "gotcha", title: "Meadow pump needs priming", status: "archived" },
-      { id: rejected.id, kind: "gotcha", title: "Meadow fence posts lean north", status: "rejected" },
-    ]);
+    expect(context.existingKnowledge).toEqual({
+      active: { gotcha: ["Meadow gate opens inward"] },
+      archived: { gotcha: ["Meadow pump needs priming"] },
+      rejected: { gotcha: ["Meadow fence posts lean north"] },
+    });
+    expect(JSON.stringify(context.existingKnowledge)).not.toContain(active);
     expect(context).not.toHaveProperty("existingKnowledgeOmitted");
     expect(context).toMatchObject({
       omittedWorkSummarySections: ["scope", "verification"],
@@ -300,7 +301,7 @@ describe("Knowledge candidates", () => {
     const request = openRequest(store, root);
     store.getKnowledgeCandidateContext({ requestId: request });
     const context = store.getKnowledgeCandidateContext({ requestId: request });
-    expect(context.outcome === "knowledge_candidate_context" && context.existingKnowledge).toEqual([]);
+    expect(context.outcome === "knowledge_candidate_context" && context.existingKnowledge).toEqual({});
     const result = submitted(store, request, [
       {
         ...candidate(first, "Sprinkler lease expires silently"),
@@ -594,9 +595,48 @@ describe("Knowledge candidate continuation", () => {
     const proposed = submit(fixture.store, request, [fixture.candidate(sourceSessionId, "Hose splits in frost")]);
     const context = fixture.store.getKnowledgeCandidateContext({ requestId: proposed.next!.requestId });
     if (context.outcome !== "knowledge_candidate_context") throw new Error("Expected context");
-    expect(context.existingKnowledge).toEqual([
-      { id: proposed.candidates[0]!.id, kind: "gotcha", title: "Hose splits in frost", status: "proposed" },
-    ]);
+    expect(context.existingKnowledge).toEqual({ proposed: { gotcha: ["Hose splits in frost"] } });
+  });
+
+  it("groups titles by status and kind newest first and drops repeated titles within a group", () => {
+    const { store, root, finalize } = setup();
+    finalize("first");
+    const ids = ["Gate sticks", "Pump leaks", "Gate sticks", "Latch rusts"].map((title, index) =>
+      recorded(store, root, `group-${index}`, `${title} ${index}`),
+    );
+    const database = databaseOf(store);
+    ids.forEach((id, index) =>
+      database
+        .prepare("UPDATE knowledge SET title = ?, kind = ?, updated_at = ? WHERE id = ?")
+        .run(
+          ["Gate sticks", "Pump leaks", "Gate sticks", "Latch rusts"][index]!,
+          index === 1 ? "decision" : "gotcha",
+          `2026-10-01T09:0${index}:00.000Z`,
+          id,
+        ),
+    );
+    const context = store.getKnowledgeCandidateContext({ requestId: openRequest(store, root) });
+    if (context.outcome !== "knowledge_candidate_context") throw new Error("Expected candidate context");
+    expect(context.existingKnowledge).toEqual({
+      active: { gotcha: ["Latch rusts", "Gate sticks"], decision: ["Pump leaks"] },
+    });
+    expect(context).not.toHaveProperty("existingKnowledgeOmitted");
+  });
+
+  it("caps the serialized existing Knowledge and counts the titles left out", () => {
+    const { store, root, finalize } = setup();
+    finalize("first");
+    for (let index = 0; index < 200; index += 1) {
+      recorded(store, root, `cap-${index}`, `Orchard rule ${String(index).padStart(3, "0")} ${"title ".repeat(14)}`);
+    }
+    const context = store.getKnowledgeCandidateContext({ requestId: openRequest(store, root) });
+    if (context.outcome !== "knowledge_candidate_context") throw new Error("Expected candidate context");
+    const kept = context.existingKnowledge.active?.gotcha ?? [];
+    expect(JSON.stringify(context.existingKnowledge).length).toBeLessThanOrEqual(12_000);
+    expect(JSON.stringify(context.existingKnowledge).length + 100).toBeGreaterThan(12_000);
+    expect(kept.length + (context.existingKnowledgeOmitted ?? 0)).toBe(200);
+    expect(context.existingKnowledgeOmitted).toBeGreaterThan(0);
+    expect(kept.every((title) => title.length <= 120)).toBe(true);
   });
 
   it("stops the chain: a cancelled request frees its Sessions and no longer accepts a submission", () => {
