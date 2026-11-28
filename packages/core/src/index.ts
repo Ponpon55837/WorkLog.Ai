@@ -2450,6 +2450,8 @@ export interface KnowledgePageContextQuery {
   query?: string;
   headings?: string[];
   reviewOnly?: boolean;
+  /** The reviewToken of an earlier full or review read: its new Sessions come back as stubs. */
+  sessionsSeenIn?: string;
 }
 
 export interface SaveKnowledgePageInput {
@@ -2496,6 +2498,13 @@ export interface KnowledgePageContextSession {
   reasons?: KnowledgePageContextSessionReason[];
 }
 
+export interface KnowledgePageContextSessionStub {
+  id: string;
+  title: string;
+  reasons: KnowledgePageContextSessionReason[];
+  previewSeen: true;
+}
+
 export type KnowledgePageContextSessionReason = "new" | "source_changed";
 
 export type KnowledgePageSectionReviewReason =
@@ -2505,7 +2514,7 @@ export interface KnowledgePageContext {
   outcome: "knowledge_page_context";
   page: KnowledgePageRecord;
   mode: "full" | "review";
-  sessions: KnowledgePageContextSession[];
+  sessions: Array<KnowledgePageContextSession | KnowledgePageContextSessionStub>;
   omittedSessionFields: Array<"summary" | "workSummary.scope" | "workSummary.verification">;
   sessionReadWith: "work_get_session";
   truncated: boolean;
@@ -2513,6 +2522,7 @@ export interface KnowledgePageContext {
   size?: KnowledgePageSize;
   splitSuggestion?: KnowledgePageSplitSuggestion;
   emptyPageHint?: string;
+  warnings?: string[];
 }
 
 export interface KnowledgePageFocusedContext {

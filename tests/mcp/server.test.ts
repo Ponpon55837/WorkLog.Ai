@@ -3005,6 +3005,56 @@ describe("Work Intelligence MCP server", () => {
     expect(content?.text).toContain("send it without query and headings");
   });
 
+  it("returns previewSeen stubs for Sessions an earlier read showed when sessionsSeenIn is passed", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Seen project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const base = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-seen-base", "Seen base"),
+    });
+    const slugs = ["pitfalls", "architecture"];
+    for (const slug of slugs) {
+      const target = { projectRoot: root, slug };
+      await callJson(client, "work_request_knowledge_page_update", target);
+      const read = await callJson<{ reviewToken: string }>(client, "work_get_knowledge_page_context", target);
+      await callJson(client, "work_save_knowledge_page", {
+        ...target,
+        idempotencyKey: `seen-${slug}`,
+        reviewToken: read.reviewToken,
+        sections: [{ heading: "Base", content: "Recorded base fact.", sourceSessionIds: [base.session.id] }],
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const fresh = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-seen-fresh", "Seen fresh"),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+
+    const first = await callJson<{ reviewToken: string; sessions: Array<{ id: string; workSummary?: unknown }> }>(
+      client,
+      "work_get_knowledge_page_context",
+      { projectRoot: root, slug: slugs[0] },
+    );
+    const second = await callJson<{ sessions: unknown[]; warnings?: string[] }>(
+      client,
+      "work_get_knowledge_page_context",
+      { projectRoot: root, slug: slugs[1], sessionsSeenIn: first.reviewToken },
+    );
+    const ignored = await callJson<{ sessions: Array<{ previewSeen?: true }>; warnings?: string[] }>(
+      client,
+      "work_get_knowledge_page_context",
+      { projectRoot: root, slug: slugs[1], sessionsSeenIn: "not-a-token" },
+    );
+
+    expect(first.sessions).toMatchObject([{ id: fresh.session.id, workSummary: expect.anything() }]);
+    expect(second.sessions).toEqual([
+      { id: fresh.session.id, title: expect.any(String), reasons: ["new"], previewSeen: true },
+    ]);
+    expect(second.warnings).toBeUndefined();
+    expect(ignored.sessions[0]).not.toHaveProperty("previewSeen");
+    expect(ignored.warnings).toHaveLength(1);
+  });
+
   it("explains how two graph nodes are related with a read-only path tool", async () => {
     const { client, store, root } = await connect();
     const project = store.addProject("Path project", root);
