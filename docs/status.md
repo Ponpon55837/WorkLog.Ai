@@ -8,7 +8,7 @@
 
 ## 1.6.100（Agent 審查內容同一個 Session 只列一次）
 
-- `work_get_agent_review_context` 每頁改帶一份 `sessions` 清單，項目只標 `sourceSessionId`，`otherDecisions` 不再重複該頁的待審決策；用真實資料完整審查一次（55 筆、6 頁），從約 92.5k 降為約 84.4k 字元（#474 第三步）。詳見 [1.6.100 更新說明](releases/1.6.100.md)。
+- `work_get_agent_review_context` 每頁改帶一份 `sessions` 清單，項目只標 `sourceSessionId`，`otherDecisions` 不再重複該頁的待審決策；用真實資料完整審查一次（55 筆、6 頁），從約 64.2k 降為約 61.3k 字元（#474 第三步）。詳見 [1.6.100 更新說明](releases/1.6.100.md)。
 
 ## 1.6.99（知識頁只看要複查段落時，需要整頁就直接回整頁）
 
