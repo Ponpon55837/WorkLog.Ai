@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.102] - 2026-11-28
+
+[繁體中文更新說明](docs/releases/1.6.102.md).
+
 ### Fixed
 
 - `work_get_agent_review_context` and `work_get_outstanding_cleanup_context` no longer return the last page again when `page` (or `itemPage`/`sessionPage`) is past `totalPages`. They return empty `items` (and `sessions`), no page-1-only `existingKnowledge`, and a `pageInfo` whose `page` is the requested page with `hasNext: false` and `hasPrevious: true`; keep following `hasNext` (#502).
