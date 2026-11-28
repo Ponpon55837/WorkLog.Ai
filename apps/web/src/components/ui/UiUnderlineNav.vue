@@ -8,9 +8,20 @@ const model = defineModel<T>({ required: true });
 
 const nav = ref<HTMLElement | null>(null);
 const indicator = ref({ left: 0, width: 0, visible: false, animated: false });
+const fade = ref({ start: false, end: false });
 let resizeObserver: ResizeObserver | undefined;
 
+function updateFade(): void {
+  const track = nav.value;
+  if (!track) return;
+  fade.value = {
+    start: track.scrollLeft > 1,
+    end: track.scrollLeft + track.clientWidth < track.scrollWidth - 1,
+  };
+}
+
 function placeIndicator(): void {
+  updateFade();
   const selected = nav.value?.querySelector<HTMLElement>('[aria-selected="true"]');
   if (!selected) {
     indicator.value = { ...indicator.value, visible: false };
@@ -64,39 +75,81 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 </script>
 
 <template>
-  <nav ref="nav" class="ui-underline-nav" role="tablist" :aria-label="label" @keydown="onKeydown($event, items)">
-    <button
-      v-for="item in items"
-      :id="`${idPrefix}-tab-${item.value}`"
-      :key="item.value"
-      type="button"
-      role="tab"
-      :data-value="item.value"
-      :aria-selected="model === item.value"
-      :aria-controls="`${idPrefix}-panel-${item.value}`"
-      :tabindex="model === item.value ? 0 : -1"
-      :class="{ 'is-selected': model === item.value }"
-      @click="model = item.value"
+  <div class="ui-underline-nav" :data-fade-start="fade.start" :data-fade-end="fade.end">
+    <nav
+      ref="nav"
+      class="ui-underline-nav__track"
+      role="tablist"
+      :aria-label="label"
+      @keydown="onKeydown($event, items)"
+      @scroll.passive="updateFade"
     >
-      <component :is="item.icon" v-if="item.icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
-      <span>{{ item.label }}</span>
-      <UiCounter v-if="item.count !== undefined" :count="item.count" />
-    </button>
-    <span
-      v-show="indicator.visible"
-      :class="['ui-underline-nav__indicator', { 'is-animated': indicator.animated }]"
-      :style="{ width: `${indicator.width}px`, transform: `translateX(${indicator.left}px)` }"
-      aria-hidden="true"
-    ></span>
-  </nav>
+      <button
+        v-for="item in items"
+        :id="`${idPrefix}-tab-${item.value}`"
+        :key="item.value"
+        type="button"
+        role="tab"
+        :data-value="item.value"
+        :aria-selected="model === item.value"
+        :aria-controls="`${idPrefix}-panel-${item.value}`"
+        :tabindex="model === item.value ? 0 : -1"
+        :class="{ 'is-selected': model === item.value }"
+        @click="model = item.value"
+      >
+        <component :is="item.icon" v-if="item.icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
+        <span>{{ item.label }}</span>
+        <UiCounter v-if="item.count !== undefined" :count="item.count" />
+      </button>
+      <span
+        v-show="indicator.visible"
+        :class="['ui-underline-nav__indicator', { 'is-animated': indicator.animated }]"
+        :style="{ width: `${indicator.width}px`, transform: `translateX(${indicator.left}px)` }"
+        aria-hidden="true"
+      ></span>
+    </nav>
+  </div>
 </template>
 
 <style scoped>
 .ui-underline-nav {
   position: relative;
+  min-width: 0;
+  margin-bottom: var(--space-6);
+}
+
+.ui-underline-nav::before,
+.ui-underline-nav::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 1px;
+  z-index: 1;
+  width: var(--space-8);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.ui-underline-nav::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg-canvas), transparent);
+}
+
+.ui-underline-nav::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg-canvas), transparent);
+}
+
+.ui-underline-nav[data-fade-start="true"]::before,
+.ui-underline-nav[data-fade-end="true"]::after {
+  opacity: 1;
+}
+
+.ui-underline-nav__track {
+  position: relative;
   display: flex;
   gap: var(--space-2);
-  margin-bottom: var(--space-6);
   border-bottom: 1px solid var(--border-muted);
   overflow-x: auto;
   scrollbar-width: none;

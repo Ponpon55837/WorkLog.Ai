@@ -65,7 +65,7 @@ export const useSessionsStore = defineStore("sessions", () => {
   const selectedProjectId = ref("");
   const selectedAgent = ref("");
   const sessionPage = ref(1);
-  const sessionPageSize = ref<ListPageSize>(10);
+  const sessionPageSize = ref<ListPageSize>(20);
   const dateFrom = ref("");
   const dateTo = ref("");
   const voidedFilter = ref<SessionVoidedFilter>("exclude");
@@ -316,7 +316,7 @@ export const useSessionsStore = defineStore("sessions", () => {
       ? errorMessage(sessionsQuery.error.value, t("sessions.couldNotLoadWorkHistory"))
       : "",
   );
-  const sessionPageInfo = computed(() => sessionsQuery.data.value?.pageInfo ?? { ...emptyPageInfo, pageSize: 10 });
+  const sessionPageInfo = computed(() => sessionsQuery.data.value?.pageInfo ?? { ...emptyPageInfo, pageSize: 20 });
   const agentOptions = computed(() => agentsQuery.data.value ?? []);
   const selectedDetail = computed(() => detailQuery.data.value ?? null);
   const linkCandidates = computed(

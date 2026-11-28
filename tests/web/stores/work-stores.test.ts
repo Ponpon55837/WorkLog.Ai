@@ -70,6 +70,16 @@ beforeEach(() => {
 afterEach(async () => harness.cleanup());
 
 describe("work data stores", () => {
+  it("requests 20 Sessions per page by default", async () => {
+    const store = useSessionsStore();
+    store.setSessionsListActive(true);
+    await vi.waitFor(() => expect(harness.count("/api/sessions")).toBe(1));
+
+    expect(harness.calls.find(({ url }) => url.pathname === "/api/sessions")?.url.searchParams.get("pageSize")).toBe(
+      "20",
+    );
+  });
+
   it("keys Session list requests by every active filter and pagination value", async () => {
     const store = useSessionsStore();
     store.setSessionsListActive(true);
@@ -81,7 +91,7 @@ describe("work data stores", () => {
     store.dateTo = "2026-09-27";
     store.voidedFilter = "include";
     store.sessionPage = 2;
-    store.sessionPageSize = 20;
+    store.sessionPageSize = 50;
     store.loadSessions();
 
     await vi.waitFor(() => expect(harness.count("/api/sessions")).toBe(2));
@@ -92,7 +102,7 @@ describe("work data stores", () => {
     expect(filteredRequest?.url.searchParams.get("to")).toBe("2026-09-27");
     expect(filteredRequest?.url.searchParams.get("voided")).toBe("include");
     expect(filteredRequest?.url.searchParams.get("page")).toBe("2");
-    expect(filteredRequest?.url.searchParams.get("pageSize")).toBe("20");
+    expect(filteredRequest?.url.searchParams.get("pageSize")).toBe("50");
 
     store.sessionPage = 3;
     await vi.waitFor(() => expect(harness.count("/api/sessions")).toBe(3));

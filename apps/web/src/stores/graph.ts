@@ -49,6 +49,7 @@ function uniqueById<T extends { id: string }>(items: T[]): T[] {
 export const useGraphStore = defineStore("graph", () => {
   const graphActive = ref(false);
   const graphProjectId = ref("");
+  const graphProjectResolved = ref(false);
   const graphNodeFilter = ref<GraphNodeFilter>("all");
   const graphPreviewLimit = ref(120);
   const graphLoadPreset = ref("180");
@@ -70,7 +71,7 @@ export const useGraphStore = defineStore("graph", () => {
       graphShowDerived.value,
       "first",
     ],
-    enabled: graphActive,
+    enabled: () => graphActive.value && graphProjectResolved.value,
     refetchOnMount: "always",
     query: ({ signal }): Promise<GraphQueryResult> =>
       useApi().client.getGraph(
@@ -171,6 +172,13 @@ export const useGraphStore = defineStore("graph", () => {
     },
   );
 
+  /** The first Graph visit without a chosen project starts on one project; 4,000+ nodes of every project blur together. */
+  function resolveDefaultGraphProject(projectId: string | undefined): void {
+    if (graphProjectResolved.value) return;
+    graphProjectResolved.value = true;
+    if (!graphProjectId.value && projectId) graphProjectId.value = projectId;
+  }
+
   function setGraphActive(active: boolean): void {
     graphActive.value = active;
   }
@@ -242,6 +250,8 @@ export const useGraphStore = defineStore("graph", () => {
     graphPathLoading,
     graphPathError,
     graphPathEdgeIds,
+    graphProjectResolved,
+    resolveDefaultGraphProject,
     loadGraph,
     loadMoreGraph,
     setGraphActive,

@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { RotateCcw, Trash2 } from "lucide-vue-next";
 import type { SessionDetail } from "@work-intelligence/core";
+import { useMediaQuery } from "../../composables/useMediaQuery";
 import type { VoidTarget } from "../../composables/useRecordVoid";
 import {
   formatDate,
@@ -20,10 +21,29 @@ import { t } from "../../i18n";
 const props = defineProps<{ detail: SessionDetail }>();
 const emit = defineEmits<{ restoreRecord: [target: VoidTarget]; deleteRecord: [target: VoidTarget] }>();
 
+const compact = useMediaQuery("(max-width: 639px)");
+
 const session = computed(() => props.detail.session);
 const redactionCount = computed(() => session.value.redactionCount ?? 0);
 const agentLabel = computed(() =>
   [session.value.agentClient, session.value.agentModel].filter((part): part is string => Boolean(part)).join(" · "),
+);
+const completedText = computed(() =>
+  t("session.dateWithRelative", {
+    value: formatDate(session.value.completedAt),
+    value2: formatRelative(session.value.completedAt),
+  }),
+);
+const updatedText = computed(() =>
+  t("session.dateWithRelative", {
+    value: formatDate(session.value.updatedAt),
+    value2: formatRelative(session.value.updatedAt),
+  }),
+);
+const tookText = computed(() =>
+  session.value.startedAt
+    ? t("session.took", { value: formatDuration(session.value.startedAt, session.value.completedAt) })
+    : "",
 );
 const verification = computed(() => verificationStatus[verificationOf(session.value)]);
 const sessionTarget = computed<VoidTarget>(() => ({
@@ -67,35 +87,48 @@ const sessionTarget = computed<VoidTarget>(() => ({
       <span v-if="agentLabel">{{ agentLabel }}</span>
       <span v-else class="session-panel__muted">{{ t("common.notReported") }}</span>
     </dd>
-    <dt>{{ t("session.started") }}</dt>
-    <dd>
-      <template v-if="session.startedAt">
-        <time :datetime="session.startedAt">{{ formatDate(session.startedAt) }}</time>
-        <span class="session-panel__muted">{{
-          t("session.took", { value: formatDuration(session.startedAt, session.completedAt) })
-        }}</span>
-      </template>
-      <span v-else class="session-panel__muted">{{ t("common.notReported") }}</span>
-    </dd>
-    <dt>{{ t("common.completed") }}</dt>
-    <dd>
-      <time :datetime="session.completedAt">{{
-        t("session.dateWithRelative", {
-          value: formatDate(session.completedAt),
-          value2: formatRelative(session.completedAt),
-        })
-      }}</time>
-    </dd>
-    <dt>{{ t("session.lastUpdated") }}</dt>
-    <dd>
-      <time v-if="wasUpdatedAfterFinalize(session)" :datetime="session.updatedAt">{{
-        t("session.dateWithRelative", {
-          value: formatDate(session.updatedAt),
-          value2: formatRelative(session.updatedAt),
-        })
-      }}</time>
-      <span v-else class="session-panel__muted">{{ t("session.notModifiedAfterCompletion") }}</span>
-    </dd>
+    <template v-if="compact">
+      <dt>{{ t("common.completed") }}</dt>
+      <dd data-testid="session-times-summary">
+        <time :datetime="session.completedAt">{{ completedText }}</time>
+        <span v-if="tookText" class="session-panel__muted">· {{ tookText }}</span>
+      </dd>
+      <dt>{{ t("session.otherTimes") }}</dt>
+      <dd>
+        <details class="session-panel__times">
+          <summary>{{ t("session.startedAndLastUpdated") }}</summary>
+          <p>
+            <span class="session-panel__muted">{{ t("session.started") }}</span>
+            <time v-if="session.startedAt" :datetime="session.startedAt">{{ formatDate(session.startedAt) }}</time>
+            <span v-else class="session-panel__muted">{{ t("common.notReported") }}</span>
+          </p>
+          <p>
+            <span class="session-panel__muted">{{ t("session.lastUpdated") }}</span>
+            <time v-if="wasUpdatedAfterFinalize(session)" :datetime="session.updatedAt">{{ updatedText }}</time>
+            <span v-else class="session-panel__muted">{{ t("session.notModifiedAfterCompletion") }}</span>
+          </p>
+        </details>
+      </dd>
+    </template>
+    <template v-else>
+      <dt>{{ t("session.started") }}</dt>
+      <dd>
+        <template v-if="session.startedAt">
+          <time :datetime="session.startedAt">{{ formatDate(session.startedAt) }}</time>
+          <span class="session-panel__muted">{{ tookText }}</span>
+        </template>
+        <span v-else class="session-panel__muted">{{ t("common.notReported") }}</span>
+      </dd>
+      <dt>{{ t("common.completed") }}</dt>
+      <dd>
+        <time :datetime="session.completedAt">{{ completedText }}</time>
+      </dd>
+      <dt>{{ t("session.lastUpdated") }}</dt>
+      <dd>
+        <time v-if="wasUpdatedAfterFinalize(session)" :datetime="session.updatedAt">{{ updatedText }}</time>
+        <span v-else class="session-panel__muted">{{ t("session.notModifiedAfterCompletion") }}</span>
+      </dd>
+    </template>
     <dt>{{ t("session.executionStatus") }}</dt>
     <dd><StatusLabel :status="executionStatusVisual" /></dd>
     <dt>{{ t("labels.verification") }}</dt>
@@ -152,14 +185,19 @@ const sessionTarget = computed<VoidTarget>(() => ({
   color: var(--fg-muted);
 }
 
+.session-panel__times summary {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.session-panel__times p {
+  margin: var(--space-1) 0 0;
+}
+
 @media (max-width: 639px) {
   .session-panel__meta {
-    grid-template-columns: 1fr;
-    gap: 2px;
-  }
-
-  .session-panel__meta dd {
-    margin-bottom: var(--space-2);
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: var(--space-2) var(--space-3);
   }
 }
 </style>

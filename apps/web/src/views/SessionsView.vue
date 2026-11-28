@@ -110,7 +110,7 @@ useRouteQuery(
   sessionPageSize,
   enumQuery(
     listPageSizeOptions.map((option) => option.value),
-    10,
+    20,
   ),
 );
 useRouteQuery("itemProject", outstandingProjectId, stringQuery());
@@ -386,13 +386,14 @@ onBeforeUnmount(() => {
           <SessionRow
             :session="item"
             timeline
+            :highlight="sessionsAppliedScope?.q"
             :created-knowledge="dayInsights?.createdBySession.get(item.id)"
             @open="openSession"
           />
         </template>
       </VirtualList>
 
-      <template v-if="sessionsLoaded" #footer>
+      <template v-if="sessionsLoaded && sessionPageInfo.total > 0" #footer>
         <UiPagination
           v-model:page-size="sessionPageSize"
           :page-info="sessionPageInfo"

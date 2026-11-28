@@ -128,7 +128,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 
     <template #footer>
       <div class="session-panel__footer">
-        <span><kbd>J</kbd> / <kbd>K</kbd> {{ t("session.previousNext") }} <kbd>Esc</kbd> {{ t("common.close") }}</span>
+        <span class="session-panel__keys"
+          ><kbd>J</kbd> / <kbd>K</kbd> {{ t("session.previousNext") }} <kbd>Esc</kbd> {{ t("common.close") }}</span
+        >
         <span v-if="position.index >= 0">{{ position.index + 1 }} / {{ position.total }}</span>
       </div>
     </template>
@@ -145,5 +147,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   display: flex;
   justify-content: space-between;
   gap: var(--space-2);
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .session-panel__keys {
+    display: none;
+  }
 }
 </style>

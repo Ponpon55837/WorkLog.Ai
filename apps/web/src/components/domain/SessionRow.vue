@@ -9,21 +9,36 @@ import {
   formatRelative,
   wasUpdatedAfterFinalize,
 } from "../../utils/format";
+import { hasHighlight } from "../../utils/highlight";
 import { verificationOf, verificationStatus } from "../../utils/status";
 import UiBoxRow from "../ui/UiBoxRow.vue";
+import UiHighlightedText from "../ui/UiHighlightedText.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
 const props = withDefaults(
-  defineProps<{ session: WorkSessionRecord; showSummary?: boolean; timeline?: boolean; createdKnowledge?: number }>(),
-  { showSummary: true, timeline: false, createdKnowledge: 0 },
+  defineProps<{
+    session: WorkSessionRecord;
+    showSummary?: boolean;
+    timeline?: boolean;
+    createdKnowledge?: number;
+    highlight?: string;
+  }>(),
+  { showSummary: true, timeline: false, createdKnowledge: 0, highlight: "" },
 );
 const emit = defineEmits<{ open: [session: WorkSessionRecord] }>();
 
 const verification = computed(() => verificationStatus[verificationOf(props.session)]);
 const firstOutcome = computed(
   () => props.session.workSummary?.outcomes[0] ?? formatReadableSummary(props.session.summary).split("\n")[0],
+);
+const matchedElsewhere = computed(
+  () =>
+    props.highlight.trim() !== "" &&
+    ![props.session.title, props.session.projectName ?? "", firstOutcome.value ?? ""].some((text) =>
+      hasHighlight(text, props.highlight),
+    ),
 );
 </script>
 
@@ -50,9 +65,9 @@ const firstOutcome = computed(
         :aria-label="`Verification ${verification.label}`"
       />
     </template>
-    <template #title>{{ session.title }}</template>
+    <template #title><UiHighlightedText :text="session.title" :query="highlight" /></template>
     <template #meta>
-      <span>{{ session.projectName }}</span>
+      <span><UiHighlightedText :text="session.projectName ?? ''" :query="highlight" /></span>
       <template v-if="!timeline">
         ·
         <time :datetime="session.completedAt" :title="formatDate(session.completedAt)">{{
@@ -73,10 +88,13 @@ const firstOutcome = computed(
         ·
         <span class="session-row__knowledge">{{ t("sessions.newKnowledge", { count: createdKnowledge }) }}</span>
       </template>
-      <template v-if="!timeline && showSummary && firstOutcome"> · {{ firstOutcome }}</template>
+      <template v-if="!timeline && showSummary && firstOutcome">
+        · <UiHighlightedText :text="firstOutcome" :query="highlight"
+      /></template>
+      <template v-if="matchedElsewhere"> · {{ t("sessions.matchedElsewhere") }}</template>
     </template>
     <p v-if="timeline && showSummary && firstOutcome" class="session-row__summary" :title="firstOutcome">
-      {{ firstOutcome }}
+      <UiHighlightedText :text="firstOutcome" :query="highlight" />
     </p>
     <template #trailing>
       <UiLabel v-if="session.voided" tone="danger" :icon="Ban">{{ t("session.voidedLabel") }}</UiLabel>

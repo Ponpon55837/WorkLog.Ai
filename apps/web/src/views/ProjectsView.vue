@@ -255,9 +255,10 @@ onBeforeUnmount(() => {
                   formatRelative(project.lastIngestedAt)
                 }}</time></span
               >
-              <span v-if="project.folderStatus === 'missing'" class="projects__location-status">{{
-                t("projects.folderNotFound")
-              }}</span>
+              <span v-if="project.folderStatus === 'missing'" class="projects__location-status">
+                <strong>{{ t("projects.folderNotOnThisComputer") }}</strong>
+                {{ t("projects.folderNotOnThisComputerHint") }}
+              </span>
               <span v-else-if="project.folderStatus === 'unavailable'" class="projects__location-status">{{
                 t("projects.cannotCheckTheFolder")
               }}</span>
@@ -414,7 +415,7 @@ onBeforeUnmount(() => {
 
 .projects__location-status {
   display: block;
-  color: var(--danger);
+  color: var(--fg-muted);
   font-size: var(--text-xs);
 }
 </style>

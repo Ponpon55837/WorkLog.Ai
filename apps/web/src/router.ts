@@ -52,6 +52,8 @@ const routes: RouteRecordRaw[] = [
       group: "knowledge",
     },
   },
+  { path: "/projects/backups", redirect: (to) => ({ path: "/projects/backup", query: to.query }) },
+  { path: "/projects/deletions", redirect: (to) => ({ path: "/projects/deletion-audit", query: to.query }) },
   {
     path: "/projects/:tab?",
     name: "projects",
