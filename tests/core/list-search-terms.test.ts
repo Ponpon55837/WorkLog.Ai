@@ -3,7 +3,7 @@ import {
   MAX_LIST_SEARCH_TERM_LENGTH,
   MAX_LIST_SEARCH_TERMS,
   parseListSearchTerms,
-} from "../../packages/core/src/list-search-terms";
+} from "../../packages/core/src/list-search-terms.js";
 
 describe("parseListSearchTerms", () => {
   it("lowercases words, keeps quoted phrases whole and drops duplicates", () => {
