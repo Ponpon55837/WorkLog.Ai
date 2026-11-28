@@ -1,19 +1,22 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { Archive, DatabaseBackup, Download, RefreshCw, Trash2 } from "lucide-vue-next";
-import type { ProjectDataImportConflictCategory, ProjectDataImportPreview } from "@work-intelligence/core";
+import { Archive, DatabaseBackup, Download, RefreshCw, Trash2, Upload } from "lucide-vue-next";
+import type { ProjectDataImportConflictCategory } from "@work-intelligence/core";
 import { useBackupsStore } from "../../stores/backups";
 import { useProjectDataTransferStore } from "../../stores/project-data-transfer";
 import { useProjectsStore } from "../../stores/projects";
 import { useSystemStatusStore } from "../../stores/system-status";
 import { formatBytes, formatDate, formatRelative } from "../../utils/format";
-import { databaseBackupKindLabels } from "../../utils/labels";
+import { databaseBackupKindLabels, projectDataTableLabels } from "../../utils/labels";
+import { importBreakdown, importCountKinds, totalCount } from "../../utils/project-data-import";
+import type { ImportBreakdownRow, ImportCountKind } from "../../utils/project-data-import";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiCopyButton from "../ui/UiCopyButton.vue";
+import UiDisclosure from "../ui/UiDisclosure.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiField from "../ui/UiField.vue";
 import UiFlash from "../ui/UiFlash.vue";
@@ -25,6 +28,7 @@ import UiStatCard from "../ui/UiStatCard.vue";
 import UiStatGrid from "../ui/UiStatGrid.vue";
 import VirtualList from "../VirtualList.vue";
 import { useDiscardImportOnLeave } from "../../composables/useDiscardImportOnLeave";
+import { useMediaQuery } from "../../composables/useMediaQuery";
 import { t } from "../../i18n";
 
 const backupsStore = useBackupsStore();
@@ -57,9 +61,12 @@ const {
   importLoading,
   importPreview,
   importError,
+  importResult,
 } = storeToRefs(projectDataTransferStore);
 const {
   loadImportFile,
+  refuseMultipleImportFiles,
+  discardImportFile,
   previewProjectDataImport,
   chooseImportProjectLocation,
   applyProjectDataImport,
@@ -68,9 +75,16 @@ const {
 useDiscardImportOnLeave();
 
 const scrollAfter = 6;
+const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
 const exportScope = ref<"all" | "project">("all");
 const exportProjectId = ref("");
+const fileInput = ref<HTMLInputElement | null>(null);
+const dropzone = ref<HTMLElement | null>(null);
+const chooseButton = ref<InstanceType<typeof UiButton> | null>(null);
+const previewPanel = ref<HTMLElement | null>(null);
+const resultPanel = ref<HTMLElement | null>(null);
+const dragging = ref(false);
 const exportScopeOptions = [
   { value: "all", label: t("projects.allProjects") },
   { value: "project", label: t("projects.singleProject") },
@@ -87,21 +101,45 @@ const importProjectOptions = computed(() => [
   { value: "", label: t("projects.allProjects") },
   ...importProjects.value.map((project) => ({ value: project.id, label: project.name })),
 ]);
-const importSummary = computed(() => (preview: ProjectDataImportPreview) => {
-  const total = (counts: ProjectDataImportPreview["additions"]): number =>
-    Object.values(counts).reduce((sum, count) => sum + (count ?? 0), 0);
+const previewSummary = computed(() => {
+  const preview = importPreview.value;
+  if (!preview) return null;
   return {
-    additions: total(preview.additions),
-    updates: total(preview.updates),
-    keptLocal: total(preview.keptLocal),
-    renumbered: total(preview.renumbered),
-    replacedLocal: total(preview.replacedLocal),
-    skipped: total(preview.skipped),
-    conflicts: total(preview.conflicts),
-    projects: preview.additions.projects ?? 0,
-    sessions: preview.additions.sessions ?? 0,
-    knowledge: preview.additions.knowledge ?? 0,
+    additions: totalCount(preview.additions),
+    updates: totalCount(preview.updates),
+    keptLocal: totalCount(preview.keptLocal),
+    renumbered: totalCount(preview.renumbered),
+    replacedLocal: totalCount(preview.replacedLocal),
+    skipped: totalCount(preview.skipped),
+    conflicts: totalCount(preview.conflicts),
+    breakdown: importBreakdown(preview),
   };
+});
+const conflictCategories = computed(() => new Set(importPreview.value?.conflictGroups.map((group) => group.category)));
+const blockedByConflicts = computed(
+  () => importPreview.value?.writesData === false && (previewSummary.value?.conflicts ?? 0) > 0,
+);
+const canUseNewerWins = computed(
+  () => importPreview.value?.strategy === "merge" && conflictCategories.value.has("newer_content"),
+);
+const importCountLabels: Record<ImportCountKind, string> = {
+  additions: t("common.added"),
+  updates: t("projects.updated"),
+  keptLocal: t("projects.keptLocal"),
+  skipped: t("projects.skipped"),
+  conflicts: t("projects.conflicts"),
+};
+const importFileLabel = computed(() => importFileName.value || t("projects.noFileChosen"));
+const importResultMessage = computed(() => {
+  const result = importResult.value;
+  if (!result) return "";
+  if (!result.changed) return t("projects.importFinishedNothingChanged");
+  return t("projects.importFinishedAddedSkippedIn", {
+    value: totalCount(result.additions),
+    updates: totalCount(result.updates),
+    value2: totalCount(result.skipped),
+    value3: totalCount(result.conflicts),
+  });
 });
 const importProjectResolutionLabels = {
   existing: t("projects.matchedAnExistingProject"),
@@ -145,17 +183,93 @@ function exportPortableData(): Promise<void> {
   return exportProjectData({ type: "all" });
 }
 
-function onImportFileChange(event: Event): Promise<void> {
-  const input = event.target;
-  return loadImportFile(input instanceof HTMLInputElement ? input.files?.[0] : undefined);
+function breakdownCounts(row: ImportBreakdownRow): string {
+  return importCountKinds
+    .filter((kind) => row.counts[kind] !== undefined)
+    .map((kind) => `${importCountLabels[kind]} ${row.counts[kind]}`)
+    .join(" · ");
 }
 
+function chooseImportFile(): void {
+  fileInput.value?.click();
+}
+
+async function importFile(file: File): Promise<void> {
+  await loadImportFile(file);
+  await nextTick();
+  const panel = previewPanel.value;
+  if (!panel) return;
+  panel.scrollIntoView({ behavior: reduceMotion.value ? "auto" : "smooth", block: "start" });
+  panel.focus({ preventScroll: true });
+}
+
+async function onImportFileChange(event: Event): Promise<void> {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) return;
+  const file = input.files?.[0];
+  // Clearing the value lets the same file be chosen again after it was discarded.
+  input.value = "";
+  if (file) await importFile(file);
+}
+
+function carriesFiles(event: DragEvent): boolean {
+  return event.dataTransfer?.types.includes("Files") === true;
+}
+
+function onDragOver(event: DragEvent): void {
+  dragging.value = !importLoading.value;
+  if (event.dataTransfer) event.dataTransfer.dropEffect = importLoading.value ? "none" : "copy";
+}
+
+// A file dropped outside the zone would make the window open it and leave the app.
+function blockWindowFileDrop(event: DragEvent): void {
+  if (!carriesFiles(event)) return;
+  if (event.target instanceof Node && dropzone.value?.contains(event.target)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "none";
+}
+
+function onDragLeave(event: DragEvent): void {
+  const zone = event.currentTarget;
+  if (zone instanceof Node && event.relatedTarget instanceof Node && zone.contains(event.relatedTarget)) return;
+  dragging.value = false;
+}
+
+async function onDrop(event: DragEvent): Promise<void> {
+  dragging.value = false;
+  const files = event.dataTransfer?.files;
+  if (!files?.length || importLoading.value) return;
+  if (files.length > 1) refuseMultipleImportFiles();
+  else await importFile(files[0]!);
+}
+
+async function finishImport(): Promise<void> {
+  discardImportFile();
+  await nextTick();
+  const button = chooseButton.value?.$el;
+  if (button instanceof HTMLElement) button.focus();
+}
+
+function useNewerWins(): void {
+  importStrategy.value = "newer-wins";
+}
+
+watch(importResult, async (result) => {
+  if (!result) return;
+  await nextTick();
+  resultPanel.value?.focus();
+});
+
 onMounted(() => {
+  window.addEventListener("dragover", blockWindowFileDrop);
+  window.addEventListener("drop", blockWindowFileDrop);
   backupsStore.setBackupsActive(true);
   systemStatusStore.setSystemStatusActive(true);
   void loadProjects();
 });
 onBeforeUnmount(() => {
+  window.removeEventListener("dragover", blockWindowFileDrop);
+  window.removeEventListener("drop", blockWindowFileDrop);
   backupsStore.setBackupsActive(false);
   systemStatusStore.setSystemStatusActive(false);
 });
@@ -164,6 +278,19 @@ onBeforeUnmount(() => {
 <template>
   <UiStack class="backup-section">
     <UiFlash v-if="backupsError" tone="danger">{{ backupsError }}</UiFlash>
+
+    <UiFlash tone="accent" :title="t('projects.purposeGuideTitle')" data-testid="backup-purpose-guide">
+      <ul class="backup-section__purposes">
+        <li>
+          <strong>{{ t("projects.purposeMoveLead") }}</strong>
+          <span>{{ t("projects.purposeMoveBody") }}</span>
+        </li>
+        <li>
+          <strong>{{ t("projects.purposeRestoreLead") }}</strong>
+          <span>{{ t("projects.purposeRestoreBody") }}</span>
+        </li>
+      </ul>
+    </UiFlash>
 
     <UiBox>
       <template #header>
@@ -241,49 +368,10 @@ onBeforeUnmount(() => {
 
     <UiBox padded>
       <template #header>
-        <UiBoxTitle :icon="Download" :title="t('projects.exportAllData')" />
-        <UiButton size="sm" variant="primary" :icon="Download" :loading="databaseExporting" @click="exportDatabase">{{
-          t("common.export")
-        }}</UiButton>
-      </template>
-      <p>
-        {{ t("projects.exportA") }} <code>.sqlite</code>
-        {{ t("projects.fileContainingEveryProjectSession") }}
-      </p>
-      <p v-if="desktopManaged" data-testid="restore-in-desktop-app">{{ t("projects.restoreInDesktopApp") }}</p>
-      <template v-else>
-        <ol class="backup-section__steps">
-          <li>{{ t("projects.installWorkIntelligenceOnThe") }} <code>pnpm build</code>{{ t("common.sentenceEnd") }}</li>
-          <li>{{ t("projects.makeSureTheApiServer") }}</li>
-          <li>
-            {{ t("projects.runTheCommandBelowFrom") }}
-            <code>--remap-root</code> {{ t("projects.toReplaceThePathPrefix") }}
-          </li>
-        </ol>
-        <div class="backup-section__command">
-          <code>{{ restoreCommand }}</code>
-          <UiCopyButton
-            :text="restoreCommand"
-            :label="t('projects.copyRestoreCommand')"
-            :success-message="t('projects.restoreCommandCopied')"
-            size="sm"
-          />
-        </div>
-      </template>
-      <p class="backup-section__hint">
-        {{ t("projects.beforeRestoringTheExistingData") }}
-      </p>
-    </UiBox>
-
-    <UiBox padded>
-      <template #header>
-        <UiBoxTitle :icon="Archive" :title="t('projects.exportAndImportByProject')" :count="projects.length" />
+        <UiBoxTitle :icon="Download" :title="t('projects.exportProjectDataTitle')" :count="projects.length" />
       </template>
       <UiFlash v-if="transferError" tone="danger">{{ transferError }}</UiFlash>
-      <p class="backup-section__hint">
-        {{ t("projects.jsonExportsAreNotEncrypted") }}
-      </p>
-
+      <p class="backup-section__hint backup-section__hint--first">{{ t("projects.jsonExportNotEncrypted") }}</p>
       <div class="transfer-controls">
         <UiField :label="t('projects.exportScope')">
           <UiSelect v-model="exportScope" :options="exportScopeOptions" :label="t('projects.exportScope')" />
@@ -306,18 +394,45 @@ onBeforeUnmount(() => {
           {{ t("common.exportJson") }}
         </UiButton>
       </div>
+    </UiBox>
+
+    <UiBox padded>
+      <template #header>
+        <UiBoxTitle :icon="Upload" :title="t('projects.importProjectDataTitle')" />
+      </template>
+      <p class="backup-section__hint backup-section__hint--first">{{ t("projects.importMergesData") }}</p>
+
+      <div
+        ref="dropzone"
+        :class="['transfer-drop', { 'is-dragging': dragging }]"
+        data-testid="project-import-dropzone"
+        @dragenter.prevent="onDragOver"
+        @dragover.prevent="onDragOver"
+        @dragleave="onDragLeave"
+        @drop.prevent="onDrop"
+      >
+        <input
+          ref="fileInput"
+          type="file"
+          accept=".json,application/json"
+          hidden
+          :aria-label="t('projects.importFile')"
+          :disabled="importLoading"
+          @change="onImportFileChange"
+        />
+        <UiButton ref="chooseButton" :icon="Upload" :disabled="importLoading" @click="chooseImportFile">{{
+          t("projects.chooseFile")
+        }}</UiButton>
+        <div class="transfer-drop__text">
+          <strong class="transfer-drop__name" data-testid="project-import-file-name">{{ importFileLabel }}</strong>
+          <span class="transfer-drop__hint">{{
+            dragging ? t("projects.dropToChooseFile") : t("projects.dropJsonHere")
+          }}</span>
+          <span class="transfer-drop__hint">{{ t("projects.chooseAWorkIntelligenceJson") }}</span>
+        </div>
+      </div>
 
       <div class="transfer-controls transfer-controls--import">
-        <UiField :label="t('projects.importFile')" :hint="t('projects.chooseAWorkIntelligenceJson')">
-          <!-- The native file picker is required so the user can select a local export without uploading it elsewhere. -->
-          <input
-            class="backup-section__file-input"
-            type="file"
-            accept=".json,application/json"
-            :disabled="importLoading"
-            @change="onImportFileChange"
-          />
-        </UiField>
         <UiField v-if="importProjects.length > 1" :label="t('projects.importScope')">
           <UiSelect v-model="importProjectId" :options="importProjectOptions" :label="t('projects.importScope')" />
         </UiField>
@@ -348,7 +463,31 @@ onBeforeUnmount(() => {
         data-testid="project-import-uploading"
       />
       <UiFlash v-if="importError" tone="danger">{{ importError }}</UiFlash>
-      <div v-if="importPreview" class="transfer-preview" data-testid="project-import-preview" aria-live="polite">
+      <div
+        v-if="importResult"
+        ref="resultPanel"
+        class="transfer-result"
+        tabindex="-1"
+        data-testid="project-import-result"
+      >
+        <UiFlash tone="success" dismissible @dismiss="finishImport">
+          <span>{{ importResultMessage }}</span>
+          <template #actions>
+            <UiButton size="sm" :to="{ name: 'projects', params: { tab: 'registry' } }">{{
+              t("projects.goToProjectList")
+            }}</UiButton>
+          </template>
+        </UiFlash>
+      </div>
+      <div
+        v-if="importPreview && previewSummary"
+        ref="previewPanel"
+        class="transfer-preview"
+        role="region"
+        tabindex="-1"
+        :aria-label="t('projects.importPreview')"
+        data-testid="project-import-preview"
+      >
         <p>{{ t("projects.importProjectsAndApplyPaths") }}</p>
         <VirtualList
           :items="importPreview.selectedProjects"
@@ -384,40 +523,50 @@ onBeforeUnmount(() => {
             compact
             data-testid="project-import-additions"
             :label="t('common.added')"
-            :value="importSummary(importPreview).additions"
-            :foot="
-              t('projects.projectsSessionsKnowledge', {
-                value: importSummary(importPreview).projects,
-                value2: importSummary(importPreview).sessions,
-                value3: importSummary(importPreview).knowledge,
-              })
-            "
+            :value="previewSummary.additions"
+            :foot="t('projects.additionsMeaning')"
           />
           <UiStatCard
             compact
             data-testid="project-import-updates"
             :label="t('projects.updated')"
-            :value="importSummary(importPreview).updates"
+            :value="previewSummary.updates"
+            :foot="t('projects.updatesMeaning')"
           />
           <UiStatCard
             compact
             data-testid="project-import-kept-local"
             :label="t('projects.keptLocal')"
-            :value="importSummary(importPreview).keptLocal"
+            :value="previewSummary.keptLocal"
+            :foot="t('projects.keptLocalMeaning')"
           />
           <UiStatCard
             compact
             data-testid="project-import-skipped"
             :label="t('projects.skipped')"
-            :value="importSummary(importPreview).skipped"
+            :value="previewSummary.skipped"
+            :foot="t('projects.skippedMeaning')"
           />
           <UiStatCard
             compact
             data-testid="project-import-conflicts"
             :label="t('projects.conflicts')"
-            :value="importSummary(importPreview).conflicts"
+            :value="previewSummary.conflicts"
+            :foot="t('projects.conflictsMeaning')"
           />
         </UiStatGrid>
+        <UiDisclosure
+          v-if="previewSummary.breakdown.length > 0"
+          :title="t('projects.breakdownByRecordType')"
+          data-testid="project-import-breakdown"
+        >
+          <ul class="transfer-breakdown" tabindex="0" :aria-label="t('projects.breakdownByRecordType')">
+            <li v-for="row in previewSummary.breakdown" :key="row.table">
+              <span class="transfer-breakdown__name">{{ projectDataTableLabels[row.table] }}</span>
+              <span class="transfer-breakdown__counts">{{ breakdownCounts(row) }}</span>
+            </li>
+          </ul>
+        </UiDisclosure>
         <p v-if="remappedProjectCount > 0 || remappedSnapshotCount > 0" class="backup-section__hint">
           {{
             t("projects.pathRemappingAppliedProjectsHandoffs", {
@@ -434,11 +583,11 @@ onBeforeUnmount(() => {
             })
           }}
         </p>
-        <p v-if="importSummary(importPreview).renumbered > 0" class="backup-section__hint">
-          {{ t("projects.pageVersionsRenumbered", { count: importSummary(importPreview).renumbered }) }}
+        <p v-if="previewSummary.renumbered > 0" class="backup-section__hint">
+          {{ t("projects.pageVersionsRenumbered", { count: previewSummary.renumbered }) }}
         </p>
-        <p v-if="importSummary(importPreview).replacedLocal > 0" class="backup-section__hint">
-          {{ t("projects.staleDecisionsReplaced", { count: importSummary(importPreview).replacedLocal }) }}
+        <p v-if="previewSummary.replacedLocal > 0" class="backup-section__hint">
+          {{ t("projects.staleDecisionsReplaced", { count: previewSummary.replacedLocal }) }}
         </p>
         <p v-if="importPreview.conventionsWithdrawn" class="backup-section__hint">
           {{ t("projects.conventionsWithdrawnOnImport", { count: importPreview.conventionsWithdrawn }) }}
@@ -459,7 +608,7 @@ onBeforeUnmount(() => {
               :meta="
                 t('projects.conflictGroupMeta', {
                   category: importConflictCategoryLabels[item.category],
-                  table: item.table,
+                  table: projectDataTableLabels[item.table],
                   count: item.count,
                   samples: item.sampleIds.join(', '),
                 })
@@ -472,10 +621,76 @@ onBeforeUnmount(() => {
             importPreview.strategy === "newer-wins" ? t("projects.importNewerWinsHint") : t("projects.importMergeHint")
           }}
         </p>
-        <UiButton size="sm" variant="primary" :loading="importLoading" @click="applyProjectDataImport">{{
-          t("projects.confirmAndImport")
-        }}</UiButton>
+        <UiButton
+          v-if="importPreview.writesData"
+          class="transfer-preview__action"
+          variant="primary"
+          :loading="importLoading"
+          @click="applyProjectDataImport"
+          >{{ t("projects.confirmAndImport") }}</UiButton
+        >
+        <template v-else-if="blockedByConflicts">
+          <UiFlash tone="attention" :title="t('projects.blockedByConflicts')" data-testid="project-import-blocked">
+            <p>{{ t("projects.blockedByConflictsDetail") }}</p>
+            <p v-if="canUseNewerWins">{{ t("projects.blockedNewerContentHint") }}</p>
+            <p v-if="conflictCategories.has('path')">{{ t("projects.blockedPathHint") }}</p>
+          </UiFlash>
+          <div class="transfer-preview__actions">
+            <UiButton v-if="canUseNewerWins" :disabled="importLoading" @click="useNewerWins">{{
+              t("projects.useNewerWins")
+            }}</UiButton>
+            <UiButton :disabled="importLoading" @click="finishImport">{{ t("projects.discardImportFile") }}</UiButton>
+          </div>
+        </template>
+        <template v-else>
+          <UiFlash tone="accent" :title="t('projects.nothingToImport')" data-testid="project-import-nothing">{{
+            t("projects.nothingToImportDetail")
+          }}</UiFlash>
+          <UiButton class="transfer-preview__action" :disabled="importLoading" @click="finishImport">{{
+            t("projects.finishImport")
+          }}</UiButton>
+        </template>
       </div>
+    </UiBox>
+
+    <UiBox padded>
+      <template #header>
+        <UiBoxTitle :icon="Download" :title="t('projects.exportAllData')" />
+        <UiButton size="sm" variant="primary" :icon="Download" :loading="databaseExporting" @click="exportDatabase">{{
+          t("common.export")
+        }}</UiButton>
+      </template>
+      <p>
+        {{ t("projects.exportA") }} <code>.sqlite</code>
+        {{ t("projects.fileContainingEveryProjectSession") }}
+      </p>
+      <p v-if="desktopManaged" data-testid="restore-in-desktop-app">{{ t("projects.restoreInDesktopApp") }}</p>
+      <UiDisclosure v-else class="backup-section__restore" :title="t('projects.advancedRestoreWithCommand')">
+        <div class="backup-section__restore-body">
+          <ol class="backup-section__steps">
+            <li>
+              {{ t("projects.installWorkIntelligenceOnThe") }} <code>pnpm build</code>{{ t("common.sentenceEnd") }}
+            </li>
+            <li>{{ t("projects.makeSureTheApiServer") }}</li>
+            <li>
+              {{ t("projects.runTheCommandBelowFrom") }}
+              <code>--remap-root</code> {{ t("projects.toReplaceThePathPrefix") }}
+            </li>
+          </ol>
+          <div class="backup-section__command">
+            <code>{{ restoreCommand }}</code>
+            <UiCopyButton
+              :text="restoreCommand"
+              :label="t('projects.copyRestoreCommand')"
+              :success-message="t('projects.restoreCommandCopied')"
+              size="sm"
+            />
+          </div>
+        </div>
+      </UiDisclosure>
+      <p class="backup-section__hint">
+        {{ t("projects.beforeRestoringTheExistingData") }}
+      </p>
     </UiBox>
   </UiStack>
 </template>
@@ -520,11 +735,35 @@ onBeforeUnmount(() => {
   margin-top: var(--space-3);
 }
 
+.backup-section__hint--first {
+  margin-top: 0;
+}
+
+.backup-section__purposes {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+}
+
+.backup-section__purposes strong,
+.backup-section__purposes span {
+  display: block;
+}
+
 .backup-section__steps {
   display: grid;
   gap: var(--space-1);
-  margin: var(--space-3) 0;
+  margin: 0 0 var(--space-3);
   padding-left: var(--space-6);
+}
+
+.backup-section__restore {
+  margin-top: var(--space-3);
+}
+
+.backup-section__restore-body {
+  padding: var(--space-3) var(--space-4);
 }
 
 .backup-section__command {
@@ -545,7 +784,6 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
-/* Export row has no hints, so bottom alignment keeps the button level with the selects. */
 .transfer-controls {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 260px));
@@ -558,12 +796,8 @@ onBeforeUnmount(() => {
   justify-self: start;
 }
 
-/* The file field carries a hint under its control, so the import row aligns from the top. */
 .transfer-controls--import {
-  grid-template-columns: minmax(220px, 320px) repeat(auto-fill, minmax(200px, 260px));
   align-items: start;
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border-muted);
 }
 
 .transfer-controls__footer {
@@ -580,36 +814,43 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
-.backup-section__file-input {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  height: var(--control-height);
-  padding: 0 var(--space-2) 0 2px;
-  border: 1px solid var(--border);
+.transfer-drop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px dashed var(--border-strong);
   border-radius: var(--radius);
-  background: var(--bg-surface);
+  background: var(--bg-subtle);
+}
+
+.transfer-drop.is-dragging {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.transfer-drop__text {
+  display: grid;
+  flex: 1 1 240px;
+  gap: 2px;
+  min-width: 0;
+}
+
+.transfer-drop__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.transfer-drop__hint {
   color: var(--fg-muted);
-  font-size: var(--text-md);
-  line-height: calc(var(--control-height) - 2px);
+  font-size: var(--text-sm);
 }
 
-.backup-section__file-input::file-selector-button {
-  height: var(--control-height-sm);
-  margin: 0 var(--space-2) 0 0;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 2px);
-  background: var(--bg-muted);
-  color: var(--fg);
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.backup-section__file-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.transfer-result {
+  margin-top: var(--space-4);
 }
 
 .transfer-preview {
@@ -618,6 +859,22 @@ onBeforeUnmount(() => {
   margin-top: var(--space-4);
   padding-top: var(--space-4);
   border-top: 1px solid var(--border-muted);
+  scroll-margin-top: calc(var(--page-toolbar-height, 0px) + var(--space-2));
+}
+
+.transfer-result:focus,
+.transfer-preview:focus {
+  outline: none;
+}
+
+.transfer-preview__action {
+  justify-self: start;
+}
+
+.transfer-preview__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 .transfer-preview__project-row :deep(.ui-box-row__meta) {
@@ -626,9 +883,35 @@ onBeforeUnmount(() => {
   white-space: normal;
 }
 
+.transfer-breakdown {
+  display: grid;
+  max-height: min(40vh, 320px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.transfer-breakdown li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-2) var(--space-3);
+}
+
+.transfer-breakdown li + li {
+  border-top: 1px solid var(--border-muted);
+}
+
+.transfer-breakdown__counts {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 639px) {
-  .transfer-controls,
-  .transfer-controls--import {
+  .transfer-controls {
     grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -2727,7 +2727,14 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto("/projects/backup");
     const backups = page.getByRole("tabpanel", { name: tt("projects.dataBackup") });
     await expect(backups).toContainText(tt("projects.exportAllData"));
-    await expect(backups).toContainText("pnpm db:restore");
+    const guide = backups.getByTestId("backup-purpose-guide");
+    await expect(guide).toContainText(tt("projects.purposeMoveLead"));
+    await expect(guide).toContainText(tt("projects.purposeRestoreLead"));
+    await expect(backups.getByRole("button", { name: tt("projects.chooseFile") })).toBeVisible();
+    await expect(backups.getByLabel(tt("projects.importFile"))).toBeHidden();
+    await expect(backups.getByText("pnpm db:restore")).toBeHidden();
+    await backups.getByText(tt("projects.advancedRestoreWithCommand")).click();
+    await expect(backups.getByText("pnpm db:restore")).toBeVisible();
     await backups.getByRole("button", { name: tt("projects.backUpNow") }).click();
     await expect(page.getByText(tt("projects.backedUpTheCurrentData"))).toBeVisible();
     const listResponse = await request.get("/api/backups");
@@ -2790,7 +2797,13 @@ test.describe("Work Intelligence browser regression", () => {
     const conflictGroups = backups.getByTestId("project-import-conflict-groups");
     await expect(conflictGroups).toContainText(tt("projects.conflictCategoryMissingParent"));
     await expect(conflictGroups).toContainText(orphanId);
+    const blocked = backups.getByTestId("project-import-blocked");
+    await expect(blocked).toContainText(tt("projects.blockedByConflicts"));
+    await expect(backups.getByRole("button", { name: tt("projects.confirmAndImport") })).toHaveCount(0);
+    await expect(backups.getByRole("button", { name: tt("projects.finishImport") })).toHaveCount(0);
+    await expect(backups.getByText(tt("projects.importNewerWinsHint"))).toBeVisible();
 
+    await page.setViewportSize({ width: 1280, height: 500 });
     await backups.getByLabel(tt("projects.importFile")).setInputFiles({
       name: download.suggestedFilename(),
       mimeType: "application/json",
@@ -2798,6 +2811,9 @@ test.describe("Work Intelligence browser regression", () => {
     });
     const preview = backups.getByTestId("project-import-preview");
     await expect(preview).toBeVisible();
+    await expect(preview).toBeFocused();
+    await expect.poll(async () => (await preview.boundingBox())?.y ?? Infinity).toBeLessThan(250);
+    await expect(backups.getByTestId("project-import-file-name")).toHaveText(download.suggestedFilename());
     await expect(preview).toContainText("Browser Regression Fixture");
     const expectedProjectRoot = process.platform === "win32" ? projectRoot.toLowerCase() : projectRoot;
     await expect(preview.getByTestId("project-import-selected-projects")).toContainText(expectedProjectRoot);
@@ -2807,17 +2823,77 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(preview.getByTestId("project-import-additions")).toContainText(tt("common.added"));
     await expect(preview.getByTestId("project-import-skipped")).toContainText(tt("projects.skipped"));
     await expect(preview.getByTestId("project-import-conflicts")).toContainText(tt("projects.conflicts"));
+    await expect(preview.getByTestId("project-import-skipped")).toContainText(tt("projects.skippedMeaning"));
 
-    await preview.getByRole("button", { name: tt("projects.confirmAndImport") }).click();
-    const confirmation = page.getByRole("dialog", { name: tt("projects.confirmProjectDataImport") });
-    await expect(confirmation).toContainText(ttPattern("projects.recordsWillBeAddedAnd"));
-    await confirmation.getByRole("button", { name: tt("projects.import"), exact: true }).click();
-    await expect(page.getByText(tt("projects.importFinishedNothingChanged"))).toBeVisible();
+    await expect(preview.getByTestId("project-import-nothing")).toContainText(tt("projects.nothingToImport"));
+    await expect(preview.getByRole("button", { name: tt("projects.confirmAndImport") })).toHaveCount(0);
+    await preview.getByTestId("project-import-breakdown").getByText(tt("projects.breakdownByRecordType")).click();
+    await expect(preview.getByTestId("project-import-breakdown")).toContainText(tt("labels.dataTable.projects"));
+    await preview.getByRole("button", { name: tt("projects.finishImport") }).click();
+    await expect(preview).toBeHidden();
+    await expect(backups.getByRole("button", { name: tt("projects.chooseFile") })).toBeFocused();
+    await expect(backups.getByTestId("project-import-file-name")).toHaveText(tt("projects.noFileChosen"));
     await expect(backups).not.toContainText(tt("labels.beforeProjectDataImport"));
     for (const width of [1440, 960, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await expectNoHorizontalOverflow(page);
     }
+  });
+
+  test("accepts a dropped .json file and rejects other files", async ({ page, request }) => {
+    const exportResponse = await request.post("/api/export", { data: { scope: "all" } });
+    expect(exportResponse.ok()).toBeTruthy();
+    const exported = await exportResponse.text();
+    await page.goto("/projects/backup");
+    const backups = page.getByRole("tabpanel", { name: tt("projects.dataBackup") });
+    const dropzone = backups.getByTestId("project-import-dropzone");
+
+    const drop = async (name: string, type: string, content: string): Promise<void> => {
+      const dataTransfer = await page.evaluateHandle(
+        ({ name, type, content }) => {
+          const transfer = new DataTransfer();
+          transfer.items.add(new File([content], name, { type }));
+          return transfer;
+        },
+        { name, type, content },
+      );
+      await dropzone.dispatchEvent("dragover", { dataTransfer });
+      await dropzone.dispatchEvent("drop", { dataTransfer });
+    };
+
+    await drop("notes.txt", "text/plain", "hello");
+    await expect(backups).toContainText(tt("projects.importFileMustBeJson"));
+    await expect(backups.getByTestId("project-import-preview")).toHaveCount(0);
+
+    await drop("dropped.json", "application/json", exported);
+    const preview = backups.getByTestId("project-import-preview");
+    await expect(preview).toBeVisible();
+    await expect(preview).toBeFocused();
+    await expect(backups.getByTestId("project-import-file-name")).toHaveText("dropped.json");
+
+    await drop("notes.txt", "text/plain", "hello");
+    await expect(backups).toContainText(tt("projects.importFileMustBeJson"));
+    await expect(preview).toBeVisible();
+    await expect(backups.getByTestId("project-import-file-name")).toHaveText("dropped.json");
+
+    const outside = await page.evaluate(() => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(["{}"], "outside.json", { type: "application/json" }));
+      const event = new DragEvent("drop", { dataTransfer: transfer, cancelable: true, bubbles: true });
+      document.body.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    expect(outside).toBe(true);
+
+    const two = await page.evaluateHandle(() => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(["{}"], "one.json", { type: "application/json" }));
+      transfer.items.add(new File(["{}"], "two.json", { type: "application/json" }));
+      return transfer;
+    });
+    await dropzone.dispatchEvent("drop", { dataTransfer: two });
+    await expect(backups).toContainText(tt("projects.importOneFileOnly"));
+    await expect(preview).toBeVisible();
   });
 
   test("previews missing portable project roots, picks locations, and confirms matching siblings", async ({ page }) => {
@@ -2890,7 +2966,16 @@ test.describe("Work Intelligence browser regression", () => {
       await preview.getByRole("button", { name: tt("projects.confirmAndImport") }).click();
       const confirmation = page.getByRole("dialog", { name: tt("projects.confirmProjectDataImport") });
       await confirmation.getByRole("button", { name: tt("projects.import"), exact: true }).click();
-      await expect(page.getByText(ttPattern("projects.importFinishedAddedSkippedIn"))).toBeVisible();
+      const result = backups.getByTestId("project-import-result");
+      await expect(result).toContainText(ttPattern("projects.importFinishedAddedSkippedIn"));
+      await expect(result).toBeFocused();
+      await expect(preview).toBeHidden();
+      const projectListLink = result.getByRole("link", { name: tt("projects.goToProjectList") });
+      await expect(projectListLink).toHaveAttribute("href", "/projects/registry");
+      await projectListLink.click();
+      await expect(page).toHaveURL(/\/projects\/registry$/);
+      await page.getByRole("tab", { name: tt("projects.dataBackup") }).click();
+      await expect(backups.getByTestId("project-import-result")).toHaveCount(0);
 
       const verifyDb = new DatabaseSync(databasePath);
       try {

@@ -35,6 +35,7 @@ import { stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
 import { useHandoffImportStore } from "../stores/handoff-import";
 import { useMetadataBackfillStore } from "../stores/metadata-backfill";
+import { useProjectDataTransferStore } from "../stores/project-data-transfer";
 import { useProjectsStore } from "../stores/projects";
 import { formatDate, formatRelative } from "../utils/format";
 import { statusDescriptions, statusLabels } from "../utils/labels";
@@ -61,6 +62,7 @@ const {
   deleteProject,
 } = projectsStore;
 const metadataBackfillStore = useMetadataBackfillStore();
+const { clearImportResult } = useProjectDataTransferStore();
 const { projectId: backfillProjectId, requestId: backfillRequestId } = storeToRefs(metadataBackfillStore);
 useRouteQuery("project", backfillProjectId, stringQuery());
 useRouteQuery("backfillRequest", backfillRequestId, stringQuery());
@@ -143,6 +145,7 @@ function clearProjectDeletionNotice(): void {
   projectDeletionNotice.value = null;
 }
 
+watch(tab, clearImportResult);
 watch(metadataBackfillActive, metadataBackfillStore.setMetadataBackfillActive, { immediate: true });
 watch(() => tab.value === "deletion-audit", setProjectDeletionAuditsActive, { immediate: true });
 

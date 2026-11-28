@@ -960,7 +960,7 @@ describe("portable project data transfer", () => {
 
       const input = { bundle: accepted, strategy };
       const preview = destination.previewProjectDataImport(input);
-      expect(() => destination.importProjectData(input)).not.toThrow();
+      expect(destination.importProjectData(input).changed).toBe(preview.writesData);
       const result = destination.exportProjectData({ type: "all" });
       const events = result.tables.outstanding_item_events.filter((event) => event.id === "cleanup-sync-event");
       if (strategy === "newer-wins") {
