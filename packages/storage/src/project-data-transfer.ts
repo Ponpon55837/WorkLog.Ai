@@ -422,12 +422,45 @@ function deletedKnowledgePageIds(db: DatabaseSync, tables: Record<ProjectDataTab
   return new Set(rows.map((row) => row.page_id));
 }
 
-function deletedSessionIds(db: DatabaseSync, tables: Record<ProjectDataTable, ProjectDataRow[]>): Set<string> {
+/** Ids of bundle Sessions deleted here for good; references that deletion only clears become NULL like locally. */
+function applyDeletedSessions(db: DatabaseSync, tables: Record<ProjectDataTable, ProjectDataRow[]>): Set<string> {
   if (tables.sessions.length === 0) return new Set();
+  const ids = JSON.stringify([...new Set(tables.sessions.map((row) => String(row.id)))]);
   const rows = db
-    .prepare("SELECT session_id FROM session_deletion_audit WHERE session_id IN (SELECT value FROM json_each(?))")
-    .all(JSON.stringify([...new Set(tables.sessions.map((row) => String(row.id)))])) as Array<{ session_id: string }>;
-  return new Set(rows.map((row) => row.session_id));
+    .prepare(
+      `SELECT session_id FROM session_deletion_audit
+       WHERE session_id IN (SELECT value FROM json_each(?))
+         AND session_id NOT IN (SELECT id FROM sessions)`,
+    )
+    .all(ids) as Array<{ session_id: string }>;
+  const deleted = new Set(rows.map((row) => row.session_id));
+  if (deleted.size === 0) return deleted;
+  const clearing: Array<[ProjectDataTable, readonly string[]]> = [
+    ["knowledge", ["session_id", "last_confirmed_session_id"]],
+    ["knowledge_candidates", ["session_id"]],
+    ["knowledge_pages", ["checked_through_session_id"]],
+  ];
+  for (const [table, columns] of clearing) {
+    tables[table] = tables[table].map((row) => {
+      const cleared = columns.filter((column) => typeof row[column] === "string" && deleted.has(String(row[column])));
+      return cleared.length === 0 ? row : { ...row, ...Object.fromEntries(cleared.map((column) => [column, null])) };
+    });
+  }
+  return deleted;
+}
+
+function isDeletedSessionRow(
+  table: ProjectDataTable,
+  row: ProjectDataRow,
+  id: string,
+  deletedSessions: ReadonlySet<string>,
+  deletedDecisionIds: ReadonlySet<string>,
+): boolean {
+  if (table === "sessions") return deletedSessions.has(id);
+  if (table === "agent_review_request_items") {
+    return row.item_kind === "decision" && deletedSessions.has(String(row.source_session_id));
+  }
+  return table === "attention_preferences" && row.kind === "decision" && deletedDecisionIds.has(String(row.source_id));
 }
 
 function citesAnySession(value: ProjectDataValue | undefined, sessionIds: ReadonlySet<string>): boolean {
@@ -1753,6 +1786,12 @@ function makePlan(
     selectedBundle.tables.projects.map((project) => [String(project.id), String(project.root_path)]),
   );
   normalizeLegacyCleanupRows(selectedBundle.tables);
+  const deletedSessions = applyDeletedSessions(db, selectedBundle.tables);
+  const deletedDecisionIds = new Set(
+    selectedBundle.tables.session_decisions.flatMap((row) =>
+      deletedSessions.has(String(row.session_id)) ? [String(row.id)] : [],
+    ),
+  );
   const remappedPaths = applyPathRemaps(selectedBundle.tables, input.remap ?? []);
   // A repository link from another machine is kept only if it is still a safe https URL.
   for (const row of selectedBundle.tables.projects) {
@@ -1939,6 +1978,7 @@ function makePlan(
     for (const session of existingSessionRows) sessionProjectIds.set(session.id, session.project_id);
   }
   for (const session of selectedBundle.tables.sessions) {
+    if (deletedSessions.has(String(session.id))) continue;
     const projectId = String(session.project_id);
     sessionProjectIds.set(String(session.id), projectIds.get(projectId) ?? projectId);
   }
@@ -2083,7 +2123,6 @@ function makePlan(
   const pendingConventionAdds: Array<{ row: ProjectDataRow; projectId: string }> = [];
   const parentOwners = collectParentOwners(db, selectedBundle.tables, projectIds);
   const deletedPageIds = deletedKnowledgePageIds(db, selectedBundle.tables);
-  const deletedSessions = deletedSessionIds(db, selectedBundle.tables);
   // An audit event depends on the proposal as it will be stored, so a kept local proposal keeps its local state.
   onProposalStored = (row) => {
     const sourceProjectId = String(row.project_id);
@@ -2148,7 +2187,7 @@ function makePlan(
         addPlan(table, row, "conflict", DELETED_PAGE_REASON, "deleted");
         continue;
       }
-      if (table === "sessions" && !current && deletedSessions.has(id)) {
+      if (!current && isDeletedSessionRow(table, row, id, deletedSessions, deletedDecisionIds)) {
         addPlan(table, row, "conflict", DELETED_SESSION_REASON, "deleted");
         continue;
       }

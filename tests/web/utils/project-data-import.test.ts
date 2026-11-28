@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectDataImportPreview } from "@work-intelligence/core";
-import { importBreakdown, totalCount } from "../../../apps/web/src/utils/project-data-import.js";
+import {
+  deletedOnlyConflictCount,
+  importBreakdown,
+  totalCount,
+} from "../../../apps/web/src/utils/project-data-import.js";
 
 function preview(overrides: Partial<ProjectDataImportPreview>): ProjectDataImportPreview {
   return {
@@ -45,5 +49,28 @@ describe("project data import summary", () => {
       { table: "outstanding_items", counts: { keptLocal: 2 } },
     ]);
     expect(rows.reduce((sum, row) => sum + (row.counts.additions ?? 0), 0)).toBe(31);
+  });
+});
+
+describe("deleted-only import conflicts", () => {
+  const group = (category: "deleted" | "dependency" | "unique", count: number) => ({
+    category,
+    table: "sessions" as const,
+    reason: "r",
+    count,
+    sampleIds: [],
+  });
+
+  it("counts deleted rows when only deleted and dependency conflicts block the import", () => {
+    expect(deletedOnlyConflictCount(preview({ conflictGroups: [group("deleted", 2), group("dependency", 5)] }))).toBe(
+      2,
+    );
+  });
+
+  it("is zero with another conflict kind, with nothing deleted, or when the import writes data", () => {
+    expect(deletedOnlyConflictCount(preview({ conflictGroups: [group("deleted", 2), group("unique", 1)] }))).toBe(0);
+    expect(deletedOnlyConflictCount(preview({ conflictGroups: [group("dependency", 1)] }))).toBe(0);
+    expect(deletedOnlyConflictCount(preview({ writesData: true, conflictGroups: [group("deleted", 1)] }))).toBe(0);
+    expect(deletedOnlyConflictCount(preview({}))).toBe(0);
   });
 });

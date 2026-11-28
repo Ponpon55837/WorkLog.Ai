@@ -1258,6 +1258,7 @@
     "nothingToImport": "沒有需要匯入的變更",
     "nothingToImportDetail": "檔案中沒有會寫入這台電腦的資料，匯入不會改變任何東西。",
     "finishImport": "完成",
+    "deletedHereNote": "有 {count} 筆資料已在這台電腦刪除，不會再匯入。",
     "additionsMeaning": "本機沒有，將新增",
     "updatesMeaning": "匯入的較新，將更新本機",
     "keptLocalMeaning": "保留本機版本",
