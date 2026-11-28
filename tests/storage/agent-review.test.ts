@@ -287,6 +287,29 @@ describe("Agent review context", () => {
     ]);
   });
 
+  it.each([
+    [5, false],
+    [6, true],
+  ])("counts %i decisions outside the page next to three on it as truncated: %s", (outside, flagged) => {
+    const fixture = setup();
+    const { sessionId } = finalize(fixture, "a", ["On page 0", "On page 1", "On page 2"]);
+    const insert = fixture.db.prepare(
+      `INSERT INTO session_decisions (id, session_id, project_id, position, text, origin, review_status)
+       VALUES (?, ?, ?, ?, ?, 'agent_autonomous', 'confirmed')`,
+    );
+    for (let index = 0; index < outside; index += 1) {
+      insert.run(`outside-${index}`, sessionId, fixture.projectId, 10 + index, `Outside ${index}`);
+    }
+    openReview(fixture);
+
+    const context = fixture.store.getAgentReviewContext({ projectRoot: fixture.root });
+    if (context.outcome !== "agent_review_context") throw new Error("Expected context.");
+    const session = context.sessions[0]!;
+    expect(session.otherDecisions).toHaveLength(5);
+    expect(session.otherDecisions.every((text) => text.startsWith("Outside"))).toBe(true);
+    expect(session.otherDecisionsTruncated ?? false).toBe(flagged);
+  });
+
   it("gives each page exactly the Sessions its items reference", () => {
     const fixture = setup();
     const a = finalize(fixture, "a", ["A1", "A2"]);

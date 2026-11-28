@@ -6,7 +6,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Changed
 
-- `work_get_agent_review_context` no longer repeats the source Session on every decision and candidate. Each page carries one `sessions` list with every referenced Session once (same fields and `*Truncated` flags as the old `sourceSession`), and items carry only `sourceSessionId`. A Session's `otherDecisions` now leaves out the decisions already listed as items on that page. Response budgets are unchanged; reviews where several items share a Session get smaller. The tool description, Agent contract, `docs/mcp-tools.md` and the agent-review guide describe it.
+- `work_get_agent_review_context` no longer repeats the source Session on every decision and candidate. Each page carries one `sessions` list with every referenced Session once (same fields and `*Truncated` flags as the old `sourceSession`), and items carry only `sourceSessionId`. A Session's `otherDecisions` now leaves out the open decisions already listed as items on that page. Response budgets are unchanged; reviews where several items share a Session get smaller. The tool description, Agent contract, `docs/mcp-tools.md` and the agent-review guide describe it.
 
 ## [1.6.99] - 2026-11-28
 
