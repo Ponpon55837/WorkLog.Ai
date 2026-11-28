@@ -54,7 +54,7 @@ for (const locale of ["zh-TW", "en-US"] as const) {
           { locale, theme },
         );
         await page.setViewportSize({ width, height: 900 });
-        await page.goto("/graph/timeline");
+        await page.goto("/graph/timeline?project=all");
         const timeline = page.getByTestId("graph-timeline");
         const viewport = timeline.getByRole("region", {
           name: textIn(locale, "graph.timelineChartScrollsHorizontallyThe"),

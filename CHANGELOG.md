@@ -4,18 +4,25 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- 系統狀態 now shows 個人偏好 (appearance, language, editor) at the top of the main column instead of below the service paths and MCP registration, with an `#preferences` anchor. The header keeps its theme button and language menu.
+- Session search highlights the matched words in the row title and summary with `<mark>` (plain text, never HTML), reading the query like the server (quoted phrases stay whole, case is ignored, at most 8 words of 200 characters; the project name is not searched, so it is not highlighted). A row whose match is not in the shown text gets one line with the first match in the fields the list has, such as 「摘要：…前文 詞 後文…」, 「成果」, 「決策」 or 「變更檔案」, or 「符合工作事件」 when only a work event has it. The query parser now lives in `@work-intelligence/core` and is shared by the server and the web app. The placeholder reads 「搜尋標題、摘要或事件」. The default page size is 20, and the 「顯示 0–0，共 0 筆」 footer is hidden when nothing matches.
+- On a phone the Session detail keeps its label column beside the values, shows the 完成時間 with 「耗時」 on a muted line of its own and moves the start and last-updated times into a 「開始與最後更新」 disclosure. 「執行狀態」 shows 「已完成」 instead of the raw `completed`. The `J`/`K` keyboard hint is hidden on touch devices (`(hover: none) and (pointer: coarse)`).
+- 關係圖 starts on the project chosen last, else the tracked project with the newest Session, when the URL has no `project`; 「全部專案」 is chosen with `project=all`, which also survives a reload and is remembered after leaving the page. A `project` in the URL wins and loads at once. If the project list or overview fails to load, a notice with 「重試」 shows and the graph loads without a default. Node limits, preview size and 「推導的關係」 moved into a 「顯示設定」 disclosure.
+- A project whose folder is not on this computer shows a neutral 「不在這台電腦」, with one note above the list that reading is unaffected, instead of a red 「找不到資料夾」 on every row. A folder that cannot be checked keeps its own 「無法確認資料夾」 in the attention color. 「重新指定位置」 stays for opening files in an editor.
+- Tab bars fade the edge in the direction where more tabs are hidden, and scrolling keeps the focused edge tab clear of the fade.
+
+### Added
+
+- `/projects/backups` and `/projects/deletions` redirect to `/projects/backup` and `/projects/deletion-audit` (query and hash kept) instead of falling back to the project list.
+
 ## [1.6.96] - 2026-11-28
 
 [繁體中文更新說明](docs/releases/1.6.96.md).
 
 ### Changed
 
-- 系統狀態 now shows 個人偏好 (appearance, language, editor) at the top of the main column instead of below the service paths and MCP registration, with an `#preferences` anchor. The header keeps its theme button and language menu.
-- Session search highlights the matched words in the row title, project name and summary with `<mark>` (plain text, never HTML) and tags a row whose match is in a field the row does not show with 「符合其他欄位」. The placeholder reads 「搜尋標題、摘要或事件」. The default page size is 20, and the 「顯示 0–0，共 0 筆」 footer is hidden when nothing matches.
-- On a phone the Session detail keeps its label column beside the values, shows 「完成時間 · 耗時」 on one line and moves the start and last-updated times into a 「開始與最後更新」 disclosure. The `J`/`K` keyboard hint is hidden on touch devices (`(hover: none) and (pointer: coarse)`).
-- 關係圖 starts on the most recently active tracked project when no project is chosen (a `project` in the URL or an earlier choice wins) and waits for that choice before loading, so it no longer opens on every project at once. Node limits, preview size and 「推導的關係」 moved into a 「顯示設定」 disclosure.
-- A project whose folder is not on this computer shows a neutral 「不在這台電腦」 with a note that reading is unaffected, instead of a red 「找不到資料夾」. 「重新指定位置」 stays for opening files in an editor.
-- Tab bars fade the edge in the direction where more tabs are hidden.
 - The 資料備份 tab now opens with a short guide to which export to use: 「匯出專案資料」/「匯入專案資料」 (JSON) for a new computer or merging two computers, 「匯出整份資料」 (.sqlite) for whole-machine recovery. Export and import are separate boxes, and the .sqlite restore steps are collapsed under 「進階：用指令還原」.
 - The import box uses a 「選擇檔案」 button with a hidden file input instead of the browser's native control, shows the chosen file name, and the page scrolls to the import preview and focuses it once the file is checked.
 - The import preview describes each count in one line (新增, 將更新, 保留本機, 略過, 衝突) and no longer shows a per-type sub-line that did not add up. A 「各類型明細」 list covers every record type the preview reports. 「確認並匯入」 is a normal-width button, and when nothing would be written the preview says 「沒有需要匯入的變更」 with a 「完成」 button instead of an import button.
@@ -24,7 +31,6 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
-- `/projects/backups` and `/projects/deletions` redirect to `/projects/backup` and `/projects/deletion-audit` instead of falling back to the project list.
 - The import box accepts a dropped `.json` file (same 256 MiB limit as the picker) with a visible drop state; keyboard users use 「選擇檔案」.
 - After an import finishes, the result offers 「前往專案清單」.
 

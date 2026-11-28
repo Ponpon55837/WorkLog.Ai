@@ -1,4 +1,4 @@
-import { KNOWLEDGE_STATUSES } from "@work-intelligence/core";
+import { KNOWLEDGE_STATUSES, parseListSearchTerms } from "@work-intelligence/core";
 import type {
   AgentKnowledgeQueryResult,
   CompactKnowledgeItem,
@@ -12,7 +12,6 @@ import type {
 } from "@work-intelligence/core";
 import type { KnowledgeCount } from "./knowledge-repository.js";
 import type { KnowledgeRankHit, KnowledgeRankOptions, KnowledgeRanking } from "./search-repository.js";
-import { parseListSearchTerms } from "./list-search-scan.js";
 import { excerptAround } from "./search-text.js";
 import { staleFlags } from "./stale-flags.js";
 

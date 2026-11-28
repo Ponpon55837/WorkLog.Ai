@@ -152,6 +152,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   gap: var(--space-2);
   border-bottom: 1px solid var(--border-muted);
   overflow-x: auto;
+  scroll-padding-inline: var(--space-8);
   scrollbar-width: none;
 }
 

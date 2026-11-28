@@ -28,6 +28,7 @@ import UiField from "../components/ui/UiField.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
 import UiGroupLabel from "../components/ui/UiGroupLabel.vue";
 import UiIconButton from "../components/ui/UiIconButton.vue";
+import UiHighlightedText from "../components/ui/UiHighlightedText.vue";
 import UiLabel from "../components/ui/UiLabel.vue";
 import UiMeter from "../components/ui/UiMeter.vue";
 import UiPagination from "../components/ui/UiPagination.vue";
@@ -122,6 +123,7 @@ async function tryConfirm(): Promise<void> {
         <UiLabel tone="done">{{ t("common.completedStatus") }}</UiLabel>
         <UiCounter :count="128" />
         <UiCounter :count="3" tone="attention" />
+        <span><UiHighlightedText text="Fix the parser crash" query="parser" /></span>
       </div>
     </UiBox>
 

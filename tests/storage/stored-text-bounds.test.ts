@@ -2,6 +2,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import {
+  MAX_LIST_SEARCH_TERM_LENGTH,
+  MAX_LIST_SEARCH_TERMS,
+  parseListSearchTerms,
+} from "../../packages/core/src/list-search-terms.js";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   APPLIES_TO_MATCH_UNIT_LIMIT,
@@ -21,9 +26,6 @@ import {
 } from "../../packages/storage/src/outstanding-item-relevance.js";
 import {
   KNOWLEDGE_SEARCH_ROW_BYTES,
-  MAX_LIST_SEARCH_TERM_LENGTH,
-  MAX_LIST_SEARCH_TERMS,
-  parseListSearchTerms,
   setListSearchScanProbe,
   type ListSearchScanProbe,
 } from "../../packages/storage/src/list-search-scan.js";

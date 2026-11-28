@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { parseListSearchTerms } from "@work-intelligence/core";
 import type {
   CompactKnowledgeItem,
   KnowledgeKind,
@@ -15,7 +16,6 @@ import {
   LIST_SEARCH_CHARGE_FUNCTION,
   KNOWLEDGE_SEARCH_ROW_BYTES,
   listSearchOverBoundWarning,
-  parseListSearchTerms,
   runListSearchScan,
 } from "./list-search-scan.js";
 import { createPageInfo } from "./pagination.js";

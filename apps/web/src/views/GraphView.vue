@@ -24,6 +24,7 @@ import { stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
 import { graphLoadPresetOptions, useGraphStore } from "../stores/graph";
 import { useProjectsStore } from "../stores/projects";
+import { latestTrackedProjectId } from "../utils/graph-default-project";
 import { graphEdgeKindLabels, graphNodeKindLabels, graphNodeKindOrder } from "../utils/labels";
 import { t } from "../i18n";
 
@@ -36,6 +37,7 @@ const {
   graph,
   graphProjectId,
   graphProjectResolved,
+  graphProjectParam,
   graphNodeFilter,
   graphPreviewLimit,
   graphLoadPreset,
@@ -48,7 +50,8 @@ const {
   graphShowDerived,
   graphPathEdgeIds,
 } = storeToRefs(graphStore);
-const { dashboard, dashboardLoaded, projectsLoaded, trackedProjects } = storeToRefs(useProjectsStore());
+const projectsStore = useProjectsStore();
+const { dashboard, dashboardLoaded, projectsLoaded, initialDataFailed, trackedProjects } = storeToRefs(projectsStore);
 const {
   graphSearchMatchIds,
   graphVisual,
@@ -59,7 +62,7 @@ const {
 } = useGraph();
 
 const load = (): Promise<void> => graphStore.loadGraph();
-useRouteQuery("project", graphProjectId, stringQuery());
+useRouteQuery("project", graphProjectParam, stringQuery());
 useRouteQuery("q", graphSearch, stringQuery());
 
 const settingsOpen = ref(false);
@@ -96,15 +99,7 @@ const presetOptions = graphLoadPresetOptions.map((preset) => ({
   label: t(preset.label),
 }));
 
-const latestProjectId = computed(() => {
-  const tracked = new Set(trackedProjects.value.map((project) => project.id));
-  const recent = dashboard.value.recentSessions.find((session) => tracked.has(session.projectId));
-  if (recent) return recent.projectId;
-  const [latest] = [...trackedProjects.value].sort((a, b) =>
-    (b.lastIngestedAt ?? b.updatedAt).localeCompare(a.lastIngestedAt ?? a.updatedAt),
-  );
-  return latest?.id;
-});
+const latestProjectId = computed(() => latestTrackedProjectId(dashboard.value.recentSessions, trackedProjects.value));
 
 const truncationNote = computed(() => {
   const current = graph.value;
@@ -149,10 +144,21 @@ function selectFirstMatch(): void {
   }
 }
 
+function chooseProject(projectId: string | undefined): void {
+  graphStore.chooseGraphProject(projectId ?? "");
+}
+
+function retryProjectData(): void {
+  void Promise.allSettled([projectsStore.loadDashboard(), projectsStore.loadProjects()]);
+}
+
 watch(
-  [dashboardLoaded, projectsLoaded, latestProjectId],
+  [dashboardLoaded, projectsLoaded, initialDataFailed, graphProjectResolved, latestProjectId],
   () => {
-    if (dashboardLoaded.value && projectsLoaded.value) graphStore.resolveDefaultGraphProject(latestProjectId.value);
+    if (graphProjectResolved.value) return;
+    if (initialDataFailed.value) graphStore.resolveDefaultGraphProject(undefined);
+    else if (dashboardLoaded.value && projectsLoaded.value)
+      graphStore.resolveDefaultGraphProject(latestProjectId.value);
   },
   { immediate: true },
 );
@@ -172,7 +178,7 @@ onBeforeUnmount(() => {
   </PageToolbar>
 
   <section v-if="tab === 'timeline'" id="graph-panel-timeline" role="tabpanel" aria-labelledby="graph-tab-timeline">
-    <GraphTimelineBox v-model:project-id="graphProjectId" />
+    <GraphTimelineBox :project-id="graphProjectId" @update:project-id="chooseProject" />
   </section>
   <section
     v-else-if="tab === 'hotspots'"
@@ -180,10 +186,16 @@ onBeforeUnmount(() => {
     role="tabpanel"
     aria-labelledby="graph-tab-hotspots"
   >
-    <GraphHotspotsBox v-model:project-id="graphProjectId" />
+    <GraphHotspotsBox :project-id="graphProjectId" @update:project-id="chooseProject" />
   </section>
 
   <section v-else id="graph-panel-graph" role="tabpanel" aria-labelledby="graph-tab-graph">
+    <UiFlash v-if="initialDataFailed" tone="danger" data-testid="graph-project-data-error">
+      {{ t("graph.couldNotLoadProjectData") }}
+      <template #actions
+        ><UiButton size="sm" @click="retryProjectData">{{ t("common.retry") }}</UiButton></template
+      >
+    </UiFlash>
     <UiFlash v-if="graphError" tone="danger">
       {{ graphError }}
       <template #actions
@@ -205,12 +217,13 @@ onBeforeUnmount(() => {
             @keydown.enter.prevent="selectFirstMatch"
           />
           <ProjectFilterMenu
-            v-model="graphProjectId"
+            :model-value="graphProjectId"
             :icon="FolderGit2"
             variant="button"
             size="sm"
             :header="t('graph.chooseGraphProjectScope')"
             :aria-label="t('graph.chooseGraphProjectScope')"
+            @update:model-value="chooseProject"
           />
           <UiSelect
             v-model="graphNodeFilter"
@@ -222,7 +235,7 @@ onBeforeUnmount(() => {
             size="sm"
             :icon="SlidersHorizontal"
             :aria-expanded="settingsOpen"
-            aria-controls="graph-display-settings"
+            :aria-controls="settingsOpen ? 'graph-display-settings' : undefined"
             data-testid="graph-display-settings-toggle"
             @click="settingsOpen = !settingsOpen"
             >{{ t("graph.displaySettings") }}</UiButton

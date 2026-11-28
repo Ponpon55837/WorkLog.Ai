@@ -9,7 +9,8 @@ import {
   formatRelative,
   wasUpdatedAfterFinalize,
 } from "../../utils/format";
-import { hasHighlight } from "../../utils/highlight";
+import { workSummarySectionLabels } from "../../utils/labels";
+import { findSessionMatch, type MatchedField } from "../../utils/session-match";
 import { verificationOf, verificationStatus } from "../../utils/status";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiHighlightedText from "../ui/UiHighlightedText.vue";
@@ -33,13 +34,20 @@ const verification = computed(() => verificationStatus[verificationOf(props.sess
 const firstOutcome = computed(
   () => props.session.workSummary?.outcomes[0] ?? formatReadableSummary(props.session.summary).split("\n")[0],
 );
-const matchedElsewhere = computed(
-  () =>
-    props.highlight.trim() !== "" &&
-    ![props.session.title, props.session.projectName ?? "", firstOutcome.value ?? ""].some((text) =>
-      hasHighlight(text, props.highlight),
-    ),
+const match = computed(() =>
+  props.highlight.trim() === ""
+    ? undefined
+    : findSessionMatch(props.session, props.highlight, [
+        props.session.title,
+        ...(props.showSummary && firstOutcome.value ? [firstOutcome.value] : []),
+      ]),
 );
+
+function fieldLabel(field: MatchedField): string {
+  if (field === "summary") return t("session.summary");
+  if (field === "changedFiles") return t("labels.changedFiles");
+  return workSummarySectionLabels.find((section) => section.key === field)?.label ?? field;
+}
 </script>
 
 <template>
@@ -67,7 +75,7 @@ const matchedElsewhere = computed(
     </template>
     <template #title><UiHighlightedText :text="session.title" :query="highlight" /></template>
     <template #meta>
-      <span><UiHighlightedText :text="session.projectName ?? ''" :query="highlight" /></span>
+      <span>{{ session.projectName }}</span>
       <template v-if="!timeline">
         ·
         <time :datetime="session.completedAt" :title="formatDate(session.completedAt)">{{
@@ -91,10 +99,16 @@ const matchedElsewhere = computed(
       <template v-if="!timeline && showSummary && firstOutcome">
         · <UiHighlightedText :text="firstOutcome" :query="highlight"
       /></template>
-      <template v-if="matchedElsewhere"> · {{ t("sessions.matchedElsewhere") }}</template>
     </template>
     <p v-if="timeline && showSummary && firstOutcome" class="session-row__summary" :title="firstOutcome">
       <UiHighlightedText :text="firstOutcome" :query="highlight" />
+    </p>
+    <p v-if="match" class="session-row__match" data-testid="session-match">
+      <template v-if="match.kind === 'excerpt'"
+        >{{ t("sessions.matchedField", { field: fieldLabel(match.field) })
+        }}<UiHighlightedText :text="match.text" :query="highlight"
+      /></template>
+      <template v-else>{{ t("sessions.matchedInEvents") }}</template>
     </p>
     <template #trailing>
       <UiLabel v-if="session.voided" tone="danger" :icon="Ban">{{ t("session.voidedLabel") }}</UiLabel>
@@ -189,6 +203,16 @@ const matchedElsewhere = computed(
 
 .session-row__summary {
   order: 1;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-row__match {
+  order: 3;
   margin-top: 2px;
   overflow: hidden;
   color: var(--fg-muted);

@@ -86,6 +86,7 @@ const tab = computed<ProjectsTab>({
       : "registry",
   set: (value) => void router.replace({ name: "projects", params: { tab: value === "registry" ? undefined : value } }),
 });
+const hasMissingFolder = computed(() => projects.value.some((project) => project.folderStatus === "missing"));
 const metadataBackfillActive = computed(() => tab.value === "backfill");
 
 const tabs = computed(() => [
@@ -163,7 +164,13 @@ onBeforeUnmount(() => {
   </PageHeader>
 
   <PageToolbar>
-    <UiUnderlineNav v-model="tab" :items="tabs" :label="t('projects.projectManagementTabs')" id-prefix="projects" />
+    <UiUnderlineNav
+      v-model="tab"
+      :items="tabs"
+      :label="t('projects.projectManagementTabs')"
+      id-prefix="projects"
+      data-testid="projects-tabs"
+    />
   </PageToolbar>
 
   <UiFlash
@@ -206,6 +213,7 @@ onBeforeUnmount(() => {
         <UiBoxTitle :icon="FolderGit2" :title="t('common.allProjects')" :count="projects.length" />
         <span class="projects__tracked">{{ t("projects.tracked", { length: trackedProjects.length }) }}</span>
       </template>
+      <p v-if="hasMissingFolder" class="projects__folder-note">{{ t("projects.folderNotOnThisComputerHint") }}</p>
       <UiEmptyState
         v-if="projectsLoaded && projects.length === 0"
         :icon="FolderGit2"
@@ -255,13 +263,14 @@ onBeforeUnmount(() => {
                   formatRelative(project.lastIngestedAt)
                 }}</time></span
               >
-              <span v-if="project.folderStatus === 'missing'" class="projects__location-status">
-                <strong>{{ t("projects.folderNotOnThisComputer") }}</strong>
-                {{ t("projects.folderNotOnThisComputerHint") }}
-              </span>
-              <span v-else-if="project.folderStatus === 'unavailable'" class="projects__location-status">{{
-                t("projects.cannotCheckTheFolder")
+              <span v-if="project.folderStatus === 'missing'" class="projects__location-status">{{
+                t("projects.folderNotOnThisComputer")
               }}</span>
+              <span
+                v-else-if="project.folderStatus === 'unavailable'"
+                class="projects__location-status projects__location-status--unavailable"
+                >{{ t("projects.cannotCheckTheFolder") }}</span
+              >
             </p>
             <template #trailing>
               <UiSelect
@@ -417,5 +426,17 @@ onBeforeUnmount(() => {
   display: block;
   color: var(--fg-muted);
   font-size: var(--text-xs);
+}
+
+.projects__location-status--unavailable {
+  color: var(--attention);
+}
+
+.projects__folder-note {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
 }
 </style>

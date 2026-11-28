@@ -33,17 +33,39 @@ describe("SessionRow search highlighting", () => {
   });
 
   it("shows no mark and no hint without a search", async () => {
+    await loadCatalog(locale.value);
     const html = await render({});
 
     expect(html).not.toContain("<mark");
-    expect(html).not.toContain("session-row__matched");
+    expect(html).toContain("Orchard");
+    expect(html).not.toContain(t("sessions.matchedInEvents"));
   });
 
-  it("says so when the match is in a field the row does not show", async () => {
+  it("shows the matched excerpt with its field when the match is not in the visible text", async () => {
+    await loadCatalog(locale.value);
+    const shown = {
+      ...session,
+      workSummary: { outcomes: ["Shipped"], scope: [], decisions: [], verification: [], nextSteps: [] },
+    };
+    const html = await render({ highlight: "tokenizer", session: shown });
+
+    expect(html).toContain(t("sessions.matchedField", { field: t("session.summary") }));
+    expect(html).toMatch(/<mark[^>]*>tokenizer<\/mark>/);
+  });
+
+  it("reports a match in the events when no field the list carries has it", async () => {
     await loadCatalog(locale.value);
     const html = await render({ highlight: "stacktrace" });
 
     expect(html).not.toContain("<mark");
-    expect(html).toContain(t("sessions.matchedElsewhere"));
+    expect(html).toContain(t("sessions.matchedInEvents"));
+  });
+
+  it("does not count the project name as a match", async () => {
+    await loadCatalog(locale.value);
+    const html = await render({ highlight: "orchard" });
+
+    expect(html).not.toContain("<mark");
+    expect(html).toContain(t("sessions.matchedInEvents"));
   });
 });

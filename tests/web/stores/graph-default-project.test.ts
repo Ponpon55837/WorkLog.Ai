@@ -44,23 +44,58 @@ describe("graph default project", () => {
     );
   });
 
-  it("keeps a project that was already chosen", async () => {
+  it("keeps the project named in the URL and never waits for a default", async () => {
     const store = useGraphStore();
-    store.graphProjectId = "from-url";
+    store.graphProjectParam = "from-url";
+    store.setGraphActive(true);
 
+    expect(store.graphProjectResolved).toBe(true);
     store.resolveDefaultGraphProject("project-recent");
 
     expect(store.graphProjectId).toBe("from-url");
+    await vi.waitFor(() => expect(harness.count("/api/graph")).toBe(1));
   });
 
-  it("applies the default once, so choosing all projects afterwards sticks", () => {
+  it("starts on every project and keeps the choice when the URL says `all`", () => {
     const store = useGraphStore();
+    store.graphProjectParam = "all";
     store.resolveDefaultGraphProject("project-recent");
-    store.graphProjectId = "";
-
-    store.resolveDefaultGraphProject("project-other");
 
     expect(store.graphProjectId).toBe("");
+    expect(store.graphProjectParam).toBe("all");
+  });
+
+  it("returns to the project chosen last when the page opens again without a project in the URL", () => {
+    const store = useGraphStore();
+    store.chooseGraphProject("project-picked");
+
+    store.graphProjectParam = "";
+    expect(store.graphProjectResolved).toBe(false);
+    store.resolveDefaultGraphProject("project-recent");
+
+    expect(store.graphProjectId).toBe("project-picked");
+  });
+
+  it("returns to every project when that was chosen last", () => {
+    const store = useGraphStore();
+    store.chooseGraphProject("project-picked");
+    store.chooseGraphProject("");
+
+    store.graphProjectParam = "";
+    expect(store.graphProjectParam).toBe("");
+    store.resolveDefaultGraphProject("project-recent");
+
+    expect(store.graphProjectId).toBe("");
+    expect(store.graphProjectParam).toBe("all");
+  });
+
+  it("does not count the default as a choice", () => {
+    const store = useGraphStore();
+    store.resolveDefaultGraphProject("project-old");
+    store.graphProjectParam = "";
+    store.resolveDefaultGraphProject("project-new");
+
+    expect(store.graphProjectId).toBe("project-new");
   });
 
   it("starts unscoped when there is no project to default to", () => {

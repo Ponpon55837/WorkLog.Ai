@@ -121,7 +121,7 @@ describe("status and label maps", () => {
     expect(metadataGapStatus.changed_files.label).toBe(t("status.fileMetadataMissing"));
     expect(knowledgeStatusVisual.archived.label).toBe(t("status.archived"));
     expect(knowledgeKindVisual.gotcha.label).toBe(t("status.gotcha"));
-    expect(executionStatusVisual.label).toBe("completed");
+    expect(executionStatusVisual.label).toBe(t("common.completedStatus"));
     expect(verificationOf({})).toBe("not_supplied");
     expect(verificationOf({ verification: { status: "passed" } })).toBe("passed");
     expect(metadataGapsOf({ gaps: ["changed_files", "verification"], verificationStatus: "not_run" })).toEqual([

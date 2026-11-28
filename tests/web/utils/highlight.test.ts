@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasHighlight, highlightSegments } from "../../../apps/web/src/utils/highlight.js";
+import { highlightSegments, matchExcerpt, searchTerms } from "../../../apps/web/src/utils/highlight.js";
 
 describe("search highlighting", () => {
   it("ignores repeated and surrounding whitespace in the query", () => {
@@ -32,7 +32,30 @@ describe("search highlighting", () => {
 
   it("returns the whole text unmarked without a query", () => {
     expect(highlightSegments("anything", "")).toEqual([{ text: "anything", match: false }]);
-    expect(hasHighlight("anything", "")).toBe(false);
-    expect(hasHighlight("anything", "thing")).toBe(true);
+  });
+
+  it("reads the query like the server: quoted phrases stay whole, terms are lowercased, deduped and capped", () => {
+    expect(searchTerms('  Queen "Honey Flow"  queen ')).toEqual(["queen", "honey flow"]);
+    expect(searchTerms("a b c d e f g h i j")).toHaveLength(8);
+    expect(highlightSegments("a honey flow b honey", 'Honey "flow b"')).toEqual([
+      { text: "a ", match: false },
+      { text: "honey", match: true },
+      { text: " ", match: false },
+      { text: "flow b", match: true },
+      { text: " ", match: false },
+      { text: "honey", match: true },
+    ]);
+  });
+
+  it("cuts one line around the first match and marks the cut with an ellipsis", () => {
+    const text = `${"before ".repeat(20)}needle${" after".repeat(20)}`;
+    const excerpt = matchExcerpt(text, ["needle"]) ?? "";
+
+    expect(excerpt.startsWith("…")).toBe(true);
+    expect(excerpt.endsWith("…")).toBe(true);
+    expect(excerpt).toContain("needle");
+    expect(excerpt.length).toBeLessThan(100);
+    expect(matchExcerpt("short needle\ntext", ["needle"])).toBe("short needle text");
+    expect(matchExcerpt("nothing here", ["needle"])).toBeUndefined();
   });
 });

@@ -39,7 +39,7 @@ for (const locale of ["zh-TW", "en-US"] as const) {
           for (const name of [destination, "graph"]) {
             if (width < 640) await page.getByRole("button", { name: textIn(locale, "layout.openMainMenu") }).click();
             await page.getByTestId(`nav-${name}`).click();
-            await expect(page).toHaveURL(new RegExp(`/${name}(?:/|$)`));
+            await expect(page).toHaveURL(new RegExp(`/${name}(?:[/?]|$)`));
             await expect(page.getByTestId("page-view")).toHaveAttribute("data-page", name);
             await expect(main.getByRole("heading", { level: 1 })).toBeVisible();
             await expect

@@ -4,6 +4,7 @@ export * from "./applies-to.js";
 export * from "./attention.js";
 export * from "./file-history.js";
 export * from "./knowledge-page-limits.js";
+export * from "./list-search-terms.js";
 export * from "./project-data-columns.js";
 export * from "./related-work.js";
 export * from "./report-presentation.js";

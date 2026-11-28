@@ -1,9 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
 
-/** @internal test-only */
-export const MAX_LIST_SEARCH_TERMS = 8;
-/** @internal test-only */
-export const MAX_LIST_SEARCH_TERM_LENGTH = 200;
 /** Each cap is above the largest row the write limits allow in UTF-8, so only a hand-written row is skipped. */
 export const KNOWLEDGE_SEARCH_ROW_BYTES = 256 * 1024;
 export const SESSION_SEARCH_ROW_BYTES = 4 * 1024 * 1024;
@@ -12,11 +8,6 @@ export const LIST_SEARCH_CHARGE_FUNCTION = "wi_list_search_charge";
 const LIST_SEARCH_MORE_FUNCTION = "wi_list_search_more";
 const LIST_SEARCH_MORE_AGAIN_FUNCTION = "wi_list_search_more_again";
 const LIST_SEARCH_REFUSED_FUNCTION = "wi_list_search_refused";
-
-export interface ListSearchTerms {
-  terms: string[];
-  warnings: string[];
-}
 
 export interface ListSearchScan {
   readonly termCount: number;
@@ -109,38 +100,6 @@ function chargeMoreAgain(key: unknown): number | null {
   return checkMore(scan, lastMore);
 }
 
-function cutTerm(term: string): string {
-  return Array.from(term).slice(0, MAX_LIST_SEARCH_TERM_LENGTH).join("");
-}
-
-export function parseListSearchTerms(query: string): ListSearchTerms {
-  const terms: string[] = [];
-  const warnings: string[] = [];
-  let ignored = 0;
-  for (const match of query.toLowerCase().matchAll(/"([^"]+)"|(\S+)/g)) {
-    const whole = (match[1] ?? match[2] ?? "").replace(/"/g, "").trim();
-    if (!whole) continue;
-    const term = Array.from(whole).length > MAX_LIST_SEARCH_TERM_LENGTH ? cutTerm(whole) : whole;
-    if (terms.includes(term)) continue;
-    if (terms.length === MAX_LIST_SEARCH_TERMS) {
-      ignored += 1;
-      continue;
-    }
-    if (term !== whole) {
-      warnings.push(
-        `Search word ${terms.length + 1} is longer than ${MAX_LIST_SEARCH_TERM_LENGTH} characters; only its first ${MAX_LIST_SEARCH_TERM_LENGTH} were matched.`,
-      );
-    }
-    terms.push(term);
-  }
-  if (ignored > 0) {
-    warnings.push(
-      `Only the first ${MAX_LIST_SEARCH_TERMS} search words were used; ${ignored} more ${ignored === 1 ? "was" : "were"} ignored.`,
-    );
-  }
-  return { terms, warnings };
-}
-
 /** Called when the store opens the database: SQLite refuses to define a function while a statement is active. */
 export function registerListSearchFunctions(db: DatabaseSync): void {
   if (registered.has(db)) return;
@@ -168,11 +127,6 @@ export function listSearchMoreGuard(keySql: string, moreBytesSql: string): strin
 /** @internal test-only */
 export function setListSearchScanProbe(probe: ListSearchScanProbe | undefined): void {
   scanProbe = probe;
-}
-
-/** @internal test-only */
-export function splitSearchTerms(query: string): string[] {
-  return parseListSearchTerms(query).terms;
 }
 
 export function listSearchOverBoundWarning(scan: ListSearchScan): string | undefined {

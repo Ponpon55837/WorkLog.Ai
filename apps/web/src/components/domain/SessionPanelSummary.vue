@@ -91,7 +91,7 @@ const sessionTarget = computed<VoidTarget>(() => ({
       <dt>{{ t("common.completed") }}</dt>
       <dd data-testid="session-times-summary">
         <time :datetime="session.completedAt">{{ completedText }}</time>
-        <span v-if="tookText" class="session-panel__muted">· {{ tookText }}</span>
+        <span v-if="tookText" class="session-panel__muted session-panel__took">{{ tookText }}</span>
       </dd>
       <dt>{{ t("session.otherTimes") }}</dt>
       <dd>
@@ -142,6 +142,10 @@ const sessionTarget = computed<VoidTarget>(() => ({
 </template>
 
 <style scoped>
+.session-panel__took {
+  display: block;
+}
+
 .session-panel__summary {
   color: var(--fg);
   font-size: var(--text-lg);

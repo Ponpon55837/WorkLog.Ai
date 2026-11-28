@@ -8,6 +8,8 @@ import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
+const ALL_PROJECTS_PARAM = "all";
+
 export type GraphNodeFilter = GraphNode["kind"] | "all";
 
 export const graphLoadPresetOptions = [
@@ -50,6 +52,8 @@ export const useGraphStore = defineStore("graph", () => {
   const graphActive = ref(false);
   const graphProjectId = ref("");
   const graphProjectResolved = ref(false);
+  const graphLastProjectId = ref("");
+  const graphAllChosen = ref(false);
   const graphNodeFilter = ref<GraphNodeFilter>("all");
   const graphPreviewLimit = ref(120);
   const graphLoadPreset = ref("180");
@@ -172,11 +176,37 @@ export const useGraphStore = defineStore("graph", () => {
     },
   );
 
-  /** The first Graph visit without a chosen project starts on one project; 4,000+ nodes of every project blur together. */
-  function resolveDefaultGraphProject(projectId: string | undefined): void {
+  /** The `project` URL value: a project id, `all` for every project, or empty when the URL names neither. */
+  const graphProjectParam = computed<string>({
+    get: () => {
+      if (!graphProjectResolved.value) return "";
+      return graphProjectId.value || (graphAllChosen.value ? ALL_PROJECTS_PARAM : "");
+    },
+    set: (value) => {
+      if (value === ALL_PROJECTS_PARAM) {
+        chooseGraphProject("");
+      } else if (value) {
+        chooseGraphProject(value);
+      } else {
+        graphProjectId.value = "";
+        graphProjectResolved.value = false;
+      }
+    },
+  });
+
+  function chooseGraphProject(projectId: string): void {
+    graphProjectId.value = projectId;
+    graphProjectResolved.value = true;
+    graphAllChosen.value = projectId === "";
+    if (projectId) graphLastProjectId.value = projectId;
+  }
+
+  /** Without a project in the URL: the project chosen last, else the default, unless every project was chosen last. */
+  function resolveDefaultGraphProject(defaultProjectId: string | undefined): void {
     if (graphProjectResolved.value) return;
     graphProjectResolved.value = true;
-    if (!graphProjectId.value && projectId) graphProjectId.value = projectId;
+    if (graphAllChosen.value) return;
+    graphProjectId.value = graphLastProjectId.value || defaultProjectId || "";
   }
 
   function setGraphActive(active: boolean): void {
@@ -251,6 +281,8 @@ export const useGraphStore = defineStore("graph", () => {
     graphPathError,
     graphPathEdgeIds,
     graphProjectResolved,
+    graphProjectParam,
+    chooseGraphProject,
     resolveDefaultGraphProject,
     loadGraph,
     loadMoreGraph,

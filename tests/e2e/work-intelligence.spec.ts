@@ -1279,7 +1279,7 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("lists hotspot files on the graph page and opens their Sessions", async ({ page }) => {
-    await page.goto("/graph/hotspots");
+    await page.goto(`/graph/hotspots?project=${projectId}`);
     const hotspots = page.getByTestId("graph-hotspots");
     const readme = hotspots.getByTestId("hotspot").filter({ hasText: "README.md" });
     await expect(readme).toContainText(ttPattern("graph.sessions"));
@@ -2172,7 +2172,7 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("searches the Graph and focuses the first hit", async ({ page }) => {
-    await page.goto("/graph");
+    await page.goto(`/graph?project=${projectId}`);
     const search = page.getByLabel(tt("graph.searchGraphNodes"));
     await search.fill("Browser regression fixture");
     await expect(page.getByTestId("graph-visible-count")).toContainText(ttPattern("graph.matchingNodesShowingNodes"));
@@ -2186,7 +2186,7 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("explains the relation between two graph nodes and shows the edge legend", async ({ page }) => {
-    await page.goto("/graph?q=Browser%20regression%20fixture%20session");
+    await page.goto(`/graph?project=${projectId}&q=Browser%20regression%20fixture%20session`);
     await expect(page.getByText(tt("graph.recordedRelationships"))).toBeVisible();
     await expect(page.getByText(ttPattern("graph.derivedRelationshipsChangedTogetherHidden"))).toBeVisible();
     await page.getByLabel(tt("graph.searchGraphNodes")).press("Enter");
@@ -2208,7 +2208,7 @@ test.describe("Work Intelligence browser regression", () => {
   test("shows days on the timeline, zooms into one, opens a Session, and offers the same data as a list", async ({
     page,
   }) => {
-    await page.goto("/graph/timeline");
+    await page.goto(`/graph/timeline?project=${projectId}`);
     const timeline = page.getByTestId("graph-timeline");
     await timeline
       .getByTestId("timeline-day")
@@ -2238,6 +2238,15 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(row.locator("mark").first()).toHaveText("regression");
     await expect(row.locator("mark").first()).toHaveCSS("font-weight", "600");
 
+    await page.getByLabel(tt("sessions.searchWorkHistory")).fill("README.md");
+    const fileMatch = page
+      .getByTestId("session-row")
+      .filter({ hasText: "Browser regression fixture session" })
+      .first()
+      .getByTestId("session-match");
+    await expect(fileMatch).toContainText(tt("sessions.matchedField", { field: tt("labels.changedFiles") }));
+    await expect(fileMatch.locator("mark")).toHaveText("README.md");
+
     await page.getByLabel(tt("sessions.searchWorkHistory")).fill("zz-no-such-session-text");
     await expect(page.getByText(tt("sessions.noSessionsMatchTheFilters"))).toBeVisible();
     await expect(page.getByLabel(tt("sessions.workHistoryPerPage"))).toHaveCount(0);
@@ -2258,6 +2267,8 @@ test.describe("Work Intelligence browser regression", () => {
 
     const times = panel.getByTestId("session-times-summary");
     await expect(times).toBeVisible();
+    await expect(times).not.toContainText("·");
+    await expect(panel.getByText(tt("common.completedStatus"), { exact: true })).toBeVisible();
     const more = panel.getByText(tt("session.startedAndLastUpdated"));
     await expect(more).toBeVisible();
     await expect(panel.getByText(tt("session.started"), { exact: true })).toBeHidden();
@@ -2276,29 +2287,79 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(panel.getByText(tt("session.lastUpdated"), { exact: true })).toBeVisible();
   });
 
-  test("starts the work graph on one project, keeps a chosen one and tucks the limits into display settings", async ({
+  test("starts the work graph on the project with the newest Session and tucks the limits into display settings", async ({
     page,
+    request,
   }) => {
+    const [dashboard, projects] = await Promise.all([
+      request.get("/api/dashboard").then((response) => response.json()),
+      request.get("/api/projects").then((response) => response.json()),
+    ]);
+    const tracked = new Set(
+      (projects as Array<{ id: string; status: string }>)
+        .filter((project) => project.status === "tracked")
+        .map((project) => project.id),
+    );
+    const newest = (dashboard.recentSessions as Array<{ projectId: string }>).find((session) =>
+      tracked.has(session.projectId),
+    )?.projectId;
+    expect(newest).toBeTruthy();
+
     await page.goto("/graph");
-    await expect(page).toHaveURL(/project=/);
+    await expect(page).toHaveURL(new RegExp(`/graph\\?project=${newest}$`));
     await expect(page.getByTestId("graph-visible-count")).toBeVisible();
     await expect(page.getByLabel(tt("graph.chooseGraphLoadLimit"))).toHaveCount(0);
     await expect(page.getByLabel(tt("graph.chooseGraphPreviewSize"))).toHaveCount(0);
 
     const toggle = page.getByRole("button", { name: tt("graph.displaySettings") });
+    await expect(toggle).not.toHaveAttribute("aria-controls");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(toggle).toHaveAttribute("aria-controls", "graph-display-settings");
     await expect(page.getByLabel(tt("graph.chooseGraphLoadLimit"))).toBeVisible();
     await expect(page.getByLabel(tt("graph.chooseGraphPreviewSize"))).toBeVisible();
+  });
+
+  test("keeps the project chosen on the work graph after leaving the page and coming back", async ({ page }) => {
+    const toProjects = page.getByRole("link", { name: tt("nav.projects") }).first();
+    const toGraph = page.getByRole("link", { name: tt("nav.workGraph") }).first();
 
     await page.goto(`/graph?project=${otherProjectId}`);
-    await expect(page).toHaveURL(new RegExp(`project=${otherProjectId}`));
+    await expect(page.getByTestId("graph-visible-count")).toBeVisible();
+    await toProjects.click();
+    await expect(page).toHaveURL(/\/projects/);
+    await toGraph.click();
+    await expect(page).toHaveURL(new RegExp(`/graph\\?project=${otherProjectId}$`));
+
+    await page.goto("/graph?project=all");
+    await expect(page.getByTestId("graph-visible-count")).toBeVisible();
+    await toProjects.click();
+    await toGraph.click();
+    await expect(page).toHaveURL(/\/graph\?project=all$/);
+    await page.reload();
+    await expect(page).toHaveURL(/\/graph\?project=all$/);
+  });
+
+  test("shows a retry notice and still loads the work graph when the project data fails", async ({ page }) => {
+    await page.route(
+      (url) => ["/api/projects", "/api/dashboard"].includes(url.pathname),
+      (route) => route.fulfill({ status: 500, json: { error: "Internal server error.", code: "internal_error" } }),
+    );
+    await page.goto("/graph");
+    const notice = page.getByTestId("graph-project-data-error");
+    await expect(notice).toContainText(tt("graph.couldNotLoadProjectData"));
+    await expect(notice.getByRole("button", { name: tt("common.retry") })).toBeVisible();
+    await expect(page.getByTestId("graph-visible-count")).toBeVisible();
+    await page.unrouteAll({ behavior: "wait" });
+
+    await page.goto(`/graph?project=${projectId}`);
+    await expect(page.getByTestId("graph-visible-count")).toBeVisible();
   });
 
   test("fades the tab bar edge only while more tabs lie in that direction", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 800 });
     await page.goto("/projects");
-    const nav = page.locator(".ui-underline-nav", { has: page.getByRole("tablist") }).first();
+    const nav = page.getByTestId("projects-tabs");
     await expect(nav).toHaveAttribute("data-fade-end", "true");
     await expect(nav).toHaveAttribute("data-fade-start", "false");
 
@@ -2324,7 +2385,8 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto("/projects");
     const row = page.getByTestId("project-row").filter({ hasText: "Outstanding Filter Fixture" });
     await expect(row.getByText(tt("projects.folderNotOnThisComputer"))).toBeVisible();
-    await expect(row.getByText(tt("projects.folderNotOnThisComputerHint"))).toBeVisible();
+    await expect(row.getByText(tt("projects.folderNotOnThisComputerHint"))).toHaveCount(0);
+    await expect(page.getByText(tt("projects.folderNotOnThisComputerHint"))).toHaveCount(1);
     await expect(row.getByRole("button", { name: tt("projects.relocateAction") })).toBeVisible();
   });
 
