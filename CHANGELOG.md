@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.97] - 2026-11-28
+
+[繁體中文更新說明](docs/releases/1.6.97.md).
+
 ### Changed
 
 - 系統狀態 now shows 個人偏好 (appearance, language, editor) at the top of the main column instead of below the service paths and MCP registration, with an `#preferences` anchor. The header keeps its theme button and language menu.
