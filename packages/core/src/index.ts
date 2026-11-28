@@ -3226,7 +3226,7 @@ export interface AgentReviewContextItem {
   itemKind: AgentReviewItemKind;
   id: string;
   state: AgentReviewItemState;
-  sourceSession?: AgentReviewSessionContext;
+  sourceSessionId?: string;
   text?: string;
   textTruncated?: boolean;
   kind?: KnowledgeKind;
@@ -3251,6 +3251,7 @@ export interface AgentReviewContext {
   outcome: "agent_review_context";
   request: AgentReviewRequest;
   items: AgentReviewContextItem[];
+  sessions: AgentReviewSessionContext[];
   pageInfo: PageInfo;
   existingKnowledge?: Array<{ id: string; kind: KnowledgeKind; title: string; status?: "archived" | "rejected" }>;
   existingKnowledgeOmitted?: number;

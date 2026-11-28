@@ -830,7 +830,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_agent_review_context", {
     title: "Get Agent review context",
     description:
-      "Start processing an Agent review request (the newest open one of projectRoot, or requestId) and return one page of up to 10 snapshot items, bounded to 24,000 serialized characters: decisions, Knowledge candidates and Knowledge in doubt with their source Session excerpts (Knowledge: doubt and laterSessions), state, overlaps and, on page 1, existingKnowledge. Read more pages with page; truncated fields need work_get_session. " +
+      "Start processing an Agent review request (the newest open one of projectRoot, or requestId) and return one page of up to 10 snapshot items, bounded to 24,000 serialized characters: decisions, Knowledge candidates and Knowledge in doubt (decisions and candidates carry sourceSessionId, resolved in the page's sessions list, each Session excerpt once; Knowledge: doubt and laterSessions), state, overlaps and, on page 1, existingKnowledge. Read more pages with page; truncated fields need work_get_session. " +
       agentReviewContract,
     inputShape: agentReviewContextQuerySchemaBase.shape,
     schema: agentReviewContextQuerySchema,

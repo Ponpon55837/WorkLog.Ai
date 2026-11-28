@@ -8,7 +8,7 @@ Process a request only because the user opened it on Web or asked for it. Call `
 
 ## Read the context
 
-The context pages through a fixed snapshot of at most 500 items, up to 10 per page and 24,000 serialized characters. Each item is a pending Agent-autonomous decision, a proposed Knowledge candidate, or an active Knowledge in doubt, with advisory `overlaps` and a `state`. Decisions and candidates carry their source Session excerpt (outcomes and the Session's other decisions); Knowledge carries `kind`, `title`, `body`, `tags`, `references`, `appliesTo`, `createdAt`, `lastConfirmedAt` and the doubt:
+The context pages through a fixed snapshot of at most 500 items, up to 10 per page and 24,000 serialized characters. Each item is a pending Agent-autonomous decision, a proposed Knowledge candidate, or an active Knowledge in doubt, with advisory `overlaps` and a `state`. Decisions and candidates carry `sourceSessionId`; the page's `sessions` list holds each source Session excerpt once (outcomes and its other decisions); Knowledge carries `kind`, `title`, `body`, `tags`, `references`, `appliesTo`, `createdAt`, `lastConfirmedAt` and the doubt:
 
 - `doubt.possiblyStale`: later Sessions changed the files it applies to (`reason`, `sessionCount`). `doubt.contradicted`: a later Session contradicted it (`sessionId`, `sessionTitle`, `at`). Only these two qualify; changes to related files alone do not.
 - `laterSessions` (newest first, each with `id`, `title`, `completedAt` and up to 5 `paths`) are the Sessions that changed its files; `laterSessionsOmitted` counts those that did not fit.

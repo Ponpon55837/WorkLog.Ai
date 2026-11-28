@@ -181,7 +181,7 @@ const KNOWLEDGE_REASON_LIMIT = 200;
 const LATER_SESSIONS_SHOWN = 5;
 const REVIEWED_KNOWLEDGE_LIMIT = 200;
 const CONTEXT_HINT =
-  "逐項核對 open 項目後用 work_submit_agent_review_verdicts 提交 verdict：決策與候選看來源 Session，Knowledge 要讀現在的程式碼或" +
+  "逐項核對 open 項目後用 work_submit_agent_review_verdicts 提交 verdict：決策與候選用 sourceSessionId 對照 sessions 的來源 Session，Knowledge 要讀現在的程式碼或" +
   " laterSessions 的工作記錄，不可只因檔案改過就封存。理由要具體，證據不足的項目不提交，留給使用者。" +
   "已有結果、stale 或已被審查的項目不需處理。verdict 直接生效，使用者之後可以推翻。";
 const REQUEST_SELECT = `SELECT r.*, p.name AS project_name
@@ -397,8 +397,8 @@ function shortenContext(result: ContextResult, limit: number): void {
     if (contradicted?.sessionTitle && contradicted.sessionTitle.length > limit) {
       contradicted.sessionTitle = cut(contradicted.sessionTitle);
     }
-    const session = item.sourceSession;
-    if (!session) continue;
+  }
+  for (const session of result.sessions) {
     if (session.title.length > limit) {
       session.title = cut(session.title);
       session.titleTruncated = true;
@@ -565,22 +565,20 @@ export class AgentReviewService {
       .prepare("SELECT * FROM agent_review_request_items WHERE request_id = ? ORDER BY position LIMIT ? OFFSET ?")
       .all(requestRow.id, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as ItemRow[];
     const request = this.request(requestRow.id)!;
-    const items = this.contextItems(request, itemRows);
+    const { items, sessions } = this.contextItems(request, itemRows);
     const result: ContextResult = {
       outcome: "agent_review_context",
       request,
       items,
+      sessions,
       pageInfo,
-      truncated: items.some(
-        (item) =>
-          item.textTruncated ||
-          item.titleTruncated ||
-          item.bodyTruncated ||
-          item.rationaleTruncated ||
-          item.sourceSession?.titleTruncated ||
-          item.sourceSession?.outcomesTruncated ||
-          item.sourceSession?.otherDecisionsTruncated,
-      ),
+      truncated:
+        items.some(
+          (item) => item.textTruncated || item.titleTruncated || item.bodyTruncated || item.rationaleTruncated,
+        ) ||
+        sessions.some(
+          (session) => session.titleTruncated || session.outcomesTruncated || session.otherDecisionsTruncated,
+        ),
       hint: CONTEXT_HINT,
     };
     if (pageInfo.page === 1) {
@@ -815,7 +813,10 @@ export class AgentReviewService {
     return rows.map((row, index) => ({ row, record: records[index]! }));
   }
 
-  private contextItems(request: AgentReviewRequest, itemRows: ItemRow[]): AgentReviewContextItem[] {
+  private contextItems(
+    request: AgentReviewRequest,
+    itemRows: ItemRow[],
+  ): { items: AgentReviewContextItem[]; sessions: AgentReviewSessionContext[] } {
     const rows = this.currentRows(request.projectId, itemRows);
     const states = itemRows.map((item) => itemState(item, rows));
     const openIndexes = itemRows.flatMap((_, index) => (states[index] === "open" ? [index] : []));
@@ -827,9 +828,18 @@ export class AgentReviewService {
     const sessionIds = [...new Set(openIndexes.flatMap((index) => itemRows[index]!.source_session_id ?? []))];
     const reviewSessionIds = openKnowledge.flatMap((record) => record.review?.sessionId ?? []);
     const sessions = this.sessions(request.projectId, [...new Set([...sessionIds, ...reviewSessionIds])]);
-    const siblings = this.siblingDecisions(sessionIds);
-
     const openDecisions = openIndexes.filter((index) => itemRows[index]!.item_kind === "decision");
+    const shownDecisionIds = new Set(openDecisions.map((index) => itemRows[index]!.item_id));
+    const siblings = this.siblingDecisions(sessionIds, shownDecisionIds.size);
+    const sessionContexts = new Map<string, AgentReviewSessionContext>();
+    for (const id of sessionIds) {
+      const context = this.sessionContext(
+        sessions.get(id),
+        (siblings.get(id) ?? []).filter((row) => !shownDecisionIds.has(row.id)),
+      );
+      if (context) sessionContexts.set(id, context);
+    }
+
     const decisionHints = findKnowledgeCandidateOverlaps(
       this.db,
       { projectId: request.projectId, requestId: request.id, createdAtOrBefore: nowIso() },
@@ -849,7 +859,7 @@ export class AgentReviewService {
     const decisionHintByIndex = new Map(openDecisions.map((index, position) => [index, decisionHints[position] ?? []]));
     const candidateHintByIndex = new Map(openCandidates.map((index, position) => [index, candidateHints[position]!]));
 
-    return itemRows.map((item, index): AgentReviewContextItem => {
+    const items = itemRows.map((item, index): AgentReviewContextItem => {
       const state = states[index]!;
       const base = { itemKind: item.item_kind, id: item.item_id, state, overlaps: [] };
       if (state !== "open") return base;
@@ -857,16 +867,13 @@ export class AgentReviewService {
         const record = knowledgeById.get(item.item_id)!;
         return this.knowledgeContext(base, record, laterSessions.get(record.id), sessions);
       }
-      const sourceSession = this.sessionContext(
-        item.source_session_id ? sessions.get(item.source_session_id) : undefined,
-        item.source_session_id ? (siblings.get(item.source_session_id) ?? []) : [],
-        item.item_kind === "decision" ? item.item_id : undefined,
-      );
+      const sourceSessionId =
+        item.source_session_id && sessionContexts.has(item.source_session_id) ? item.source_session_id : undefined;
       if (item.item_kind === "decision") {
         const text = bounded(rows.decisions.get(item.item_id)!.text, BODY_LIMIT);
         return {
           ...base,
-          ...(sourceSession ? { sourceSession } : {}),
+          ...(sourceSessionId ? { sourceSessionId } : {}),
           text: text.text,
           ...(text.truncated ? { textTruncated: true } : {}),
           overlaps: decisionHintByIndex.get(index) ?? [],
@@ -878,7 +885,7 @@ export class AgentReviewService {
       const rationale = bounded(candidate.rationale, RATIONALE_LIMIT);
       return {
         ...base,
-        ...(sourceSession ? { sourceSession } : {}),
+        ...(sourceSessionId ? { sourceSessionId } : {}),
         kind: candidate.kind,
         title: title.text,
         ...(title.truncated ? { titleTruncated: true } : {}),
@@ -892,6 +899,7 @@ export class AgentReviewService {
         overlaps: candidateHintByIndex.get(index) ?? [],
       };
     });
+    return { items, sessions: [...sessionContexts.values()] };
   }
 
   private knowledgeContext(
@@ -944,8 +952,7 @@ export class AgentReviewService {
 
   private sessionContext(
     session: SessionRow | undefined,
-    siblings: SiblingDecisionRow[],
-    excludeDecisionId: string | undefined,
+    others: SiblingDecisionRow[],
   ): AgentReviewSessionContext | undefined {
     if (!session) return undefined;
     const title = bounded(session.title, SESSION_TITLE_LIMIT);
@@ -953,7 +960,6 @@ export class AgentReviewService {
     const shownOutcomes = outcomes
       .slice(0, SESSION_OUTCOMES_SHOWN)
       .map((value) => bounded(value, SESSION_OUTCOME_LIMIT));
-    const others = siblings.filter((row) => row.id !== excludeDecisionId);
     const shownOthers = others
       .slice(0, SIBLING_DECISIONS_SHOWN)
       .map((row) => bounded(row.text, SIBLING_DECISION_LIMIT));
@@ -1468,7 +1474,7 @@ export class AgentReviewService {
     return new Map(rows.map((row) => [row.id, row]));
   }
 
-  private siblingDecisions(sessionIds: readonly string[]): Map<string, SiblingDecisionRow[]> {
+  private siblingDecisions(sessionIds: readonly string[], excluded: number): Map<string, SiblingDecisionRow[]> {
     const grouped = new Map<string, SiblingDecisionRow[]>();
     if (sessionIds.length === 0) return grouped;
     const rows = this.db
@@ -1479,7 +1485,7 @@ export class AgentReviewService {
            FROM session_decisions WHERE session_id IN (SELECT value FROM json_each(?))
          ) WHERE rank <= ? ORDER BY session_id, position`,
       )
-      .all(JSON.stringify(sessionIds), SIBLING_DECISIONS_SHOWN + 2) as SiblingDecisionRow[];
+      .all(JSON.stringify(sessionIds), SIBLING_DECISIONS_SHOWN + 1 + excluded) as SiblingDecisionRow[];
     for (const row of rows) {
       const group = grouped.get(row.session_id) ?? [];
       group.push(row);
