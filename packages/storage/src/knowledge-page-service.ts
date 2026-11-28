@@ -24,6 +24,7 @@ import {
   type KnowledgePageLimits,
   type KnowledgePageRecord,
   type KnowledgePageReviewContext,
+  type KnowledgePageReviewFallback,
   type KnowledgePageRetryMaterial,
   type KnowledgePageReviewReason,
   type KnowledgePageReviewSection,
@@ -857,6 +858,13 @@ export class KnowledgePageService {
     if (query.reviewOnly) {
       const seen = this.seenSessions(row, query.sessionsSeenIn, true);
       const context = this.reviewOnlyContext(row, page, limits.size, seen.ids);
+      if ("fallback" in context) {
+        return {
+          reviewOnly: true,
+          review: context.fallback,
+          ...this.plainContext(row, page, query.sessionsSeenIn, limits, hint),
+        };
+      }
       return {
         ...context,
         ...(seen.warning ? { warnings: [seen.warning] } : {}),
@@ -873,25 +881,7 @@ export class KnowledgePageService {
         ...hint,
       };
     }
-    if (row.version === 0 || row.update_requested_at) {
-      const sessions = this.contextSessions(decision.project.id);
-      const seen = this.seenSessions(row, query.sessionsSeenIn, false);
-      return {
-        ...pageContext(row, page, "full", sessions, this.shownWindow(row.project_id, sessions.shownRows)),
-        ...(seen.warning ? { warnings: [seen.warning] } : {}),
-        ...nearLimitFields(limits),
-        ...hint,
-      };
-    }
-    const sources = this.reviewSources(row, page);
-    const seen = this.seenSessions(row, query.sessionsSeenIn, true);
-    const sessions = this.reviewSessions(sources, seen.ids);
-    return {
-      ...pageContext(row, page, "review", sessions, this.shownWindow(row.project_id, sessions.shownRows)),
-      ...(seen.warning ? { warnings: [seen.warning] } : {}),
-      ...nearLimitFields(limits),
-      ...hint,
-    };
+    return this.plainContext(row, page, query.sessionsSeenIn, limits, hint);
   }
 
   public savePage(input: SaveKnowledgePageInput): SaveKnowledgePageResult {
@@ -2007,12 +1997,40 @@ export class KnowledgePageService {
     };
   }
 
+  private plainContext(
+    row: PageRow,
+    page: KnowledgePageRecord,
+    sessionsSeenIn: string | undefined,
+    limits: ReturnType<typeof knowledgePageLimits>,
+    hint: { emptyPageHint?: string },
+  ): KnowledgePageContext {
+    if (row.version === 0 || row.update_requested_at) {
+      const sessions = this.contextSessions(row.project_id);
+      const seen = this.seenSessions(row, sessionsSeenIn, false);
+      return {
+        ...pageContext(row, page, "full", sessions, this.shownWindow(row.project_id, sessions.shownRows)),
+        ...(seen.warning ? { warnings: [seen.warning] } : {}),
+        ...nearLimitFields(limits),
+        ...hint,
+      };
+    }
+    const sources = this.reviewSources(row, page);
+    const seen = this.seenSessions(row, sessionsSeenIn, true);
+    const sessions = this.reviewSessions(sources, seen.ids);
+    return {
+      ...pageContext(row, page, "review", sessions, this.shownWindow(row.project_id, sessions.shownRows)),
+      ...(seen.warning ? { warnings: [seen.warning] } : {}),
+      ...nearLimitFields(limits),
+      ...hint,
+    };
+  }
+
   private reviewOnlyContext(
     row: PageRow,
     page: KnowledgePageRecord,
     size: KnowledgePageSize,
     seen: ReadonlySet<string>,
-  ): KnowledgePageReviewContext {
+  ): KnowledgePageReviewContext | { fallback: KnowledgePageReviewFallback } {
     const sources = this.reviewSources(row, page);
     const { after, newRows, changedRows } = sources;
     const base: Pick<
@@ -2036,17 +2054,7 @@ export class KnowledgePageService {
       readFullWith: "work_get_knowledge_page_context without reviewOnly (the whole page and every new Session)",
     };
     const layout = page.sections.map((section) => ({ heading: section.heading, chars: section.content.length }));
-    if (row.version === 0 || row.update_requested_at) {
-      return {
-        ...base,
-        review: "full_rewrite",
-        sections: [],
-        otherSections: layout,
-        sessions: [],
-        unmappedSessions: [],
-        truncated: false,
-      };
-    }
+    if (row.version === 0 || row.update_requested_at) return { fallback: "full_rewrite" };
     const changedByHeading = new Map((page.reviewSections ?? []).map((section) => [section.heading, section]));
     const consideredNew = newRows.slice(0, CONTEXT_SESSION_LIMIT);
     const consideredNewIds = new Set(consideredNew.map((session) => session.id));
@@ -2159,15 +2167,7 @@ export class KnowledgePageService {
         reviewToken: encodeReviewToken({ pageId: row.id, version: row.version, through: after, window }),
       };
     }
-    return {
-      ...base,
-      review: "use_full_read",
-      sections: [],
-      otherSections: layout,
-      sessions: [],
-      unmappedSessions: [],
-      truncated: false,
-    };
+    return { fallback: "use_full_read" };
   }
 
   private reviewSources(row: PageRow, page: KnowledgePageRecord): ReviewSources {

@@ -2546,7 +2546,7 @@ export interface KnowledgePageFocusedContext {
 export interface KnowledgePageReviewContext {
   outcome: "knowledge_page_context";
   reviewOnly: true;
-  review: "sections" | "new_sessions" | "none" | "full_rewrite" | "use_full_read";
+  review: "sections" | "new_sessions" | "none";
   page: KnowledgePageFocusedContext["page"];
   sections: Array<
     KnowledgePageSection & {
@@ -2568,6 +2568,14 @@ export interface KnowledgePageReviewContext {
   readFullWith: string;
   emptyPageHint?: string;
   warnings?: string[];
+}
+
+export type KnowledgePageReviewFallback = "full_rewrite" | "use_full_read";
+
+/** A reviewOnly read that fell back: the plain read's content, with review saying why. */
+export interface KnowledgePageReviewFallbackContext extends KnowledgePageContext {
+  reviewOnly: true;
+  review: KnowledgePageReviewFallback;
 }
 
 export type KnowledgePageSkippedResult = {
@@ -2603,6 +2611,7 @@ export type KnowledgePageContextResult =
   | KnowledgePageContext
   | KnowledgePageFocusedContext
   | KnowledgePageReviewContext
+  | KnowledgePageReviewFallbackContext
   | KnowledgePageNotFoundResult
   | KnowledgePageSkippedResult;
 

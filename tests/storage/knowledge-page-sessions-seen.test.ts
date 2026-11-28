@@ -29,7 +29,7 @@ function plainRead(result: KnowledgePageContextResult): KnowledgePageContext {
 }
 
 function reviewOnlyRead(result: KnowledgePageContextResult): KnowledgePageReviewContext {
-  if (result.outcome !== "knowledge_page_context" || !("reviewOnly" in result)) {
+  if (result.outcome !== "knowledge_page_context" || !("reviewOnly" in result) || "mode" in result) {
     throw new Error(`Expected a reviewOnly read, received ${JSON.stringify(result).slice(0, 120)}`);
   }
   return result;
@@ -322,6 +322,24 @@ describe("sessionsSeenIn with reviewOnly", () => {
     expect(first.unmappedSessions.map((session) => session.id)).toEqual([unmapped]);
     expect(stubIds(second)).toEqual(context.ids);
     expect(second.unmappedSessions.map((session) => session.id)).toEqual([unmapped]);
+  });
+});
+
+describe("sessionsSeenIn when reviewOnly falls back to the full read", () => {
+  it("returns the plain read's stubs and token with the fallback marker", () => {
+    const { ids, plain, read, finalize } = pages();
+    for (const topic of [1, 2, 3, 4]) finalize(`hit-${topic}`, { files: [`src/topic-${topic}.ts`] });
+    const first = plain(FIRST);
+
+    const fallback = read(SECOND, { reviewOnly: true, sessionsSeenIn: first.reviewToken });
+
+    if (fallback.outcome !== "knowledge_page_context" || !("reviewOnly" in fallback) || !("mode" in fallback)) {
+      throw new Error("Expected a reviewOnly fallback");
+    }
+    expect(fallback).toMatchObject({ reviewOnly: true, review: "use_full_read", mode: "review" });
+    expect(stubIds(fallback)).toEqual(expect.arrayContaining(ids));
+    const { reviewOnly: _reviewOnly, review: _review, ...rest } = fallback;
+    expect(rest).toEqual(plain(SECOND, first.reviewToken));
   });
 });
 

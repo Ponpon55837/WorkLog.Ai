@@ -63,7 +63,6 @@ const RESPONSE_BUDGETS = {
   knowledgePageReviewOnly: 3_500,
   knowledgePageReviewOnlyIdle: 1_200,
   knowledgePageReviewOnlyReleaseShaped: 7_500,
-  knowledgePageReviewOnlyFallback: 1_500,
   sessionHandoffThirtyFiles: 6_500,
 } as const;
 const CONTEXT_ITEM_KEYS = new Set(["id", "sourceSessionId", "text", "textTruncated"]);
@@ -2035,11 +2034,13 @@ describe("synthetic MCP response-size baseline", () => {
       const reviewOnly = await read(true);
       const value = reviewOnly.value as { review: string; sections: Array<{ newSessionIds?: string[] }> };
       sizes.push(`${added} new: ${reviewOnly.length} of ${full.length} (${value.review})`);
-      expect(reviewOnly.length).toBeLessThan(full.length);
       if (value.review === "use_full_read") {
-        expect(reviewOnly.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageReviewOnlyFallback);
+        const { reviewOnly: _marker, review: _review, ...fallback } = reviewOnly.value as Record<string, unknown>;
+        expect(fallback).toEqual(full.value);
+        expect(reviewOnly.length).toBeLessThanOrEqual(full.length + 50);
         continue;
       }
+      expect(reviewOnly.length).toBeLessThan(full.length);
       expect(value.review).toBe("sections");
       expect(value.sections.length).toBeLessThanOrEqual(3);
       expect(reviewOnly.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageReviewOnlyReleaseShaped);

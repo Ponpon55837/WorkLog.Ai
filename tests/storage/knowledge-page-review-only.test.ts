@@ -47,8 +47,15 @@ function setup() {
 }
 
 function reviewOnly(result: KnowledgePageContextResult) {
-  if (result.outcome !== "knowledge_page_context" || !("reviewOnly" in result)) {
+  if (result.outcome !== "knowledge_page_context" || !("reviewOnly" in result) || "mode" in result) {
     throw new Error(`Expected a review-only read, received ${JSON.stringify(result).slice(0, 120)}`);
+  }
+  return result;
+}
+
+function fallback(result: KnowledgePageContextResult) {
+  if (result.outcome !== "knowledge_page_context" || !("reviewOnly" in result) || !("mode" in result)) {
+    throw new Error(`Expected a review-only fallback, received ${JSON.stringify(result).slice(0, 120)}`);
   }
   return result;
 }
@@ -94,6 +101,11 @@ function sectionedPage(count: number, sectionOf: (index: number) => number) {
     finalize(`new-${index}`, [...RELEASE_FILES, sectionFile(sectionOf(index))]),
   );
   return { ...context, newIds };
+}
+
+function withoutFallbackFields<T extends { reviewOnly: true; review: string }>(result: T) {
+  const { reviewOnly: _reviewOnly, review: _review, ...rest } = result;
+  return rest;
 }
 
 const size = (value: unknown) => JSON.stringify(value).length;
@@ -257,11 +269,22 @@ describe("review-only Knowledge page reads", () => {
     expect(JSON.stringify(idle).length).toBeLessThan(1_200);
 
     store.requestKnowledgePageUpdate({ projectRoot, slug });
-    expect(reviewOnly(read({ reviewOnly: true }))).toMatchObject({ review: "full_rewrite", sections: [] });
+  });
+
+  it("answers full_rewrite with the plain full read for a requested or empty page", () => {
+    const { store, projectRoot, read } = writtenPage();
+    store.requestKnowledgePageUpdate({ projectRoot, slug });
+    const requested = fallback(read({ reviewOnly: true }));
+    expect(requested).toMatchObject({ reviewOnly: true, review: "full_rewrite", mode: "full" });
+    expect(requested).not.toHaveProperty("sections");
+    expect(withoutFallbackFields(requested)).toEqual(fullContext(read()));
+
     store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
-    expect(
-      reviewOnly(store.getKnowledgePageContext({ projectRoot, slug: "pitfalls", reviewOnly: true })),
-    ).toMatchObject({ review: "full_rewrite", otherSections: [], size: { sectionCount: 0, contentChars: 0 } });
+    const empty = fallback(store.getKnowledgePageContext({ projectRoot, slug: "pitfalls", reviewOnly: true }));
+    expect(empty).toMatchObject({ review: "full_rewrite", mode: "full", page: { version: 0 } });
+    expect(withoutFallbackFields(empty)).toEqual(
+      fullContext(store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" })),
+    );
   });
 
   it("accounts for new Sessions oldest first and stops the check candidate where the read was cut", () => {
@@ -297,17 +320,37 @@ describe("review-only Knowledge page reads", () => {
 
   it("sends the Agent to the full read when most sections need review", () => {
     const { read, newIds } = sectionedPage(8, (index) => index);
-    const result = reviewOnly(read({ reviewOnly: true }));
-    expect(result).toMatchObject({
-      review: "use_full_read",
-      sections: [],
-      sessions: [],
-      unmappedSessions: [],
-      truncated: false,
-    });
+    const result = fallback(read({ reviewOnly: true }));
+    expect(result).toMatchObject({ reviewOnly: true, review: "use_full_read", mode: "review" });
+    expect(result).not.toHaveProperty("sections");
     expect(result).not.toHaveProperty("checkedThroughCandidate");
-    expect(result.otherSections).toHaveLength(12);
+    expect(result.sessions.map((session) => session.id)).toEqual(newIds);
     expect(newIds).toHaveLength(8);
-    expect(size(result)).toBeLessThan(size(fullContext(read())));
+  });
+
+  it("answers use_full_read with exactly the plain read, whose reviewToken saves the page", () => {
+    const { store, projectRoot, read, newIds } = sectionedPage(8, (index) => index);
+    const result = fallback(read({ reviewOnly: true }));
+    const plain = fullContext(read());
+    expect(withoutFallbackFields(result)).toEqual(plain);
+    expect(size(result)).toBeLessThanOrEqual(size(plain) + 50);
+
+    const saved = store.saveKnowledgePage({
+      projectRoot,
+      slug,
+      idempotencyKey: "after-fallback",
+      sections: plain.page.sections.map((section) => ({ ...section, sourceSessionIds: [newIds[0]!] })),
+      reviewToken: result.reviewToken,
+    });
+    expect(saved.outcome).toBe("knowledge_page_saved");
+    expect(saved).not.toHaveProperty("warnings");
+    expect(fullContext(read()).sessions.map((session) => session.id)).toEqual([]);
+  });
+
+  it("keeps none and truncated answers as review-only reads", () => {
+    const { finalize, read } = writtenPage();
+    expect(reviewOnly(read({ reviewOnly: true })).review).toBe("none");
+    for (let index = 0; index < 61; index += 1) finalize(`bulk-${index}`);
+    expect(reviewOnly(read({ reviewOnly: true }))).toMatchObject({ review: "new_sessions", truncated: true });
   });
 });
