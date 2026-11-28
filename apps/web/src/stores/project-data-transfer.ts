@@ -4,6 +4,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import type {
   ProjectDataExportScope,
   ProjectDataImportPreview,
+  ProjectDataImportResult,
   ProjectDataImportStagedHeader,
   ProjectDataImportStrategy,
   ProjectDataStagedImportOptions,
@@ -14,16 +15,13 @@ import { useApi } from "../composables/useApi";
 import { confirmAction } from "../composables/useConfirm";
 import { useToast } from "../composables/useToast";
 import { errorMessage } from "../utils/format";
+import { totalCount } from "../utils/project-data-import";
 import { queryKeys } from "./query-keys";
 import { useProjectsStore } from "./projects";
 import { t } from "../i18n";
 
 const MAX_PROJECT_IMPORT_MIB = 256;
 const MAX_PROJECT_IMPORT_BYTES = MAX_PROJECT_IMPORT_MIB * 1024 * 1024;
-
-function countItems(counts: ProjectDataImportPreview["additions"]): number {
-  return Object.values(counts).reduce((total, count) => total + (count ?? 0), 0);
-}
 
 /** The API answers 404 for a staged file that expired (30 minutes) or was already removed. */
 function isStagedImportGone(error: unknown): boolean {
@@ -52,6 +50,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
   const importApplying = ref(false);
   const portableExporting = ref(false);
   const importError = ref("");
+  const importResult = ref<ProjectDataImportResult | null>(null);
   const transferError = ref("");
   let uploadRequestId = 0;
   let uploadAbort: AbortController | null = null;
@@ -120,6 +119,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     importFileName.value = "";
     importProjectId.value = "";
     importRemaps.value = [];
+    importResult.value = null;
     importUploading.value = false;
     previewedChoices = "";
   }
@@ -136,6 +136,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
    */
   function discardImportFile(keepalive = false): void {
     if (importApplying.value) return;
+    importResult.value = null;
     if (!importStagingId.value && !importUploading.value) return;
     resetImportFile(true, keepalive);
   }
@@ -144,6 +145,10 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     resetImportFile(true);
     importError.value = "";
     if (!file) return;
+    if (!/\.json$/i.test(file.name)) {
+      importError.value = t("projects.importFileMustBeJson");
+      return;
+    }
     if (file.size > MAX_PROJECT_IMPORT_BYTES) {
       importError.value = t("projects.importFilesCannotExceedLimit", { value: MAX_PROJECT_IMPORT_MIB });
       return;
@@ -247,11 +252,11 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     const preview = importPreview.value;
     if (!preview) return;
     const stagingId = importStagingId.value;
-    const additions = countItems(preview.additions);
-    const updates = countItems(preview.updates);
-    const keptLocal = countItems(preview.keptLocal);
-    const skipped = countItems(preview.skipped);
-    const conflicts = countItems(preview.conflicts);
+    const additions = totalCount(preview.additions);
+    const updates = totalCount(preview.updates);
+    const keptLocal = totalCount(preview.keptLocal);
+    const skipped = totalCount(preview.skipped);
+    const conflicts = totalCount(preview.conflicts);
     const confirmed = await confirmAction({
       title: t("projects.confirmProjectDataImport"),
       message: t("projects.recordsWillBeAddedAnd", { additions, updates, keptLocal, skipped, conflicts }),
@@ -267,19 +272,9 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
         stagingId,
         options: currentOptions(),
       });
-      useToast().showToast(
-        result.changed
-          ? t("projects.importFinishedAddedSkippedIn", {
-              value: countItems(result.additions),
-              updates: countItems(result.updates),
-              value2: countItems(result.skipped),
-              value3: countItems(result.conflicts),
-            })
-          : t("projects.importFinishedNothingChanged"),
-        "success",
-      );
       // The API removes the staged file after a successful import, so nothing is left to discard.
       resetImportFile(false);
+      importResult.value = result;
     } catch (error) {
       handleStagedImportError(error, t("projects.couldNotImportProjectData"));
     } finally {
@@ -397,6 +392,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     importLoading,
     importPreview,
     importError,
+    importResult,
     loadImportFile,
     discardImportFile,
     previewProjectDataImport,

@@ -576,6 +576,16 @@ describe("resource stores", () => {
       expect(harness.fetchMock).not.toHaveBeenCalled();
     });
 
+    it("refuses a file that is not a .json file before sending anything", async () => {
+      const store = useProjectDataTransferStore();
+      await store.loadImportFile(exportFile("notes.txt"));
+      expect(store.importError).toBe(t("projects.importFileMustBeJson"));
+      expect(store.importFileName).toBe("");
+      expect(harness.fetchMock).not.toHaveBeenCalled();
+      await store.loadImportFile(exportFile("WORK.JSON"));
+      expect(store.importError).toBe("");
+    });
+
     it("streams the File to the API without reading it and seeds the first preview", async () => {
       const store = useProjectDataTransferStore();
       const file = exportFile();
@@ -684,10 +694,7 @@ describe("resource stores", () => {
       });
       expect(harness.count("/api/import", "POST")).toBe(0);
       await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ key: ["projects"], exact: true }));
-      expect(mocks.showToast).toHaveBeenLastCalledWith(
-        t("projects.importFinishedAddedSkippedIn", { value: 1, updates: 2, value2: 0, value3: 0 }),
-        "success",
-      );
+      expect(store.importResult?.changed).toBe(true);
       expect(store.importFileName).toBe("");
       expect(store.importProjects).toEqual([]);
       expect(store.importPreview).toBeNull();
@@ -697,7 +704,10 @@ describe("resource stores", () => {
       importChanged = false;
       await store.loadImportFile(exportFile());
       await store.applyProjectDataImport();
-      expect(mocks.showToast).toHaveBeenLastCalledWith(t("projects.importFinishedNothingChanged"), "success");
+      expect(store.importResult?.changed).toBe(false);
+
+      store.discardImportFile();
+      expect(store.importResult).toBeNull();
     });
 
     it("discards the previous staging when another file replaces it", async () => {

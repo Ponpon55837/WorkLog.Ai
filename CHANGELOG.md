@@ -4,6 +4,18 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- The 資料備份 tab now opens with a short guide to which export to use: 「匯出專案資料」/「匯入專案資料」 (JSON) for a new computer or merging two computers, 「匯出整份資料」 (.sqlite) for whole-machine recovery. Export and import are separate boxes, and the .sqlite restore steps are collapsed under 「進階：用指令還原」.
+- The import box uses a 「選擇檔案」 button with a hidden file input instead of the browser's native control, shows the chosen file name, and the page scrolls to the import preview and focuses it once the file is checked.
+- The import preview describes each count in one line (新增, 將更新, 保留本機, 略過, 衝突) and no longer shows a per-type sub-line that did not add up. A 「各類型明細」 list covers every record type the preview reports. 「確認並匯入」 is a normal-width button, and when nothing would be written the preview says 「沒有需要匯入的變更」 with a 「完成」 button instead of an import button.
+- The import result stays in the import box instead of a toast. A file that is not a `.json` file is refused before it is uploaded, for the picker and for drops alike.
+
+### Added
+
+- The import box accepts a dropped `.json` file (same 256 MiB limit as the picker) with a visible drop state; keyboard users use 「選擇檔案」.
+- After an import finishes, the result offers 「前往專案清單」.
+
 ## [1.6.95] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.95.md).

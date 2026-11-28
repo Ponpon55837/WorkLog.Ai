@@ -47,7 +47,7 @@ describe("desktop-managed pages show no command", () => {
       /status\.desktop\?\.managed\s*\?\s*'systemStatus\.recentResultsAppearAfterMaintenance'\s*:\s*'systemStatus\.recentResultsAppearAfterRunning'/,
     );
     const desktopBranch = backups.indexOf('v-if="desktopManaged"');
-    const commandBranch = backups.indexOf("<template v-else>");
+    const commandBranch = backups.indexOf("<UiDisclosure v-else");
     expect(desktopBranch).toBeGreaterThan(-1);
     expect(commandBranch).toBeGreaterThan(desktopBranch);
     expect(backups.slice(desktopBranch, commandBranch)).not.toMatch(/restoreCommand|pnpm|UiCopyButton/);
