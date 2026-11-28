@@ -232,6 +232,7 @@ const MISSING_SESSION_REASON = "所屬 Session 不在匯入檔中。";
 const MISSING_REQUEST_REASON = "報告所屬的請求不在匯入檔中。";
 const MISSING_SUMMARY_REASON = "報告呈現的原始版本不在匯入檔中。";
 const DELETED_PAGE_REASON = "知識頁已在本機刪除，匯入不會把它加回。";
+const DELETED_SESSION_REASON = "Session 已在本機永久刪除，匯入不會把它加回。";
 const AGENT_REVIEW_OPEN_STATUSES: readonly string[] = ["pending", "processing", "failed"];
 
 function redactRow(table: ProjectDataTable, row: ProjectDataRow): ReturnType<typeof redactRowWith> {
@@ -419,6 +420,14 @@ function deletedKnowledgePageIds(db: DatabaseSync, tables: Record<ProjectDataTab
     .prepare("SELECT page_id FROM knowledge_page_deletion_audit WHERE page_id IN (SELECT value FROM json_each(?))")
     .all(JSON.stringify([...new Set(pageIds)])) as Array<{ page_id: string }>;
   return new Set(rows.map((row) => row.page_id));
+}
+
+function deletedSessionIds(db: DatabaseSync, tables: Record<ProjectDataTable, ProjectDataRow[]>): Set<string> {
+  if (tables.sessions.length === 0) return new Set();
+  const rows = db
+    .prepare("SELECT session_id FROM session_deletion_audit WHERE session_id IN (SELECT value FROM json_each(?))")
+    .all(JSON.stringify([...new Set(tables.sessions.map((row) => String(row.id)))])) as Array<{ session_id: string }>;
+  return new Set(rows.map((row) => row.session_id));
 }
 
 function citesAnySession(value: ProjectDataValue | undefined, sessionIds: ReadonlySet<string>): boolean {
@@ -2074,6 +2083,7 @@ function makePlan(
   const pendingConventionAdds: Array<{ row: ProjectDataRow; projectId: string }> = [];
   const parentOwners = collectParentOwners(db, selectedBundle.tables, projectIds);
   const deletedPageIds = deletedKnowledgePageIds(db, selectedBundle.tables);
+  const deletedSessions = deletedSessionIds(db, selectedBundle.tables);
   // An audit event depends on the proposal as it will be stored, so a kept local proposal keeps its local state.
   onProposalStored = (row) => {
     const sourceProjectId = String(row.project_id);
@@ -2136,6 +2146,10 @@ function makePlan(
       const pageId = current ? undefined : knowledgePageIdOf(table, row);
       if (pageId !== undefined && deletedPageIds.has(pageId)) {
         addPlan(table, row, "conflict", DELETED_PAGE_REASON, "deleted");
+        continue;
+      }
+      if (table === "sessions" && !current && deletedSessions.has(id)) {
+        addPlan(table, row, "conflict", DELETED_SESSION_REASON, "deleted");
         continue;
       }
       if (dependencyError) {
