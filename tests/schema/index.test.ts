@@ -605,6 +605,18 @@ describe("Knowledge page schemas", () => {
     }
   });
 
+  it("accepts sessionsSeenIn as a bounded string, with or without reviewOnly", () => {
+    const read = { projectRoot: "/tmp/apiary", slug: "pitfalls" };
+    expect(knowledgePageContextQuerySchema.safeParse({ ...read, sessionsSeenIn: "kpr1.abc" }).success).toBe(true);
+    expect(
+      knowledgePageContextQuerySchema.safeParse({ ...read, reviewOnly: true, sessionsSeenIn: "kpr1.abc" }).success,
+    ).toBe(true);
+    expect(knowledgePageContextQuerySchema.safeParse({ ...read, sessionsSeenIn: "x".repeat(1_001) }).success).toBe(
+      false,
+    );
+    expect(knowledgePageContextQuerySchema.safeParse({ ...read, sessionsSeenIn: 7 }).success).toBe(false);
+  });
+
   it("requires cited Sessions unless a section says 資料不足", () => {
     const cited = { heading: "Build", content: "Build shared first.", sourceSessionIds: ["session-1"] };
     const insufficient = { heading: "Deploy", content: "資料不足", sourceSessionIds: [] };

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { KnowledgePageSection } from "../../packages/core/src/index.js";
+import type { KnowledgePageContextSession, KnowledgePageSection } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 const stores: WorkIntelligenceStore[] = [];
@@ -56,7 +56,7 @@ function fullContext(result: ReturnType<WorkIntelligenceStore["getKnowledgePageC
   if (result.outcome !== "knowledge_page_context" || "focused" in result || "reviewOnly" in result) {
     throw new Error(`Expected a default knowledge page context, received ${JSON.stringify(result).slice(0, 120)}`);
   }
-  return result;
+  return { ...result, sessions: result.sessions as KnowledgePageContextSession[] };
 }
 
 function reviewTokenOf(store: WorkIntelligenceStore, projectRoot: string, slug: string): string {

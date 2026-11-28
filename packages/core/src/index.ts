@@ -2450,6 +2450,7 @@ export interface KnowledgePageContextQuery {
   query?: string;
   headings?: string[];
   reviewOnly?: boolean;
+  sessionsSeenIn?: string;
 }
 
 export interface SaveKnowledgePageInput {
@@ -2496,6 +2497,13 @@ export interface KnowledgePageContextSession {
   reasons?: KnowledgePageContextSessionReason[];
 }
 
+export interface KnowledgePageContextSessionStub {
+  id: string;
+  title: string;
+  reasons: KnowledgePageContextSessionReason[];
+  previewSeen: true;
+}
+
 export type KnowledgePageContextSessionReason = "new" | "source_changed";
 
 export type KnowledgePageSectionReviewReason =
@@ -2505,7 +2513,7 @@ export interface KnowledgePageContext {
   outcome: "knowledge_page_context";
   page: KnowledgePageRecord;
   mode: "full" | "review";
-  sessions: KnowledgePageContextSession[];
+  sessions: Array<KnowledgePageContextSession | KnowledgePageContextSessionStub>;
   omittedSessionFields: Array<"summary" | "workSummary.scope" | "workSummary.verification">;
   sessionReadWith: "work_get_session";
   truncated: boolean;
@@ -2513,6 +2521,7 @@ export interface KnowledgePageContext {
   size?: KnowledgePageSize;
   splitSuggestion?: KnowledgePageSplitSuggestion;
   emptyPageHint?: string;
+  warnings?: string[];
 }
 
 export interface KnowledgePageFocusedContext {
@@ -2531,6 +2540,7 @@ export interface KnowledgePageFocusedContext {
   size?: KnowledgePageSize;
   splitSuggestion?: KnowledgePageSplitSuggestion;
   emptyPageHint?: string;
+  warnings?: string[];
 }
 
 export interface KnowledgePageReviewContext {
@@ -2548,7 +2558,7 @@ export interface KnowledgePageReviewContext {
   otherSections: Array<{ heading: string; chars: number }>;
   size: KnowledgePageSize;
   splitSuggestion?: KnowledgePageSplitSuggestion;
-  sessions: KnowledgePageContextSession[];
+  sessions: Array<KnowledgePageContextSession | KnowledgePageContextSessionStub>;
   unmappedSessions: Array<Pick<KnowledgePageContextSession, "id" | "title" | "completedAt">>;
   checkedThroughCandidate?: string;
   omittedSessionFields: KnowledgePageContext["omittedSessionFields"];
@@ -2557,6 +2567,7 @@ export interface KnowledgePageReviewContext {
   reviewToken: string;
   readFullWith: string;
   emptyPageHint?: string;
+  warnings?: string[];
 }
 
 export type KnowledgePageSkippedResult = {
