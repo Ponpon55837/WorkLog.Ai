@@ -4,6 +4,11 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Fixed
+
+- `work_get_agent_review_context` and `work_get_outstanding_cleanup_context` no longer return the last page again when `page` (or `itemPage`/`sessionPage`) is past `totalPages`. They return empty `items` (and `sessions`), no page-1-only `existingKnowledge`, and a `pageInfo` whose `page` is the requested page with `hasNext: false` and `hasPrevious: true`; keep following `hasNext` (#502).
+- `work_save_knowledge_page` section updates no longer report an `upsertSections` entry identical to the stored section (heading, content and sourceSessionIds) as `replaced`. Such sections are listed in `sectionChanges.unchanged`, and when nothing else changed no new version is created and `version` stays the same; the section source-check baseline and `checkedThroughSessionId` are still applied (#503).
+
 ## [1.6.101] - 2026-11-28
 
 [繁體中文更新說明](docs/releases/1.6.101.md).

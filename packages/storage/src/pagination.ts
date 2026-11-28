@@ -5,6 +5,7 @@ export function createPageInfo(
   pageSizeValue: number | undefined,
   total: number,
   maxPageSize = 200,
+  options: { clampPage?: boolean } = {},
 ): PageInfo {
   const requestedPageSize = Math.trunc(pageSizeValue ?? 20);
   const showAll = requestedPageSize === 0;
@@ -13,9 +14,11 @@ export function createPageInfo(
     ? Math.min(Math.max(total, 1), safeMaxPageSize)
     : Math.min(Math.max(requestedPageSize, 1), safeMaxPageSize);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(Math.max(Math.trunc(pageValue ?? 1), 1), totalPages);
-  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const to = total === 0 ? 0 : Math.min(page * pageSize, total);
+  const requestedPage = Math.max(Math.trunc(pageValue ?? 1), 1);
+  const page = options.clampPage === false ? requestedPage : Math.min(requestedPage, totalPages);
+  const outOfRange = total === 0 || page > totalPages;
+  const from = outOfRange ? 0 : (page - 1) * pageSize + 1;
+  const to = outOfRange ? 0 : Math.min(page * pageSize, total);
   return {
     page,
     pageSize,

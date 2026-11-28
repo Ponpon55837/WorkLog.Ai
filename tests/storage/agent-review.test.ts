@@ -389,6 +389,21 @@ describe("Agent review context", () => {
     expect(third.items).toHaveLength(5);
     expect(third.existingKnowledge).toBeUndefined();
     expect(third.pageInfo).toMatchObject({ page: 3, total: 25 });
+
+    const beyond = fixture.store.getAgentReviewContext({ projectRoot: fixture.root, page: 4 });
+    if (beyond.outcome !== "agent_review_context") throw new Error("Expected an empty context page.");
+    expect(beyond.items).toEqual([]);
+    expect(beyond.sessions).toEqual([]);
+    expect(beyond.existingKnowledge).toBeUndefined();
+    expect(beyond.pageInfo).toMatchObject({
+      page: 4,
+      totalPages: 3,
+      total: 25,
+      from: 0,
+      to: 0,
+      hasPrevious: true,
+      hasNext: false,
+    });
   });
 
   it("shortens long text to stay inside the budget without dropping items", () => {
