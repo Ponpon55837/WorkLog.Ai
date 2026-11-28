@@ -249,16 +249,100 @@ describe("Agent review context", () => {
       ["decision", decisionIds[1], "open"],
       ["candidate", candidateId, "open"],
     ]);
-    expect(context.items[0]).toMatchObject({
-      text: "Use the shared crate cache",
-      sourceSession: { id: sessionId, title: "Session a", outcomes: ["Outcome of a"] },
-    });
-    expect(context.items[0]!.sourceSession?.otherDecisions).toEqual(["Pin the base image"]);
+    expect(context.items[0]).toMatchObject({ text: "Use the shared crate cache", sourceSessionId: sessionId });
+    expect(context.items[0]).not.toHaveProperty("sourceSession");
+    expect(context.sessions).toEqual([
+      { id: sessionId, title: "Session a", completedAt: BASE_TIME, outcomes: ["Outcome of a"], otherDecisions: [] },
+    ]);
     expect(context.items[2]).toMatchObject({ title: "Cache keys include the lockfile", kind: "gotcha" });
     expect(context.existingKnowledge).toEqual([]);
     expect(context.pageInfo).toMatchObject({ page: 1, total: 3 });
     expect(context.truncated).toBe(false);
     expect(JSON.stringify(context).length).toBeLessThanOrEqual(24_000);
+  });
+
+  it("lists each source Session once for the items of a page, with the decisions not shown as items", () => {
+    const fixture = setup();
+    const first = finalize(fixture, "a", ["Decision one", "Decision two"]);
+    const second = finalize(fixture, "b", ["Decision three"]);
+    const candidateId = proposeCandidate(fixture, first.sessionId, "Candidate title");
+    fixture.db.prepare("DELETE FROM session_decisions WHERE id = ?").run(first.decisionIds[1]!);
+    fixture.db
+      .prepare(
+        `INSERT INTO session_decisions (id, session_id, project_id, position, text, origin, review_status)
+         VALUES ('extra', ?, ?, 9, 'Reviewed elsewhere', 'agent_autonomous', 'confirmed')`,
+      )
+      .run(first.sessionId, fixture.projectId);
+    openReview(fixture);
+
+    const context = fixture.store.getAgentReviewContext({ projectRoot: fixture.root });
+    if (context.outcome !== "agent_review_context") throw new Error("Expected context.");
+    expect(context.items.map((item) => item.sourceSessionId).sort()).toEqual(
+      [first.sessionId, first.sessionId, second.sessionId].sort(),
+    );
+    expect(context.items.some((item) => item.id === candidateId)).toBe(true);
+    expect(context.sessions.map((session) => session.id).sort()).toEqual([first.sessionId, second.sessionId].sort());
+    expect(context.sessions.find((session) => session.id === first.sessionId)!.otherDecisions).toEqual([
+      "Reviewed elsewhere",
+    ]);
+  });
+
+  it("gives each page exactly the Sessions its items reference", () => {
+    const fixture = setup();
+    const a = finalize(fixture, "a", ["A1", "A2"]);
+    const b = finalize(fixture, "b", ["B1", "B2"]);
+    openReview(fixture);
+
+    const pages = [1, 2].map((page) =>
+      fixture.store.getAgentReviewContext({ projectRoot: fixture.root, pageSize: 2, page }),
+    );
+    const ids = pages.map((page) => {
+      if (page.outcome !== "agent_review_context") throw new Error("Expected context.");
+      expect(page.sessions.map((session) => session.id).sort()).toEqual(
+        [...new Set(page.items.map((item) => item.sourceSessionId!))].sort(),
+      );
+      return page.sessions.map((session) => session.id);
+    });
+    expect(ids.flat().sort()).toEqual([a.sessionId, b.sessionId].sort());
+    expect(ids[0]).toHaveLength(1);
+  });
+
+  it("keeps the truncation flags on the Session entry and counts them in truncated", () => {
+    const fixture = setup();
+    const { sessionId } = finalize(fixture, "a", ["Only decision"]);
+    fixture.db
+      .prepare("UPDATE sessions SET work_summary_json = ? WHERE id = ?")
+      .run(JSON.stringify({ outcomes: ["o".repeat(400), "two", "three", "four"] }), sessionId);
+    openReview(fixture);
+
+    const context = fixture.store.getAgentReviewContext({ projectRoot: fixture.root });
+    if (context.outcome !== "agent_review_context") throw new Error("Expected context.");
+    expect(context.sessions[0]).toMatchObject({ id: sessionId, outcomesTruncated: true });
+    expect(context.items[0]).not.toHaveProperty("outcomesTruncated");
+    expect(context.truncated).toBe(true);
+  });
+
+  it("is smaller than repeating the Session on every item that shares it", () => {
+    const fixture = setup();
+    finalize(
+      fixture,
+      "a",
+      Array.from({ length: 8 }, (_, index) => `Decision ${index}`),
+    );
+    openReview(fixture);
+
+    const context = fixture.store.getAgentReviewContext({ projectRoot: fixture.root });
+    if (context.outcome !== "agent_review_context") throw new Error("Expected context.");
+    const { sessions, ...rest } = context;
+    const repeated = {
+      ...rest,
+      items: context.items.map(({ sourceSessionId, ...item }) => ({
+        ...item,
+        sourceSession: sessions.find((session) => session.id === sourceSessionId),
+      })),
+    };
+    expect(sessions).toHaveLength(1);
+    expect(JSON.stringify(context).length).toBeLessThan(JSON.stringify(repeated).length);
   });
 
   it("finds the open request by project root and pages through large snapshots", () => {
@@ -286,16 +370,17 @@ describe("Agent review context", () => {
 
   it("shortens long text to stay inside the budget without dropping items", () => {
     const fixture = setup();
-    const long = "x".repeat(1_900);
-    const { decisionIds } = finalize(
-      fixture,
-      "a",
-      Array.from({ length: 10 }, (_, index) => `${index}-${long}`),
-    );
+    const long = "x".repeat(1_990);
+    const outcomes = JSON.stringify({ outcomes: Array.from({ length: 3 }, () => "o".repeat(230)) });
+    const decisionIds = Array.from({ length: 10 }, (_, index) => {
+      const { sessionId, decisionIds: ids } = finalize(fixture, `s${index}`, [`${index}-${long}`]);
+      fixture.db.prepare("UPDATE sessions SET work_summary_json = ? WHERE id = ?").run(outcomes, sessionId);
+      return ids[0]!;
+    });
     const request = openReview(fixture);
     const context = fixture.store.getAgentReviewContext({ requestId: request.id });
     if (context.outcome !== "agent_review_context") throw new Error("Expected context.");
-    expect(context.items.map((item) => item.id)).toEqual(decisionIds);
+    expect(context.items.map((item) => item.id).sort()).toEqual([...decisionIds].sort());
     expect(context.truncated).toBe(true);
     expect(JSON.stringify(context).length).toBeLessThanOrEqual(24_000);
   });
@@ -327,7 +412,7 @@ describe("Agent review context", () => {
     const request = openReview(fixture);
     const context = fixture.store.getAgentReviewContext({ requestId: request.id });
     if (context.outcome !== "agent_review_context") throw new Error("Expected context.");
-    expect(context.items.map((item) => item.id)).toEqual(decisionIds);
+    expect(context.items.map((item) => item.id).sort()).toEqual([...decisionIds].sort());
     expect(context.items.map((item) => item.text)).toEqual(
       Array.from({ length: 10 }, (_, index) => `${index}-${long}`),
     );
