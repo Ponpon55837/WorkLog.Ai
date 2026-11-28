@@ -57,6 +57,7 @@ const importPreview = {
   keptLocal: { sessions: 1 },
   renumbered: {},
   replacedLocal: {},
+  writesData: true,
   selectedProjects: [],
   remappedPaths: [],
   autoRemaps: [],
@@ -586,6 +587,19 @@ describe("resource stores", () => {
       expect(store.importError).toBe("");
     });
 
+    it("keeps the current file and preview when a later file is refused", async () => {
+      const store = useProjectDataTransferStore();
+      await store.loadImportFile(exportFile("work.json"));
+      await store.loadImportFile(exportFile("notes.txt"));
+      await store.loadImportFile(exportFile("large.json", 256 * 1024 * 1024 + 1));
+      expect(store.importError).toBe(t("projects.importFilesCannotExceedLimit", { value: 256 }));
+      store.refuseMultipleImportFiles();
+      expect(store.importError).toBe(t("projects.importOneFileOnly"));
+      expect(store.importFileName).toBe("work.json");
+      expect(store.importPreview).not.toBeNull();
+      expect(pathsOf("DELETE")).toEqual([]);
+    });
+
     it("streams the File to the API without reading it and seeds the first preview", async () => {
       const store = useProjectDataTransferStore();
       const file = exportFile();
@@ -695,6 +709,10 @@ describe("resource stores", () => {
       expect(harness.count("/api/import", "POST")).toBe(0);
       await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ key: ["projects"], exact: true }));
       expect(store.importResult?.changed).toBe(true);
+      store.clearImportResult();
+      expect(store.importResult).toBeNull();
+      await store.loadImportFile(exportFile());
+      await store.applyProjectDataImport();
       expect(store.importFileName).toBe("");
       expect(store.importProjects).toEqual([]);
       expect(store.importPreview).toBeNull();

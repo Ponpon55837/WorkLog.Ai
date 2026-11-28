@@ -196,16 +196,19 @@ describe("decision sets on import", () => {
     expect(preview.skipped.session_decisions).toBe(2);
     expect(preview.replacedLocal).toEqual({ session_decisions: 2 });
     expect(total(preview.conflicts)).toBe(0);
+    expect(preview.writesData).toBe(true);
 
     const result = machines.a.importProjectData(input);
-    expect(result.changed).toBe(true);
+    expect(result.changed).toBe(preview.writesData);
     expect(result.backupFileName).toBeDefined();
     expect(result.additions.session_decisions).toBe(preview.additions.session_decisions);
     expect(result.replacedLocal).toEqual(preview.replacedLocal);
     expect(layout(machines.a, machines.sessionId)).toEqual(layout(machines.b, machines.sessionId));
 
+    const idle = machines.a.previewProjectDataImport(input);
+    expect(idle.writesData).toBe(false);
     const again = machines.a.importProjectData(input);
-    expect(again.changed).toBe(false);
+    expect(again.changed).toBe(idle.writesData);
     expect(again.replacedLocal).toEqual({});
     expect(total(again.additions) + total(again.updates) + total(again.conflicts)).toBe(0);
   });
@@ -338,7 +341,8 @@ describe("decision sets on import", () => {
     expect(preview.updates.session_decisions).toBe(2);
     expect(total(preview.conflicts)).toBe(0);
     expect(preview.replacedLocal).toEqual({});
-    machines.a.importProjectData(input);
+    expect(preview.writesData).toBe(true);
+    expect(machines.a.importProjectData(input).changed).toBe(true);
     expect(layout(machines.a, machines.sessionId)).toEqual([
       { id: "a1", text: "Y", position: 0 },
       { id: "a0", text: "X", position: 1 },

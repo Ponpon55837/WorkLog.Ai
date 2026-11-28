@@ -9,7 +9,7 @@ import { useProjectsStore } from "../../stores/projects";
 import { useSystemStatusStore } from "../../stores/system-status";
 import { formatBytes, formatDate, formatRelative } from "../../utils/format";
 import { databaseBackupKindLabels, projectDataTableLabels } from "../../utils/labels";
-import { importBreakdown, importCountKinds, importWritesData, totalCount } from "../../utils/project-data-import";
+import { importBreakdown, importCountKinds, totalCount } from "../../utils/project-data-import";
 import type { ImportBreakdownRow, ImportCountKind } from "../../utils/project-data-import";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
@@ -65,6 +65,7 @@ const {
 } = storeToRefs(projectDataTransferStore);
 const {
   loadImportFile,
+  refuseMultipleImportFiles,
   discardImportFile,
   previewProjectDataImport,
   chooseImportProjectLocation,
@@ -79,6 +80,8 @@ const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 const exportScope = ref<"all" | "project">("all");
 const exportProjectId = ref("");
 const fileInput = ref<HTMLInputElement | null>(null);
+const dropzone = ref<HTMLElement | null>(null);
+const chooseButton = ref<InstanceType<typeof UiButton> | null>(null);
 const previewPanel = ref<HTMLElement | null>(null);
 const resultPanel = ref<HTMLElement | null>(null);
 const dragging = ref(false);
@@ -109,10 +112,16 @@ const previewSummary = computed(() => {
     replacedLocal: totalCount(preview.replacedLocal),
     skipped: totalCount(preview.skipped),
     conflicts: totalCount(preview.conflicts),
-    writes: importWritesData(preview),
     breakdown: importBreakdown(preview),
   };
 });
+const conflictCategories = computed(() => new Set(importPreview.value?.conflictGroups.map((group) => group.category)));
+const blockedByConflicts = computed(
+  () => importPreview.value?.writesData === false && (previewSummary.value?.conflicts ?? 0) > 0,
+);
+const canUseNewerWins = computed(
+  () => importPreview.value?.strategy === "merge" && conflictCategories.value.has("newer_content"),
+);
 const importCountLabels: Record<ImportCountKind, string> = {
   additions: t("common.added"),
   updates: t("projects.updated"),
@@ -203,8 +212,21 @@ async function onImportFileChange(event: Event): Promise<void> {
   if (file) await importFile(file);
 }
 
-function onDragOver(): void {
+function carriesFiles(event: DragEvent): boolean {
+  return event.dataTransfer?.types.includes("Files") === true;
+}
+
+function onDragOver(event: DragEvent): void {
   dragging.value = !importLoading.value;
+  if (event.dataTransfer) event.dataTransfer.dropEffect = importLoading.value ? "none" : "copy";
+}
+
+// A file dropped outside the zone would make the window open it and leave the app.
+function blockWindowFileDrop(event: DragEvent): void {
+  if (!carriesFiles(event)) return;
+  if (event.target instanceof Node && dropzone.value?.contains(event.target)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "none";
 }
 
 function onDragLeave(event: DragEvent): void {
@@ -215,8 +237,21 @@ function onDragLeave(event: DragEvent): void {
 
 async function onDrop(event: DragEvent): Promise<void> {
   dragging.value = false;
-  const file = event.dataTransfer?.files[0];
-  if (file && !importLoading.value) await importFile(file);
+  const files = event.dataTransfer?.files;
+  if (!files?.length || importLoading.value) return;
+  if (files.length > 1) refuseMultipleImportFiles();
+  else await importFile(files[0]!);
+}
+
+async function finishImport(): Promise<void> {
+  discardImportFile();
+  await nextTick();
+  const button = chooseButton.value?.$el;
+  if (button instanceof HTMLElement) button.focus();
+}
+
+function useNewerWins(): void {
+  importStrategy.value = "newer-wins";
 }
 
 watch(importResult, async (result) => {
@@ -226,11 +261,15 @@ watch(importResult, async (result) => {
 });
 
 onMounted(() => {
+  window.addEventListener("dragover", blockWindowFileDrop);
+  window.addEventListener("drop", blockWindowFileDrop);
   backupsStore.setBackupsActive(true);
   systemStatusStore.setSystemStatusActive(true);
   void loadProjects();
 });
 onBeforeUnmount(() => {
+  window.removeEventListener("dragover", blockWindowFileDrop);
+  window.removeEventListener("drop", blockWindowFileDrop);
   backupsStore.setBackupsActive(false);
   systemStatusStore.setSystemStatusActive(false);
 });
@@ -364,6 +403,7 @@ onBeforeUnmount(() => {
       <p class="backup-section__hint backup-section__hint--first">{{ t("projects.importMergesData") }}</p>
 
       <div
+        ref="dropzone"
         :class="['transfer-drop', { 'is-dragging': dragging }]"
         data-testid="project-import-dropzone"
         @dragenter.prevent="onDragOver"
@@ -380,7 +420,7 @@ onBeforeUnmount(() => {
           :disabled="importLoading"
           @change="onImportFileChange"
         />
-        <UiButton :icon="Upload" :disabled="importLoading" @click="chooseImportFile">{{
+        <UiButton ref="chooseButton" :icon="Upload" :disabled="importLoading" @click="chooseImportFile">{{
           t("projects.chooseFile")
         }}</UiButton>
         <div class="transfer-drop__text">
@@ -430,7 +470,7 @@ onBeforeUnmount(() => {
         tabindex="-1"
         data-testid="project-import-result"
       >
-        <UiFlash tone="success" dismissible @dismiss="discardImportFile()">
+        <UiFlash tone="success" dismissible @dismiss="finishImport">
           <span>{{ importResultMessage }}</span>
           <template #actions>
             <UiButton size="sm" :to="{ name: 'projects', params: { tab: 'registry' } }">{{
@@ -446,7 +486,6 @@ onBeforeUnmount(() => {
         role="region"
         tabindex="-1"
         :aria-label="t('projects.importPreview')"
-        aria-live="polite"
         data-testid="project-import-preview"
       >
         <p>{{ t("projects.importProjectsAndApplyPaths") }}</p>
@@ -570,7 +609,7 @@ onBeforeUnmount(() => {
               :meta="
                 t('projects.conflictGroupMeta', {
                   category: importConflictCategoryLabels[item.category],
-                  table: item.table,
+                  table: projectDataTableLabels[item.table],
                   count: item.count,
                   samples: item.sampleIds.join(', '),
                 })
@@ -578,27 +617,37 @@ onBeforeUnmount(() => {
             />
           </template>
         </VirtualList>
-        <template v-if="previewSummary.writes">
-          <p class="backup-section__hint">
-            {{
-              importPreview.strategy === "newer-wins"
-                ? t("projects.importNewerWinsHint")
-                : t("projects.importMergeHint")
-            }}
-          </p>
-          <UiButton
-            class="transfer-preview__action"
-            variant="primary"
-            :loading="importLoading"
-            @click="applyProjectDataImport"
-            >{{ t("projects.confirmAndImport") }}</UiButton
-          >
+        <p class="backup-section__hint">
+          {{
+            importPreview.strategy === "newer-wins" ? t("projects.importNewerWinsHint") : t("projects.importMergeHint")
+          }}
+        </p>
+        <UiButton
+          v-if="importPreview.writesData"
+          class="transfer-preview__action"
+          variant="primary"
+          :loading="importLoading"
+          @click="applyProjectDataImport"
+          >{{ t("projects.confirmAndImport") }}</UiButton
+        >
+        <template v-else-if="blockedByConflicts">
+          <UiFlash tone="attention" :title="t('projects.blockedByConflicts')" data-testid="project-import-blocked">
+            <p>{{ t("projects.blockedByConflictsDetail") }}</p>
+            <p v-if="canUseNewerWins">{{ t("projects.blockedNewerContentHint") }}</p>
+            <p v-if="conflictCategories.has('path')">{{ t("projects.blockedPathHint") }}</p>
+          </UiFlash>
+          <div class="transfer-preview__actions">
+            <UiButton v-if="canUseNewerWins" :disabled="importLoading" @click="useNewerWins">{{
+              t("projects.useNewerWins")
+            }}</UiButton>
+            <UiButton :disabled="importLoading" @click="finishImport">{{ t("projects.discardImportFile") }}</UiButton>
+          </div>
         </template>
         <template v-else>
           <UiFlash tone="accent" :title="t('projects.nothingToImport')" data-testid="project-import-nothing">{{
             t("projects.nothingToImportDetail")
           }}</UiFlash>
-          <UiButton class="transfer-preview__action" :disabled="importLoading" @click="discardImportFile()">{{
+          <UiButton class="transfer-preview__action" :disabled="importLoading" @click="finishImport">{{
             t("projects.finishImport")
           }}</UiButton>
         </template>
@@ -816,6 +865,12 @@ onBeforeUnmount(() => {
 
 .transfer-preview__action {
   justify-self: start;
+}
+
+.transfer-preview__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 .transfer-preview__project-row :deep(.ui-box-row__meta) {

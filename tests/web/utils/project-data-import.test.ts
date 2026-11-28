@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectDataImportPreview } from "@work-intelligence/core";
-import { importBreakdown, importWritesData, totalCount } from "../../../apps/web/src/utils/project-data-import.js";
+import { importBreakdown, totalCount } from "../../../apps/web/src/utils/project-data-import.js";
 
 function preview(overrides: Partial<ProjectDataImportPreview>): ProjectDataImportPreview {
   return {
@@ -13,6 +13,7 @@ function preview(overrides: Partial<ProjectDataImportPreview>): ProjectDataImpor
     keptLocal: {},
     renumbered: {},
     replacedLocal: {},
+    writesData: false,
     selectedProjects: [],
     remappedPaths: [],
     autoRemaps: [],
@@ -44,14 +45,5 @@ describe("project data import summary", () => {
       { table: "outstanding_items", counts: { keptLocal: 2 } },
     ]);
     expect(rows.reduce((sum, row) => sum + (row.counts.additions ?? 0), 0)).toBe(31);
-  });
-
-  it("writes data only for additions, updates, renumbered versions or replaced decisions", () => {
-    expect(importWritesData(preview({ skipped: { sessions: 6670 }, keptLocal: { sessions: 1 } }))).toBe(false);
-    expect(importWritesData(preview({ conflicts: { sessions: 2 } }))).toBe(false);
-    expect(importWritesData(preview({ additions: { sessions: 1 } }))).toBe(true);
-    expect(importWritesData(preview({ updates: { knowledge: 1 } }))).toBe(true);
-    expect(importWritesData(preview({ renumbered: { knowledge_page_versions: 1 } }))).toBe(true);
-    expect(importWritesData(preview({ replacedLocal: { session_decisions: 1 } }))).toBe(true);
   });
 });

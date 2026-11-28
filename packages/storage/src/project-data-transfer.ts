@@ -2273,6 +2273,16 @@ function makePlan(
   };
 }
 
+function planWritesData(plan: TransferPlan): boolean {
+  return (
+    plan.pageVersionRenumbers.length > 0 ||
+    decisionSetsWrite(plan.decisionSets) ||
+    TABLE_ORDER.some((table) =>
+      plan.rows[table].some((entry) => entry.disposition === "add" || entry.disposition === "update"),
+    )
+  );
+}
+
 function previewFromPlan(plan: TransferPlan): ProjectDataImportPreview {
   const counts = countPlan(plan);
   return {
@@ -2285,6 +2295,7 @@ function previewFromPlan(plan: TransferPlan): ProjectDataImportPreview {
     keptLocal: counts.keep,
     renumbered: plan.renumbered,
     replacedLocal: plan.replacedLocal,
+    writesData: planWritesData(plan),
     selectedProjects: plan.selectedProjects,
     remappedPaths: plan.remappedPaths,
     autoRemaps: plan.autoRemaps,
@@ -2371,16 +2382,6 @@ function dataRevision(db: DatabaseSync): number {
   const row = db.prepare("SELECT data_revision AS revision FROM change_revisions WHERE singleton = 1").get() as
     { revision?: number } | undefined;
   return Number(row?.revision ?? 0);
-}
-
-function planWritesData(plan: TransferPlan): boolean {
-  return (
-    plan.pageVersionRenumbers.length > 0 ||
-    decisionSetsWrite(plan.decisionSets) ||
-    TABLE_ORDER.some((table) =>
-      plan.rows[table].some((entry) => entry.disposition === "add" || entry.disposition === "update"),
-    )
-  );
 }
 
 export class ProjectDataTransferService {

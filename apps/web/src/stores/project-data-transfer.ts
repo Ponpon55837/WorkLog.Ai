@@ -142,9 +142,12 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
   }
 
   async function loadImportFile(file: File | undefined): Promise<void> {
-    resetImportFile(true);
-    importError.value = "";
-    if (!file) return;
+    if (!file) {
+      resetImportFile(true);
+      importError.value = "";
+      return;
+    }
+    // A refused file leaves the current file and its preview in place.
     if (!/\.json$/i.test(file.name)) {
       importError.value = t("projects.importFileMustBeJson");
       return;
@@ -153,6 +156,8 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       importError.value = t("projects.importFilesCannotExceedLimit", { value: MAX_PROJECT_IMPORT_MIB });
       return;
     }
+    resetImportFile(true);
+    importError.value = "";
     const requestId = uploadRequestId;
     const controller = new AbortController();
     uploadAbort = controller;
@@ -185,6 +190,14 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
         uploadAbort = null;
       }
     }
+  }
+
+  function refuseMultipleImportFiles(): void {
+    importError.value = t("projects.importOneFileOnly");
+  }
+
+  function clearImportResult(): void {
+    importResult.value = null;
   }
 
   async function previewProjectDataImport(): Promise<void> {
@@ -394,6 +407,8 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     importError,
     importResult,
     loadImportFile,
+    refuseMultipleImportFiles,
+    clearImportResult,
     discardImportFile,
     previewProjectDataImport,
     chooseImportProjectLocation,
