@@ -1,4 +1,4 @@
-import { median } from "./memory-breakdown.js";
+import { median } from "./median.js";
 
 // Each item is measured PACKAGED_PERF_RUNS times and the median is gated, so one slow CI run does not fail the job.
 // A metric whose median misses its gate is measured PACKAGED_PERF_RUNS more times and the median of all samples is
@@ -65,12 +65,10 @@ export type PackagedPerfMetric = keyof PackagedPerfGates;
 
 export type PackagedPerfSamples = Record<PackagedPerfMetric, readonly number[]>;
 
-/** The metrics whose median is above their gate. */
 export function metricsOverGate(samples: PackagedPerfSamples, gates: PackagedPerfGates): PackagedPerfMetric[] {
   return (Object.keys(gates) as PackagedPerfMetric[]).filter((metric) => median(samples[metric]) > gates[metric]);
 }
 
-/** The first batch with the re-sampled metrics' extra samples appended; the other metrics keep their first batch. */
 export function withResamples(
   first: PackagedPerfSamples,
   extra: PackagedPerfSamples,

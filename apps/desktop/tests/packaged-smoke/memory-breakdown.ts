@@ -1,5 +1,6 @@
 import { readPssBytes } from "../support/process-tools.js";
 import { executablePathOf, isInside, type ProcessInfo } from "./helpers.js";
+import { median } from "./median.js";
 
 /** One metric per measurement so roles add up: Linux PSS (RSS fallback if any process is unreadable), macOS RSS, Windows working set. */
 
@@ -129,12 +130,6 @@ export function measureMemory(tree: readonly ProcessInfo[], roots: TreeRoots, sc
     processes,
     excluded,
   };
-}
-
-export function median(values: readonly number[]): number {
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1 ? (sorted[middle] ?? 0) : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
 }
 
 export function medianBytesByRole(runs: readonly MemoryBreakdown[]): Record<ProcessRole, number> {

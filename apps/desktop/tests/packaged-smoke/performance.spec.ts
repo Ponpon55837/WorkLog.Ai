@@ -22,7 +22,8 @@ import {
   type PackagedSandbox,
   type RunningApp,
 } from "./helpers.js";
-import { formatBreakdown, measureMemory, median, medianBytesByRole, type MemoryBreakdown } from "./memory-breakdown.js";
+import { formatBreakdown, measureMemory, medianBytesByRole, type MemoryBreakdown } from "./memory-breakdown.js";
+import { median } from "./median.js";
 import {
   PACKAGED_IDLE_SETTLE_MS,
   PACKAGED_PERF_RUNS,
@@ -65,6 +66,12 @@ function emptySamples(): MutableSamples {
 const samples = emptySamples();
 const idleBreakdowns: MemoryBreakdown[] = [];
 
+// The summary test's timeout leaves room for one more batch of runs, which stops starting runs after this budget.
+const RESAMPLE_BUDGET_MS = 180_000;
+const SUMMARY_TIMEOUT_MS = 300_000;
+
+type ResampleState = "none" | "pending" | "done" | `failed: ${string}`;
+
 let sandbox: PackagedSandbox | undefined;
 let app: RunningApp | undefined;
 
@@ -85,7 +92,7 @@ async function cleanUp(): Promise<void> {
   sandbox = undefined;
 }
 
-async function measureStartCycle(into: MutableSamples): Promise<void> {
+async function measureStartCycle(into: MutableSamples, breakdowns: MemoryBreakdown[]): Promise<void> {
   sandbox = await createSandbox({ withDatabase: true });
 
   let started = performance.now();
@@ -119,7 +126,7 @@ async function measureStartCycle(into: MutableSamples): Promise<void> {
     { mainPid: app.pid, backendPid: backend.pid },
     { programDirectory: programDirectory(packagedExecutable()), runtimeDirectory: join(sandbox.userData, "runtime") },
   );
-  idleBreakdowns.push(breakdown);
+  breakdowns.push(breakdown);
   into.idleMemoryBytes.push(breakdown.totalBytes);
   into.backendMemoryBytes.push(breakdown.byRole.backend.bytes);
   process.stdout.write(`${formatBreakdown(breakdown)}\n`);
@@ -144,13 +151,45 @@ async function measureRepairWindow(into: MutableSamples): Promise<void> {
   into.repairWindowMs.push(performance.now() - started);
 }
 
+interface Resampled {
+  readonly samples: PackagedPerfSamples;
+  readonly idleBreakdowns: readonly MemoryBreakdown[];
+}
+
+/** One more batch of the same size for the metrics that missed their gate; the others keep their first batch. */
+async function resample(missed: readonly Metric[]): Promise<Resampled> {
+  const deadline = Date.now() + RESAMPLE_BUDGET_MS;
+  const extra = emptySamples();
+  const extraBreakdowns: MemoryBreakdown[] = [];
+  const scenarios: [(into: MutableSamples) => Promise<void>, boolean][] = [
+    [(into) => measureStartCycle(into, extraBreakdowns), missed.some((metric) => metric !== "repairWindowMs")],
+    [measureRepairWindow, missed.includes("repairWindowMs")],
+  ];
+  for (const [scenario, needed] of scenarios) {
+    if (!needed) continue;
+    for (let run = 1; run <= PACKAGED_PERF_RUNS; run += 1) {
+      if (Date.now() > deadline) throw new Error(`the re-sample budget of ${RESAMPLE_BUDGET_MS} ms is used up`);
+      try {
+        await scenario(extra);
+      } finally {
+        await cleanUp();
+      }
+    }
+  }
+  const memoryResampled = missed.includes("idleMemoryBytes") || missed.includes("backendMemoryBytes");
+  return {
+    samples: withResamples(samples, extra, missed),
+    idleBreakdowns: memoryResampled ? [...idleBreakdowns, ...extraBreakdowns] : idleBreakdowns,
+  };
+}
+
 test.describe.configure({ mode: "serial" });
 
 test.afterEach(cleanUp);
 
 for (let run = 1; run <= PACKAGED_PERF_RUNS; run += 1) {
   test(`first start, warm start, idle memory and quit (run ${run} of ${PACKAGED_PERF_RUNS})`, async () => {
-    await measureStartCycle(samples);
+    await measureStartCycle(samples, idleBreakdowns);
   });
 }
 
@@ -160,34 +199,18 @@ for (let run = 1; run <= PACKAGED_PERF_RUNS; run += 1) {
   });
 }
 
-/** One more batch of the same size for the metrics that missed their gate; the others keep their first batch. */
-async function resample(missed: readonly Metric[]): Promise<PackagedPerfSamples> {
-  const extra = emptySamples();
-  const scenarios: [(into: MutableSamples) => Promise<void>, boolean][] = [
-    [measureStartCycle, missed.some((metric) => metric !== "repairWindowMs")],
-    [measureRepairWindow, missed.includes("repairWindowMs")],
-  ];
-  for (const [scenario, needed] of scenarios) {
-    if (!needed) continue;
-    for (let run = 1; run <= PACKAGED_PERF_RUNS; run += 1) {
-      try {
-        await scenario(extra);
-      } finally {
-        await cleanUp();
-      }
-    }
-  }
-  return withResamples(samples, extra, missed);
-}
-
-/** The nearest-rank 95th percentile (with three runs it is the slowest one). */
+/** The nearest-rank 95th percentile (the slowest sample while there are fewer than 20). */
 function p95(values: readonly number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0;
 }
 
 /** One compact line for the job log; the numbers are the ones the gates use, only rounded for reading. */
-function perfSummary(results: Record<Metric, MetricResult>, resampled: readonly Metric[]): string {
+function perfSummary(
+  results: Record<Metric, MetricResult>,
+  resample: ResampleState,
+  missed: readonly Metric[],
+): string {
   const mib = (bytes: number): string => (bytes / (1024 * 1024)).toFixed(1);
   const repair = results.repairWindowMs;
   return (
@@ -196,36 +219,33 @@ function perfSummary(results: Record<Metric, MetricResult>, resampled: readonly 
     `coldStartMs median=${results.firstStartMs.median} (warmStartMs median=${results.warmStartMs.median}) | ` +
     `quitMs median=${results.quitMs.median} | ` +
     `idleRssMiB median=${mib(results.idleMemoryBytes.median)} backend=${mib(results.backendMemoryBytes.median)} | ` +
-    `resampled=${resampled.length > 0 ? resampled.join(",") : "none"}`
+    `resample=${resample}${missed.length > 0 ? ` (${missed.join(",")})` : ""}`
   );
 }
 
-/** Every sample of every metric, so a slow job can be told from a regression without the JSON. */
 function sampleLines(results: Record<Metric, MetricResult>): string {
   return Object.entries(results)
     .map(([metric, result]) => `[perf samples] ${metric} ${result.unit} [${result.samples.join(", ")}]`)
     .join("\n");
 }
 
-test("the medians stay inside the gates and are written for CI", async () => {
-  test.setTimeout(600_000);
+function publishResults(
+  collected: PackagedPerfSamples,
+  idle: readonly MemoryBreakdown[],
+  missed: readonly Metric[],
+  resampleState: ResampleState,
+): Record<Metric, MetricResult> {
   const gates = packagedGatesForPlatform(process.platform);
-  const missed = metricsOverGate(samples, gates);
-  const collected = missed.length > 0 ? await resample(missed) : samples;
   const results = {} as Record<Metric, MetricResult>;
   for (const metric of Object.keys(samples) as Metric[]) {
     const values = collected[metric];
-    const resampled = missed.includes(metric);
-    expect(values.length, `${metric} was measured ${resampled ? 2 : 1} x ${PACKAGED_PERF_RUNS} times`).toBe(
-      resampled ? 2 * PACKAGED_PERF_RUNS : PACKAGED_PERF_RUNS,
-    );
     const value = median(values);
     results[metric] = {
       samples: values.map((sample) => Math.round(sample)),
       median: Math.round(value),
       gate: gates[metric],
       unit: metric.endsWith("Bytes") ? "bytes" : "ms",
-      resampled,
+      resampled: resampleState === "done" && missed.includes(metric),
       passed: value <= gates[metric],
     };
   }
@@ -233,23 +253,44 @@ test("the medians stay inside the gates and are written for CI", async () => {
     platform: process.platform,
     arch: process.arch,
     runs: PACKAGED_PERF_RUNS,
-    resampled: missed,
+    missedFirstBatch: missed,
+    resample: resampleState,
     idleSettleMs: PACKAGED_IDLE_SETTLE_MS,
     data: "synthetic",
     measuredAt: new Date().toISOString(),
     metrics: results,
     idleMemory: {
-      metric: idleBreakdowns[0]?.metric,
-      medianBytesByRole: medianBytesByRole(idleBreakdowns),
-      medianRssBytes: Math.round(median(idleBreakdowns.map((run) => run.totalRssBytes))),
-      runs: idleBreakdowns,
+      metric: idle[0]?.metric,
+      medianBytesByRole: medianBytesByRole([...idle]),
+      medianRssBytes: Math.round(median(idle.map((run) => run.totalRssBytes))),
+      runs: idle,
     },
   };
   const json = `${JSON.stringify(report, null, 2)}\n`;
   mkdirSync(resultsDirectory, { recursive: true });
   writeFileSync(join(resultsDirectory, `packaged-perf-${process.platform}.json`), json);
   process.stdout.write(`packaged-perf-${process.platform}.json\n${json}`);
-  process.stdout.write(`${sampleLines(results)}\n${perfSummary(results, missed)}\n`);
+  process.stdout.write(`${sampleLines(results)}\n${perfSummary(results, resampleState, missed)}\n`);
+  return results;
+}
+
+test("the medians stay inside the gates and are written for CI", async () => {
+  test.setTimeout(SUMMARY_TIMEOUT_MS);
+  const missed = metricsOverGate(samples, packagedGatesForPlatform(process.platform));
+  let results = publishResults(samples, idleBreakdowns, missed, missed.length > 0 ? "pending" : "none");
+  if (missed.length > 0) {
+    let state: ResampleState = "pending";
+    let collected: Resampled = { samples, idleBreakdowns };
+    try {
+      collected = await resample(missed);
+      state = "done";
+    } catch (error) {
+      state = `failed: ${error instanceof Error ? error.message : String(error)}`;
+      throw error;
+    } finally {
+      results = publishResults(collected.samples, collected.idleBreakdowns, missed, state);
+    }
+  }
   for (const [metric, result] of Object.entries(results)) {
     expect(result.median, `${metric} median ${result.median} ${result.unit} (gate ${result.gate})`).toBeLessThanOrEqual(
       result.gate,

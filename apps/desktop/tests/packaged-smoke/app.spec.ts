@@ -44,7 +44,7 @@ import {
 } from "./helpers.js";
 
 const DASHBOARD_SETTLE_MS = 1_500;
-// The hand-over may take 10 s or three times this test's own first launch, whichever is longer, so a slow runner is
+// The hand-over may take 10 s or three times this test's own first backend start after the install, whichever is longer, so a slow runner is
 // judged against itself; `runToExit`'s 20 s timeout stays the hard ceiling.
 const SECOND_LAUNCH_FLOOR_MS = 10_000;
 const SECOND_LAUNCH_FIRST_LAUNCH_FACTOR = 3;
@@ -165,22 +165,29 @@ test("an interactive start is MANAGED without Node on PATH, on the bundled runti
 
 test("a second launch exits quickly and leaves the first instance with the only backend", async () => {
   const current = await newSandbox();
-  const firstStarted = performance.now();
   const first = launch();
+  const launchedAt = performance.now();
+  // The first start installs the runtime; only the time after the install is this runner's speed at starting the backend.
+  const installedAt = waitForLog(current, /\[shell\] runtime installed /).then(
+    () => performance.now(),
+    () => launchedAt,
+  );
   const backend = await waitForManaged(current);
-  const firstLaunchMs = performance.now() - firstStarted;
+  const firstLaunchMs = performance.now() - (await installedAt);
   // The first instance is a background launch: it opened nothing. Only the second launch asks it to open the Dashboard.
   await sleep(DASHBOARD_SETTLE_MS);
   expect(logLines(current, /\[shell\] dashboard opened/), "a background launch opens no Dashboard").toEqual([]);
 
-  const started = performance.now();
-  // The hand-over makes the first instance open the Dashboard: the browser it starts is expected (and ended on CI).
-  const second = await runToExit(current, [], 20_000, { opensDashboard: true });
-  const handoverMs = performance.now() - started;
   const boundMs = Math.max(SECOND_LAUNCH_FLOOR_MS, SECOND_LAUNCH_FIRST_LAUNCH_FACTOR * firstLaunchMs);
   process.stdout.write(
-    `[perf] second launch handover ms=${Math.round(handoverMs)} first launch ms=${Math.round(firstLaunchMs)} bound ms=${Math.round(boundMs)}\n`,
+    `[perf] second launch first launch ms=${Math.round(firstLaunchMs)} bound ms=${Math.round(boundMs)}\n`,
   );
+  const started = performance.now();
+  // The hand-over makes the first instance open the Dashboard: the browser it starts is expected (and ended on CI).
+  const second = await runToExit(current, [], 20_000, { opensDashboard: true }).finally(() => {
+    process.stdout.write(`[perf] second launch handover ms=${Math.round(performance.now() - started)}\n`);
+  });
+  const handoverMs = performance.now() - started;
   expect(second.code).toBe(0);
   expect(handoverMs, `the hand-over took ${Math.round(handoverMs)} ms, bound ${Math.round(boundMs)} ms`).toBeLessThan(
     boundMs,
