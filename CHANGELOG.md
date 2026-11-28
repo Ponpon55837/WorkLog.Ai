@@ -6,7 +6,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
-- `work_get_knowledge_page_context` accepts `sessionsSeenIn`, the `reviewToken` of an earlier full or review read. When an Agent maintains several pages, the new Sessions that read already showed come back as `{ id, title, reasons, previewSeen: true }` stubs instead of repeating their previews. Stubs count against the same 12,000-character Session budget, a Session changed after the token was issued or that is also a changed source keeps its preview, and a full read, a token from another project, or a malformed token never stubs (a malformed or foreign one adds a warning). The `reviewToken` from a read that shows new Sessions also records the shown range and issue time; tokens without them still save as before.
+- `work_get_knowledge_page_context` accepts `sessionsSeenIn`: when an Agent maintains several pages, it keeps the first page read's `reviewToken` (a plain or `reviewOnly` read) and passes it on every later read. The new Sessions that first read showed come back as `{ id, title, reasons, previewSeen: true }` stubs instead of repeating their previews, in `reviewOnly` and plain review reads alike. A token that shows new Sessions records their range and a short digest of their previews; if any of them changed, was imported, voided or added in between, nothing is stubbed and a warning says so. Stubs count against the same 12,000-character Session budget, a Session that is also a changed source keeps its preview, and a full read never stubs. A malformed token, one from another project, or one that shows no new Sessions (deduped, focused or older) is ignored with a warning; tokens without the new fields still save as before.
 
 ## [1.6.97] - 2026-11-28
 

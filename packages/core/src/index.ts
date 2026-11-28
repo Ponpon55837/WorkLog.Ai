@@ -2450,7 +2450,6 @@ export interface KnowledgePageContextQuery {
   query?: string;
   headings?: string[];
   reviewOnly?: boolean;
-  /** The reviewToken of an earlier full or review read: its new Sessions come back as stubs. */
   sessionsSeenIn?: string;
 }
 
@@ -2541,6 +2540,7 @@ export interface KnowledgePageFocusedContext {
   size?: KnowledgePageSize;
   splitSuggestion?: KnowledgePageSplitSuggestion;
   emptyPageHint?: string;
+  warnings?: string[];
 }
 
 export interface KnowledgePageReviewContext {
@@ -2558,7 +2558,7 @@ export interface KnowledgePageReviewContext {
   otherSections: Array<{ heading: string; chars: number }>;
   size: KnowledgePageSize;
   splitSuggestion?: KnowledgePageSplitSuggestion;
-  sessions: KnowledgePageContextSession[];
+  sessions: Array<KnowledgePageContextSession | KnowledgePageContextSessionStub>;
   unmappedSessions: Array<Pick<KnowledgePageContextSession, "id" | "title" | "completedAt">>;
   checkedThroughCandidate?: string;
   omittedSessionFields: KnowledgePageContext["omittedSessionFields"];
@@ -2567,6 +2567,7 @@ export interface KnowledgePageReviewContext {
   reviewToken: string;
   readFullWith: string;
   emptyPageHint?: string;
+  warnings?: string[];
 }
 
 export type KnowledgePageSkippedResult = {

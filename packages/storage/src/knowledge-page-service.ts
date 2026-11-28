@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   KNOWLEDGE_PAGE_DEFAULTS,
@@ -157,7 +157,6 @@ type ContextSessionRow = {
   title: string;
   completed_at: string;
   work_summary_json: string | null;
-  content_updated_at: string;
 };
 
 interface ReviewSources {
@@ -181,7 +180,7 @@ interface ContextSessions {
   sessions: ContextSessionItem[];
   truncated: boolean;
   through: CoveragePoint;
-  windowFrom?: CompletedSessionCursor;
+  shownRows: ContextSessionRow[];
 }
 
 type NewSessionSections = Map<string, Map<number, Set<KnowledgePageSectionReviewReason>>>;
@@ -228,8 +227,13 @@ const DIGEST_REVIEW_SOURCE_LIMIT = 8;
 const DIGEST_SOURCE_SESSION_LIMIT = 8;
 const REVIEW_TOKEN_PREFIX = "kpr1.";
 const REVIEW_TOKEN_FIELD_LIMIT = 200;
-const SESSIONS_SEEN_IN_IGNORED_WARNING =
+const SESSIONS_SEEN_IN_INVALID_WARNING =
   "sessionsSeenIn was ignored: it is not a reviewToken from this project, so every Session preview is included.";
+const SESSIONS_SEEN_IN_WITHOUT_WINDOW_WARNING =
+  "sessionsSeenIn was ignored: that reviewToken shows no new Session previews (it came from a deduped, focused or older read). Pass the reviewToken of your first plain or reviewOnly page read.";
+const SESSIONS_SEEN_IN_STALE_WARNING =
+  "sessionsSeenIn was ignored: a Session that read showed has changed since, so every preview is included. Pass a reviewToken from a fresh read.";
+const SESSIONS_SEEN_IN_FOCUSED_WARNING = "sessionsSeenIn was ignored: a focused read returns no Sessions.";
 const MISSING_REVIEW_TOKEN_WARNING =
   "Saved without reviewToken: no check for a newer page version was made, and Sessions finished after your read still count as new. Next time pass the reviewToken from work_get_knowledge_page_context.";
 const COVERAGE_NOT_ADVANCED_HINT =
@@ -292,11 +296,21 @@ function sessionPreview(
   };
 }
 
-function sessionStub(
+function previewOrStub(
   row: ContextSessionRow,
-  reasons: KnowledgePageContextSessionReason[],
-): KnowledgePageContextSessionStub {
-  return { id: row.id, title: row.title, reasons, previewSeen: true };
+  reasons: KnowledgePageContextSessionReason[] | undefined,
+  seen: ReadonlySet<string>,
+): ContextSessionItem {
+  if (reasons?.length === 1 && reasons[0] === "new" && seen.has(row.id)) {
+    return { id: row.id, title: row.title, reasons, previewSeen: true };
+  }
+  return sessionPreview(row, reasons);
+}
+
+function previewsDigest(rows: readonly ContextSessionRow[]): string {
+  const hash = createHash("sha256");
+  for (const row of rows) hash.update(`${JSON.stringify(sessionPreview(row, undefined))}\n`);
+  return hash.digest("hex").slice(0, 16);
 }
 
 function skipped(decision: PolicyDecision): KnowledgePageSkippedResult {
@@ -349,10 +363,11 @@ interface CoveragePoint {
 
 type WrittenVersion<Refusal> = { redactions: ReturnType<typeof combineRedactionSummaries> } | { refusal: Refusal };
 
-/** The Sessions a read showed in full: from `from` through the token's `through`, both included. */
 interface ShownWindow {
-  from: CompletedSessionCursor;
-  issuedAt: string;
+  fromId: string;
+  count: number;
+  mask: string;
+  digest: string;
 }
 
 interface ReviewTokenContent {
@@ -399,7 +414,12 @@ function encodeReviewToken(content: ReviewTokenContent): string {
     at: content.through.completedAt,
     ...(content.through.id !== undefined ? { id: content.through.id } : {}),
     ...(content.window
-      ? { fa: content.window.from.completedAt, fi: content.window.from.id, iat: content.window.issuedAt }
+      ? {
+          fi: content.window.fromId,
+          n: content.window.count,
+          m: content.window.mask,
+          d: content.window.digest,
+        }
       : {}),
   };
   return REVIEW_TOKEN_PREFIX + Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
@@ -409,7 +429,8 @@ function pageContext(
   row: PageRow,
   page: KnowledgePageRecord,
   mode: KnowledgePageContext["mode"],
-  { sessions, truncated, through, windowFrom }: ContextSessions,
+  { sessions, truncated, through }: ContextSessions,
+  window?: ShownWindow,
 ): KnowledgePageContext {
   return {
     outcome: "knowledge_page_context",
@@ -419,12 +440,7 @@ function pageContext(
     omittedSessionFields: ["summary", "workSummary.scope", "workSummary.verification"],
     sessionReadWith: "work_get_session",
     truncated,
-    reviewToken: encodeReviewToken({
-      pageId: row.id,
-      version: row.version,
-      through,
-      ...(windowFrom ? { window: { from: windowFrom, issuedAt: nowIso() } } : {}),
-    }),
+    reviewToken: encodeReviewToken({ pageId: row.id, version: row.version, through, ...(window ? { window } : {}) }),
   };
 }
 
@@ -437,15 +453,24 @@ function decodeReviewToken(token: string): ReviewTokenContent | undefined {
     return undefined;
   }
   if (typeof payload !== "object" || payload === null) return undefined;
-  const { p, v, at, id, fa, fi, iat } = payload as Record<string, unknown>;
+  const { p, v, at, id, fi, n, m, d } = payload as Record<string, unknown>;
   const boundedText = (value: unknown): value is string =>
     typeof value === "string" && value.length <= REVIEW_TOKEN_FIELD_LIMIT;
   if (!boundedText(p) || p.length === 0 || !boundedText(at)) return undefined;
   if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0) return undefined;
   if (id !== undefined && (!boundedText(id) || id.length === 0)) return undefined;
   const window: ShownWindow | undefined =
-    id !== undefined && boundedText(fa) && boundedText(fi) && fi.length > 0 && boundedText(iat)
-      ? { from: { completedAt: fa, id: fi }, issuedAt: iat }
+    boundedText(fi) &&
+    fi.length > 0 &&
+    typeof n === "number" &&
+    Number.isInteger(n) &&
+    n >= 1 &&
+    n <= CONTEXT_SESSION_LIMIT &&
+    typeof m === "string" &&
+    /^[0-9a-f]{1,16}$/.test(m) &&
+    typeof d === "string" &&
+    /^[0-9a-f]{16}$/.test(d)
+      ? { fromId: fi, count: n, mask: m, digest: d }
       : undefined;
   return {
     pageId: p,
@@ -830,28 +855,39 @@ export class KnowledgePageService {
     const limits = knowledgePageLimits(page.sections);
     const hint = emptyPageHint(row, page.sections);
     if (query.reviewOnly) {
-      const context = this.reviewOnlyContext(row, page, limits.size);
-      return { ...context, ...(limits.splitSuggestion ? { splitSuggestion: limits.splitSuggestion } : {}), ...hint };
+      const seen = this.seenSessions(row, query.sessionsSeenIn, true);
+      const context = this.reviewOnlyContext(row, page, limits.size, seen.ids);
+      return {
+        ...context,
+        ...(seen.warning ? { warnings: [seen.warning] } : {}),
+        ...(limits.splitSuggestion ? { splitSuggestion: limits.splitSuggestion } : {}),
+        ...hint,
+      };
     }
     if (query.query !== undefined || query.headings !== undefined) {
       const through = this.reviewedPoint(row);
       return {
         ...focusedContext(page, query, encodeReviewToken({ pageId: row.id, version: row.version, through })),
+        ...(query.sessionsSeenIn !== undefined ? { warnings: [SESSIONS_SEEN_IN_FOCUSED_WARNING] } : {}),
         ...nearLimitFields(limits),
         ...hint,
       };
     }
     if (row.version === 0 || row.update_requested_at) {
+      const sessions = this.contextSessions(decision.project.id);
+      const seen = this.seenSessions(row, query.sessionsSeenIn, false);
       return {
-        ...pageContext(row, page, "full", this.contextSessions(decision.project.id)),
+        ...pageContext(row, page, "full", sessions, this.shownWindow(row.project_id, sessions.shownRows)),
+        ...(seen.warning ? { warnings: [seen.warning] } : {}),
         ...nearLimitFields(limits),
         ...hint,
       };
     }
     const sources = this.reviewSources(row, page);
-    const seen = this.seenSessionIds(row, sources.newRows, query.sessionsSeenIn);
+    const seen = this.seenSessions(row, query.sessionsSeenIn, true);
+    const sessions = this.reviewSessions(sources, seen.ids);
     return {
-      ...pageContext(row, page, "review", this.reviewSessions(sources, seen.ids)),
+      ...pageContext(row, page, "review", sessions, this.shownWindow(row.project_id, sessions.shownRows)),
       ...(seen.warning ? { warnings: [seen.warning] } : {}),
       ...nearLimitFields(limits),
       ...hint,
@@ -1836,37 +1872,68 @@ export class KnowledgePageService {
     return { redactions: combineRedactionSummaries(redactedTitle.redactions, redactedSections.redactions) };
   }
 
-  private seenSessionIds(
+  private seenSessions(
     row: PageRow,
-    newRows: readonly ContextSessionRow[],
     token: string | undefined,
+    stubbing: boolean,
   ): { ids: ReadonlySet<string>; warning?: string } {
-    if (token === undefined) return { ids: new Set() };
+    const none = new Set<string>();
+    if (token === undefined) return { ids: none };
     const content = decodeReviewToken(token);
     if (!content || this.findPageById(content.pageId)?.project_id !== row.project_id) {
-      return { ids: new Set(), warning: SESSIONS_SEEN_IN_IGNORED_WARNING };
+      return { ids: none, warning: SESSIONS_SEEN_IN_INVALID_WARNING };
     }
-    const { window, through } = content;
-    if (!window || through.id === undefined) return { ids: new Set() };
-    const last = { completedAt: through.completedAt, id: through.id };
+    if (!stubbing) return { ids: none };
+    const { window } = content;
+    if (!window) return { ids: none, warning: SESSIONS_SEEN_IN_WITHOUT_WINDOW_WARNING };
+    const rows = this.windowRows(row.project_id, window.fromId, window.count);
+    const seen = rows.filter((_, index) => (BigInt(`0x${window.mask}`) >> BigInt(index)) & 1n);
+    if (rows[0]?.id !== window.fromId || rows.length !== window.count || previewsDigest(seen) !== window.digest) {
+      return { ids: none, warning: SESSIONS_SEEN_IN_STALE_WARNING };
+    }
+    return { ids: new Set(seen.map((session) => session.id)) };
+  }
+
+  private windowRows(projectId: string, fromId: string, limit: number): ContextSessionRow[] {
+    const from = this.db
+      .prepare("SELECT completed_at FROM sessions WHERE id = ? AND project_id = ?")
+      .get(fromId, projectId) as { completed_at: string } | undefined;
+    if (!from) return [];
+    return this.db
+      .prepare(
+        `SELECT id, title, completed_at, work_summary_json FROM sessions
+         WHERE project_id = ? AND voided_at IS NULL AND ${NOT_IN_PROGRESS}
+           AND (completed_at > ? OR (completed_at = ? AND id >= ?))
+         ORDER BY completed_at ASC, id ASC
+         LIMIT ?`,
+      )
+      .all(projectId, from.completed_at, from.completed_at, fromId, limit) as ContextSessionRow[];
+  }
+
+  /** `shown` is the Sessions whose previews the read returned, oldest first. */
+  private shownWindow(projectId: string, shown: readonly ContextSessionRow[]): ShownWindow | undefined {
+    const first = shown[0];
+    const last = shown.at(-1);
+    if (!first || !last) return undefined;
+    const rows = this.windowRows(projectId, first.id, CONTEXT_SESSION_LIMIT);
+    const count = rows.findIndex((session) => session.id === last.id) + 1;
+    if (count === 0 || rows[0]?.id !== first.id) return undefined;
+    const shownIds = new Set(shown.map((session) => session.id));
+    const flags = rows.slice(0, count).map((session) => shownIds.has(session.id));
+    if (flags.filter(Boolean).length !== shownIds.size) return undefined;
+    const mask = flags.reduce((bits, flag, index) => (flag ? bits | (1n << BigInt(index)) : bits), 0n);
     return {
-      ids: new Set(
-        newRows
-          .filter(
-            (session) =>
-              compareCursor({ completedAt: session.completed_at, id: session.id }, window.from) >= 0 &&
-              compareCursor({ completedAt: session.completed_at, id: session.id }, last) <= 0 &&
-              session.content_updated_at < window.issuedAt,
-          )
-          .map((session) => session.id),
-      ),
+      fromId: first.id,
+      count,
+      mask: mask.toString(16),
+      digest: previewsDigest(rows.filter((_, index) => flags[index])),
     };
   }
 
   private contextSessions(projectId: string): ContextSessions {
     const rows = this.db
       .prepare(
-        `SELECT id, title, completed_at, work_summary_json, COALESCE(content_updated_at, updated_at) AS content_updated_at FROM sessions
+        `SELECT id, title, completed_at, work_summary_json FROM sessions
          WHERE project_id = ? AND voided_at IS NULL AND ${NOT_IN_PROGRESS}
          ORDER BY completed_at DESC, id DESC
          LIMIT ?`,
@@ -1877,12 +1944,11 @@ export class KnowledgePageService {
       rows.length > CONTEXT_SESSION_LIMIT,
     );
     const newest = budgeted.shown[0]?.row;
-    const oldest = budgeted.shown.at(-1)?.row;
     return {
       sessions: budgeted.sessions,
       truncated: budgeted.truncated,
       through: newest ? { completedAt: newest.completed_at, id: newest.id } : { completedAt: "" },
-      ...(oldest ? { windowFrom: { completedAt: oldest.completed_at, id: oldest.id } } : {}),
+      shownRows: budgeted.shown.map(({ row }) => row).reverse(),
     };
   }
 
@@ -1898,8 +1964,8 @@ export class KnowledgePageService {
     const shown: ContextSessionEntry[] = [];
     for (const entry of entries) {
       const { row, reasons } = entry;
-      const isStub = seen.has(row.id) && reasons?.length === 1 && reasons[0] === "new";
-      const session = isStub ? sessionStub(row, reasons) : sessionPreview(row, reasons);
+      const session = previewOrStub(row, reasons, seen);
+      const isStub = "previewSeen" in session;
       const size = JSON.stringify(session).length;
       if (size > budget) {
         truncated = true;
@@ -1932,13 +1998,12 @@ export class KnowledgePageService {
     );
     // New Sessions come last, oldest first, and the budget keeps a prefix, so the last one shown is the coverage.
     const budgetedNew = budgeted.shown.filter(({ reasons }) => reasons?.includes("new")).map(({ row }) => row);
-    const first = budgetedNew[0];
     const last = budgetedNew.at(-1);
     return {
       sessions: budgeted.sessions,
       truncated: budgeted.truncated,
       through: last ? { completedAt: last.completed_at, id: last.id } : after,
-      ...(first && !budgeted.stubbed ? { windowFrom: { completedAt: first.completed_at, id: first.id } } : {}),
+      shownRows: budgeted.stubbed ? [] : budgetedNew,
     };
   }
 
@@ -1946,6 +2011,7 @@ export class KnowledgePageService {
     row: PageRow,
     page: KnowledgePageRecord,
     size: KnowledgePageSize,
+    seen: ReadonlySet<string>,
   ): KnowledgePageReviewContext {
     const sources = this.reviewSources(row, page);
     const { after, newRows, changedRows } = sources;
@@ -1990,7 +2056,9 @@ export class KnowledgePageService {
     let truncated = false;
     let budget = CONTEXT_CHAR_BUDGET;
     let unmappedBudget = UNMAPPED_SESSION_CHAR_BUDGET;
-    const sessions: KnowledgePageContextSession[] = [];
+    const sessions: ContextSessionItem[] = [];
+    const shownNewRows: ContextSessionRow[] = [];
+    let stubbed = false;
     const unmappedSessions: KnowledgePageReviewContext["unmappedSessions"] = [];
     for (const session of changedRows) {
       if (consideredNewIds.has(session.id)) continue;
@@ -2007,11 +2075,17 @@ export class KnowledgePageService {
     if (!truncated) {
       for (const session of consideredNew) {
         if (mapped.has(session.id) || changedIds.has(session.id)) {
-          const preview = sessionPreview(session, changedIds.has(session.id) ? ["new", "source_changed"] : ["new"]);
+          const preview = previewOrStub(
+            session,
+            changedIds.has(session.id) ? ["new", "source_changed"] : ["new"],
+            seen,
+          );
           const size = JSON.stringify(preview).length;
           if (size > budget) break;
           budget -= size;
           sessions.push(preview);
+          if ("previewSeen" in preview) stubbed = true;
+          else shownNewRows.push(session);
         } else {
           const listed = { id: session.id, title: session.title, completedAt: session.completed_at };
           const size = JSON.stringify(listed).length;
@@ -2076,8 +2150,15 @@ export class KnowledgePageService {
       sections.length > Math.max(1, page.sections.length / 2) ||
       sectionChars > REVIEW_SECTION_CONTENT_BUDGET ||
       JSON.stringify(result).length >=
-        JSON.stringify(pageContext(row, page, "review", this.reviewSessions(sources))).length;
-    if (!useFullRead) return result;
+        JSON.stringify(pageContext(row, page, "review", this.reviewSessions(sources, seen))).length;
+    if (!useFullRead) {
+      const window = stubbed ? undefined : this.shownWindow(row.project_id, shownNewRows);
+      if (!window) return result;
+      return {
+        ...result,
+        reviewToken: encodeReviewToken({ pageId: row.id, version: row.version, through: after, window }),
+      };
+    }
     return {
       ...base,
       review: "use_full_read",
@@ -2101,7 +2182,7 @@ export class KnowledgePageService {
   private newSessionRows(projectId: string, after: CoveragePoint): ContextSessionRow[] {
     return this.db
       .prepare(
-        `SELECT id, title, completed_at, work_summary_json, COALESCE(content_updated_at, updated_at) AS content_updated_at FROM sessions
+        `SELECT id, title, completed_at, work_summary_json FROM sessions
          WHERE project_id = ? AND voided_at IS NULL AND ${NOT_IN_PROGRESS}
            AND (completed_at > ? OR (completed_at = ? AND id > ?))
          ORDER BY completed_at ASC, id ASC
@@ -2126,7 +2207,7 @@ export class KnowledgePageService {
     if (changedIds.length === 0) return [];
     return this.db
       .prepare(
-        `SELECT id, title, completed_at, work_summary_json, COALESCE(content_updated_at, updated_at) AS content_updated_at FROM sessions
+        `SELECT id, title, completed_at, work_summary_json FROM sessions
          WHERE project_id = ? AND id IN (SELECT value FROM json_each(?))
          ORDER BY completed_at ASC, id ASC`,
       )

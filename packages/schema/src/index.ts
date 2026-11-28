@@ -1116,9 +1116,13 @@ export const knowledgePageContextQuerySchemaBase = z
       .describe("Only the sections that need review, their reasons and Sessions; not with query or headings."),
     sessionsSeenIn: z
       .string()
+      .trim()
+      .min(1)
       .max(1_000)
       .optional()
-      .describe("reviewToken of an earlier full or review read; Sessions it showed return as previewSeen stubs."),
+      .describe(
+        "reviewToken of the first plain or reviewOnly page read; Sessions it showed return as previewSeen stubs.",
+      ),
   })
   .strict();
 export const knowledgePageContextQuerySchema = knowledgePageContextQuerySchemaBase.superRefine((value, context) => {
