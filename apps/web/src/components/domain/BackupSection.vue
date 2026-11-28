@@ -558,7 +558,6 @@ onBeforeUnmount(() => {
         <UiDisclosure
           v-if="previewSummary.breakdown.length > 0"
           :title="t('projects.breakdownByRecordType')"
-          :count="previewSummary.breakdown.length"
           data-testid="project-import-breakdown"
         >
           <ul class="transfer-breakdown" tabindex="0" :aria-label="t('projects.breakdownByRecordType')">
@@ -861,6 +860,11 @@ onBeforeUnmount(() => {
   padding-top: var(--space-4);
   border-top: 1px solid var(--border-muted);
   scroll-margin-top: calc(var(--page-toolbar-height, 0px) + var(--space-2));
+}
+
+.transfer-result:focus,
+.transfer-preview:focus {
+  outline: none;
 }
 
 .transfer-preview__action {
