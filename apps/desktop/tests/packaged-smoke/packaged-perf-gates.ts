@@ -1,4 +1,8 @@
+import { median } from "./median.js";
+
 // Each item is measured PACKAGED_PERF_RUNS times and the median is gated, so one slow CI run does not fail the job.
+// A metric whose median misses its gate is measured PACKAGED_PERF_RUNS more times and the median of all samples is
+// gated, so a slow runner has to be slow for the whole second batch as well. The gate values never change.
 export const PACKAGED_PERF_RUNS = 3;
 
 // The backend's start-up work and first GC are over by then.
@@ -56,6 +60,24 @@ export const PACKAGED_PERF_GATES: Readonly<Record<"linux" | "darwin" | "win32", 
     backendMemoryBytes: 128 * MB,
   },
 };
+
+export type PackagedPerfMetric = keyof PackagedPerfGates;
+
+export type PackagedPerfSamples = Record<PackagedPerfMetric, readonly number[]>;
+
+export function metricsOverGate(samples: PackagedPerfSamples, gates: PackagedPerfGates): PackagedPerfMetric[] {
+  return (Object.keys(gates) as PackagedPerfMetric[]).filter((metric) => median(samples[metric]) > gates[metric]);
+}
+
+export function withResamples(
+  first: PackagedPerfSamples,
+  extra: PackagedPerfSamples,
+  resampled: readonly PackagedPerfMetric[],
+): PackagedPerfSamples {
+  const combined = { ...first };
+  for (const metric of resampled) combined[metric] = [...first[metric], ...extra[metric]];
+  return combined;
+}
 
 export function packagedGatesForPlatform(platform: NodeJS.Platform): PackagedPerfGates {
   if (platform === "linux" || platform === "darwin" || platform === "win32") return PACKAGED_PERF_GATES[platform];
