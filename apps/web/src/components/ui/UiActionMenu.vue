@@ -37,8 +37,9 @@ const appliedText = computed(() => {
 
 const accessibleName = computed(() => {
   if (!props.ariaLabel) return undefined;
-  const selected = applied.value ? props.items.find((item) => item.value === model.value) : undefined;
-  return selected ? t("ui.filterValue", { label: props.ariaLabel, value: selected.label }) : props.ariaLabel;
+  return appliedText.value
+    ? t("ui.filterValue", { label: props.ariaLabel, value: appliedText.value })
+    : props.ariaLabel;
 });
 
 function choose(value: T): void {

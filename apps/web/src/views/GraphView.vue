@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { CalendarRange, Flame, FolderGit2, Search, SearchX, Share2 } from "lucide-vue-next";
+import { CalendarRange, Flame, FolderGit2, Search, SearchX, Share2, SlidersHorizontal } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import type { GraphNode } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
@@ -23,6 +23,8 @@ import { useGraph, type GraphNodeFilter } from "../composables/useGraph";
 import { stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
 import { graphLoadPresetOptions, useGraphStore } from "../stores/graph";
+import { useProjectsStore } from "../stores/projects";
+import { latestTrackedProjectId } from "../utils/graph-default-project";
 import { graphEdgeKindLabels, graphNodeKindLabels, graphNodeKindOrder } from "../utils/labels";
 import { t } from "../i18n";
 
@@ -34,6 +36,8 @@ const graphStore = useGraphStore();
 const {
   graph,
   graphProjectId,
+  graphProjectResolved,
+  graphProjectParam,
   graphNodeFilter,
   graphPreviewLimit,
   graphLoadPreset,
@@ -46,6 +50,8 @@ const {
   graphShowDerived,
   graphPathEdgeIds,
 } = storeToRefs(graphStore);
+const projectsStore = useProjectsStore();
+const { dashboard, dashboardLoaded, projectsLoaded, initialDataFailed, trackedProjects } = storeToRefs(projectsStore);
 const {
   graphSearchMatchIds,
   graphVisual,
@@ -56,8 +62,10 @@ const {
 } = useGraph();
 
 const load = (): Promise<void> => graphStore.loadGraph();
-useRouteQuery("project", graphProjectId, stringQuery());
+useRouteQuery("project", graphProjectParam, stringQuery());
 useRouteQuery("q", graphSearch, stringQuery());
+
+const settingsOpen = ref(false);
 
 // The docked node panel covers the right edge; keep the controls in the room left of it.
 const toolbarStyle = computed(() =>
@@ -90,6 +98,8 @@ const presetOptions = graphLoadPresetOptions.map((preset) => ({
   value: preset.value as string,
   label: t(preset.label),
 }));
+
+const latestProjectId = computed(() => latestTrackedProjectId(dashboard.value.recentSessions, trackedProjects.value));
 
 const truncationNote = computed(() => {
   const current = graph.value;
@@ -134,6 +144,24 @@ function selectFirstMatch(): void {
   }
 }
 
+function chooseProject(projectId: string | undefined): void {
+  graphStore.chooseGraphProject(projectId ?? "");
+}
+
+function retryProjectData(): void {
+  void Promise.allSettled([projectsStore.loadDashboard(), projectsStore.loadProjects()]);
+}
+
+watch(
+  [dashboardLoaded, projectsLoaded, initialDataFailed, graphProjectResolved, latestProjectId],
+  () => {
+    if (graphProjectResolved.value) return;
+    if (initialDataFailed.value) graphStore.resolveDefaultGraphProject(undefined);
+    else if (dashboardLoaded.value && projectsLoaded.value)
+      graphStore.resolveDefaultGraphProject(latestProjectId.value);
+  },
+  { immediate: true },
+);
 watch(tab, (value) => graphStore.setGraphActive(value === "graph"), { immediate: true });
 
 onBeforeUnmount(() => {
@@ -150,7 +178,7 @@ onBeforeUnmount(() => {
   </PageToolbar>
 
   <section v-if="tab === 'timeline'" id="graph-panel-timeline" role="tabpanel" aria-labelledby="graph-tab-timeline">
-    <GraphTimelineBox v-model:project-id="graphProjectId" />
+    <GraphTimelineBox :project-id="graphProjectId" @update:project-id="chooseProject" />
   </section>
   <section
     v-else-if="tab === 'hotspots'"
@@ -158,10 +186,16 @@ onBeforeUnmount(() => {
     role="tabpanel"
     aria-labelledby="graph-tab-hotspots"
   >
-    <GraphHotspotsBox v-model:project-id="graphProjectId" />
+    <GraphHotspotsBox :project-id="graphProjectId" @update:project-id="chooseProject" />
   </section>
 
   <section v-else id="graph-panel-graph" role="tabpanel" aria-labelledby="graph-tab-graph">
+    <UiFlash v-if="initialDataFailed" tone="danger" data-testid="graph-project-data-error">
+      {{ t("graph.couldNotLoadProjectData") }}
+      <template #actions
+        ><UiButton size="sm" @click="retryProjectData">{{ t("common.retry") }}</UiButton></template
+      >
+    </UiFlash>
     <UiFlash v-if="graphError" tone="danger">
       {{ graphError }}
       <template #actions
@@ -183,12 +217,13 @@ onBeforeUnmount(() => {
             @keydown.enter.prevent="selectFirstMatch"
           />
           <ProjectFilterMenu
-            v-model="graphProjectId"
+            :model-value="graphProjectId"
             :icon="FolderGit2"
             variant="button"
             size="sm"
             :header="t('graph.chooseGraphProjectScope')"
             :aria-label="t('graph.chooseGraphProjectScope')"
+            @update:model-value="chooseProject"
           />
           <UiSelect
             v-model="graphNodeFilter"
@@ -196,22 +231,15 @@ onBeforeUnmount(() => {
             size="sm"
             :label="t('graph.chooseGraphNodeKind')"
           />
-          <UiSelect
-            v-model="graphPreviewLimit"
-            :options="previewOptions"
+          <UiButton
             size="sm"
-            :label="t('graph.chooseGraphPreviewSize')"
-          />
-          <UiSelect
-            v-model="graphLoadPreset"
-            :options="presetOptions"
-            size="sm"
-            :label="t('graph.chooseGraphLoadLimit')"
-          />
-          <label class="graph__derived">
-            <input v-model="graphShowDerived" type="checkbox" data-testid="graph-show-derived" />
-            {{ t("graph.showDerivedRelationships") }}
-          </label>
+            :icon="SlidersHorizontal"
+            :aria-expanded="settingsOpen"
+            :aria-controls="settingsOpen ? 'graph-display-settings' : undefined"
+            data-testid="graph-display-settings-toggle"
+            @click="settingsOpen = !settingsOpen"
+            >{{ t("graph.displaySettings") }}</UiButton
+          >
           <UiButton type="submit" size="sm" :loading="graphLoading">{{ t("graph.updateGraph") }}</UiButton>
           <UiButton
             v-if="graphCanLoadMore"
@@ -221,6 +249,24 @@ onBeforeUnmount(() => {
             @click="graphStore.loadMoreGraph"
             >{{ t("graph.loadMoreData") }}</UiButton
           >
+          <div v-if="settingsOpen" id="graph-display-settings" class="graph__settings">
+            <UiSelect
+              v-model="graphPreviewLimit"
+              :options="previewOptions"
+              size="sm"
+              :label="t('graph.chooseGraphPreviewSize')"
+            />
+            <UiSelect
+              v-model="graphLoadPreset"
+              :options="presetOptions"
+              size="sm"
+              :label="t('graph.chooseGraphLoadLimit')"
+            />
+            <label class="graph__derived">
+              <input v-model="graphShowDerived" type="checkbox" data-testid="graph-show-derived" />
+              {{ t("graph.showDerivedRelationships") }}
+            </label>
+          </div>
         </form>
         <span v-if="graph" class="graph__count" data-testid="graph-visible-count">{{ countLabel }}</span>
       </template>
@@ -248,7 +294,12 @@ onBeforeUnmount(() => {
         >
       </div>
 
-      <UiSkeleton v-if="graphLoading && !graph" variant="card" :count="3" :label="t('graph.loadingTheWorkGraph')" />
+      <UiSkeleton
+        v-if="(graphLoading || !graphProjectResolved) && !graph"
+        variant="card"
+        :count="3"
+        :label="t('graph.loadingTheWorkGraph')"
+      />
       <UiEmptyState
         v-else-if="graph ? graph.nodes.length === 0 : !graphError"
         :icon="Share2"
@@ -307,6 +358,15 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+}
+
+.graph__settings {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
 }
 
 .graph__count {

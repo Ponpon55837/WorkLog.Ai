@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import type { PageInfo, SessionListResult, SessionVoidedFilter, WorkSessionRecord } from "@work-intelligence/core";
+import { parseListSearchTerms } from "@work-intelligence/core";
 import { localDayStartIso } from "@work-intelligence/shared";
 import {
   listSearchMoreGuard,
@@ -7,7 +8,6 @@ import {
   listSearchRowCap,
   listSearchRowGuard,
   SESSION_SEARCH_ROW_BYTES,
-  parseListSearchTerms,
   runListSearchScan,
 } from "./list-search-scan.js";
 

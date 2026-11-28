@@ -294,7 +294,6 @@
   "packages/storage/src/later-change-index.ts#IndexedSession",
   "packages/storage/src/later-change-index.ts#StalenessUnitLimits",
   "packages/storage/src/list-search-scan.ts#ListSearchScan",
-  "packages/storage/src/list-search-scan.ts#ListSearchTerms",
   "packages/storage/src/outstanding-item-relevance.ts#RelatedPendingFocus",
   "packages/storage/src/policy-helper.ts#ProjectByIdReader",
   "packages/storage/src/project-data-spill.ts#SPILLED_COLUMNS",

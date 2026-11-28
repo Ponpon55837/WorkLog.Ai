@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FinalizeSessionInput } from "../../packages/core/src/index.js";
-import { splitSearchTerms } from "../../packages/storage/src/list-search-scan.js";
+import { parseListSearchTerms } from "../../packages/core/src/list-search-terms.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 const stores: WorkIntelligenceStore[] = [];
@@ -52,9 +52,9 @@ const titles = (store: WorkIntelligenceStore, query: string) =>
 
 describe("list search terms", () => {
   it("splits on spaces, keeps quoted phrases, lowercases, dedupes and caps the count", () => {
-    expect(splitSearchTerms('  Queen "Honey Flow"  queen 蜂巢 ')).toEqual(["queen", "honey flow", "蜂巢"]);
-    expect(splitSearchTerms("a b c d e f g h i j")).toHaveLength(8);
-    expect(splitSearchTerms('   ""  ')).toEqual([]);
+    expect(parseListSearchTerms('  Queen "Honey Flow"  queen 蜂巢 ').terms).toEqual(["queen", "honey flow", "蜂巢"]);
+    expect(parseListSearchTerms("a b c d e f g h i j").terms).toHaveLength(8);
+    expect(parseListSearchTerms('   ""  ').terms).toEqual([]);
   });
 });
 

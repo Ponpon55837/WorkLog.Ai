@@ -407,7 +407,7 @@ export const knowledgeTrustVisual = {
   needsReview: visual("danger", CircleAlert, "status.needsReview"),
 } satisfies Record<string, StatusVisual>;
 
-export const executionStatusVisual: StatusVisual = visual("neutral", undefined, "status.executionCompleted");
+export const executionStatusVisual: StatusVisual = visual("neutral", undefined, "common.completedStatus");
 
 /** Missing verification is historical `not_supplied`, never `not_run`. */
 export function verificationOf(session: {

@@ -194,6 +194,26 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
 
     <UiSplitLayout :aside-label="t('systemStatus.dataAndConnections')">
       <template #main>
+        <UiBox id="preferences" data-testid="preferences">
+          <template #header><UiBoxTitle :icon="Settings2" :title="t('systemStatus.personalPreferences')" /></template>
+          <div class="system-status__preference">
+            <UiField group :label="t('systemStatus.appearance')" :hint="t('systemStatus.followSystemSwitchesWithYour')">
+              <UiSegmentedControl v-model="theme" :options="themeOptions" :label="t('systemStatus.appearance')" />
+            </UiField>
+            <UiField group :label="t('common.language')" :hint="t('systemStatus.changesInterfaceTextOnlySessions')">
+              <UiSegmentedControl
+                :model-value="locale"
+                :options="LOCALE_OPTIONS"
+                :label="t('common.language')"
+                @update:model-value="changeLocale"
+              />
+            </UiField>
+            <UiField :label="t('systemStatus.openFilesInAnEditor')" :hint="t('systemStatus.onceChosenOpenInEditor')">
+              <UiSelect v-model="editor" :options="editorOptions" :label="t('systemStatus.openFilesInAnEditor')" />
+            </UiField>
+          </div>
+        </UiBox>
+
         <UiBox v-if="status.desktop?.managed" data-testid="desktop-port">
           <template #header><UiBoxTitle :icon="Globe" :title="t('systemStatus.desktopApp')" /></template>
           <UiBoxRow :title="t('systemStatus.effectiveAddress')">
@@ -268,26 +288,6 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
         </UiBox>
 
         <AgentReadsBox />
-
-        <UiBox data-testid="preferences">
-          <template #header><UiBoxTitle :icon="Settings2" :title="t('systemStatus.personalPreferences')" /></template>
-          <div class="system-status__preference">
-            <UiField group :label="t('systemStatus.appearance')" :hint="t('systemStatus.followSystemSwitchesWithYour')">
-              <UiSegmentedControl v-model="theme" :options="themeOptions" :label="t('systemStatus.appearance')" />
-            </UiField>
-            <UiField group :label="t('common.language')" :hint="t('systemStatus.changesInterfaceTextOnlySessions')">
-              <UiSegmentedControl
-                :model-value="locale"
-                :options="LOCALE_OPTIONS"
-                :label="t('common.language')"
-                @update:model-value="changeLocale"
-              />
-            </UiField>
-            <UiField :label="t('systemStatus.openFilesInAnEditor')" :hint="t('systemStatus.onceChosenOpenInEditor')">
-              <UiSelect v-model="editor" :options="editorOptions" :label="t('systemStatus.openFilesInAnEditor')" />
-            </UiField>
-          </div>
-        </UiBox>
       </template>
 
       <template #aside>

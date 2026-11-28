@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { AxeBuilder } from "@axe-core/playwright";
-import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { devices, expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import type { ProjectDataExport, SystemAgentConnections } from "../../packages/core/src/index.js";
 import { canonicalizeProjectRoot, WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
 import { nameStartingWith } from "./helpers/accessible-name.js";
@@ -193,6 +193,8 @@ async function expectUserScrollsListInternally(page: Page, name: string): Promis
 async function expectPaginationVisibleWithinViewport(page: Page, sizeLabel: string): Promise<void> {
   const selector = page.getByLabel(sizeLabel);
   await expect(selector).toBeVisible();
+  // A list that flows with the page (phone) puts its footer below the fold.
+  await selector.scrollIntoViewIfNeeded();
   const bounds = await selector.evaluate((element) => {
     const footer = element.closest<HTMLElement>(".ui-box__footer");
     const main = element.closest<HTMLElement>("main");
@@ -1279,7 +1281,7 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("lists hotspot files on the graph page and opens their Sessions", async ({ page }) => {
-    await page.goto("/graph/hotspots");
+    await page.goto(`/graph/hotspots?project=${projectId}`);
     const hotspots = page.getByTestId("graph-hotspots");
     const readme = hotspots.getByTestId("hotspot").filter({ hasText: "README.md" });
     await expect(readme).toContainText(ttPattern("graph.sessions"));
@@ -1515,10 +1517,10 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByRole("heading", { name: tt("common.workHistory") }).first()).toBeVisible();
 
     const sessionPageSize = page.getByLabel(tt("sessions.workHistoryPerPage"));
-    await expect(sessionPageSize).toHaveValue("10");
-    await expect(sessionPageSize.locator("option")).toHaveCount(5);
-    await sessionPageSize.selectOption("20");
     await expect(sessionPageSize).toHaveValue("20");
+    await expect(sessionPageSize.locator("option")).toHaveCount(5);
+    await sessionPageSize.selectOption("10");
+    await expect(sessionPageSize).toHaveValue("10");
     await sessionPageSize.selectOption("all");
     const sessionList = await expectBoundedVirtualList(page, tt("sessions.workHistoryList"));
     // The virtual list places rows by estimated heights first and corrects them once ResizeObserver has
@@ -1551,6 +1553,8 @@ test.describe("Work Intelligence browser regression", () => {
     const nodeFilter = page.getByLabel(tt("graph.chooseGraphNodeKind"));
     const previewLimit = page.getByLabel(tt("graph.chooseGraphPreviewSize"));
     const loadPreset = page.getByLabel(tt("graph.chooseGraphLoadLimit"));
+    await expect(previewLimit).toHaveCount(0);
+    await page.getByRole("button", { name: tt("graph.displaySettings") }).click();
     await expect(nodeFilter).toHaveValue("all");
     await expect(previewLimit).toHaveValue("120");
     await expect(loadPreset).toHaveValue("180");
@@ -1634,7 +1638,7 @@ test.describe("Work Intelligence browser regression", () => {
     for (const [path, heading] of pageRoutes) {
       await page.goto(path);
       await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
-      await expect(page).toHaveURL(new RegExp(`${path}$`));
+      await expect(page).toHaveURL(new RegExp(`${path}(\\?|$)`));
     }
 
     await page.goto("/worklog");
@@ -2170,7 +2174,7 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("searches the Graph and focuses the first hit", async ({ page }) => {
-    await page.goto("/graph");
+    await page.goto(`/graph?project=${projectId}`);
     const search = page.getByLabel(tt("graph.searchGraphNodes"));
     await search.fill("Browser regression fixture");
     await expect(page.getByTestId("graph-visible-count")).toContainText(ttPattern("graph.matchingNodesShowingNodes"));
@@ -2184,7 +2188,7 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("explains the relation between two graph nodes and shows the edge legend", async ({ page }) => {
-    await page.goto("/graph?q=Browser%20regression%20fixture%20session");
+    await page.goto(`/graph?project=${projectId}&q=Browser%20regression%20fixture%20session`);
     await expect(page.getByText(tt("graph.recordedRelationships"))).toBeVisible();
     await expect(page.getByText(ttPattern("graph.derivedRelationshipsChangedTogetherHidden"))).toBeVisible();
     await page.getByLabel(tt("graph.searchGraphNodes")).press("Enter");
@@ -2198,6 +2202,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(steps.getByRole("listitem")).toHaveCount(1);
     await expect(steps).toContainText("修改了 README.md");
 
+    await page.getByRole("button", { name: tt("graph.displaySettings") }).click();
     await page.getByTestId("graph-show-derived").check();
     await expect(page).toHaveURL(/\/graph/);
   });
@@ -2205,7 +2210,7 @@ test.describe("Work Intelligence browser regression", () => {
   test("shows days on the timeline, zooms into one, opens a Session, and offers the same data as a list", async ({
     page,
   }) => {
-    await page.goto("/graph/timeline");
+    await page.goto(`/graph/timeline?project=${projectId}`);
     const timeline = page.getByTestId("graph-timeline");
     await timeline
       .getByTestId("timeline-day")
@@ -2224,6 +2229,203 @@ test.describe("Work Intelligence browser regression", () => {
     await timeline.getByRole("radio", { name: tt("common.list") }).click();
     const list = timeline.getByTestId("timeline-list");
     await expect(list.getByRole("button", { name: "Browser regression fixture session" }).first()).toBeVisible();
+  });
+
+  test("highlights the matched words in Session search and hides the footer on empty results", async ({ page }) => {
+    await page.goto("/sessions");
+    await expect(page.getByPlaceholder(tt("common.searchTitleSummaryOrEvent"))).toBeVisible();
+
+    await page.getByLabel(tt("sessions.searchWorkHistory")).fill("regression");
+    const row = page.getByTestId("session-row").filter({ hasText: "Browser regression fixture session" }).first();
+    await expect(row.locator("mark").first()).toHaveText("regression");
+    await expect(row.locator("mark").first()).toHaveCSS("font-weight", "600");
+
+    await page.getByLabel(tt("sessions.searchWorkHistory")).fill("README.md");
+    const fileMatch = page
+      .getByTestId("session-row")
+      .filter({ hasText: "Browser regression fixture session" })
+      .first()
+      .getByTestId("session-match");
+    await expect(fileMatch).toContainText(tt("sessions.matchedField", { field: tt("labels.changedFiles") }));
+    await expect(fileMatch.locator("mark")).toHaveText("README.md");
+
+    await page.getByLabel(tt("sessions.searchWorkHistory")).fill("zz-no-such-session-text");
+    await expect(page.getByText(tt("sessions.noSessionsMatchTheFilters"))).toBeVisible();
+    await expect(page.getByLabel(tt("sessions.workHistoryPerPage"))).toHaveCount(0);
+  });
+
+  test("keeps the matched word of a search excerpt inside its box on a phone", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto("/sessions?q=README.md");
+    const match = page
+      .getByTestId("session-row")
+      .filter({ hasText: "Browser regression fixture session" })
+      .first()
+      .getByTestId("session-match");
+    const mark = match.locator("mark");
+    await expect(mark).toHaveText("README.md");
+    const [box, markBox] = await Promise.all([match.boundingBox(), mark.boundingBox()]);
+    expect(markBox!.x).toBeGreaterThanOrEqual(box!.x - 1);
+    expect(markBox!.x + markBox!.width).toBeLessThanOrEqual(box!.x + box!.width + 1);
+    expect(markBox!.y + markBox!.height).toBeLessThanOrEqual(box!.y + box!.height + 1);
+  });
+
+  test("lists several Sessions without a nested scroll area on a phone", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/sessions");
+    await expect(page.getByTestId("session-row").first()).toBeVisible();
+    await expect(page.getByRole("list", { name: tt("sessions.workHistoryList") })).toHaveCount(0);
+    expect(await page.getByTestId("session-row").count()).toBeGreaterThan(5);
+  });
+
+  test("keeps the Session detail short on a touch phone and drops the keyboard hint", async ({ browser }, testInfo) => {
+    const { defaultBrowserType: _ignored, ...phone } = devices["iPhone 13"];
+    const context = await browser.newContext({
+      ...phone,
+      baseURL: testInfo.project.use.baseURL,
+      locale: "zh-TW",
+      reducedMotion: "reduce",
+    });
+    const page = await context.newPage();
+    await page.goto(`/sessions?session=${sessionId}`);
+    const panel = page.getByRole("dialog", { name: tt("session.sessionDetails") });
+    await expect(panel).toBeVisible();
+
+    const times = panel.getByTestId("session-times-summary");
+    await expect(times).toBeVisible();
+    await expect(times).not.toContainText("·");
+    await expect(panel.getByText(tt("common.completedStatus"), { exact: true })).toBeVisible();
+    await expect(panel.getByText(tt("common.verification"), { exact: true })).toBeVisible();
+    const more = panel.getByText(tt("session.startedAndLastUpdated"));
+    await expect(more).toBeVisible();
+    await expect(panel.getByText(tt("session.started"), { exact: true })).toBeHidden();
+    await more.click();
+    await expect(panel.getByText(tt("session.started"), { exact: true })).toBeVisible();
+    await expect(panel.locator("kbd")).toHaveCount(3);
+    await expect(panel.locator("kbd").first()).toBeHidden();
+    await context.close();
+  });
+
+  test("shows the J/K keyboard hint with a mouse and keeps every time visible on desktop", async ({ page }) => {
+    await page.goto(`/sessions?session=${sessionId}`);
+    const panel = page.getByRole("dialog", { name: tt("session.sessionDetails") });
+    await expect(panel.locator("kbd").first()).toBeVisible();
+    await expect(panel.getByText(tt("session.started"), { exact: true })).toBeVisible();
+    await expect(panel.getByText(tt("session.lastUpdated"), { exact: true })).toBeVisible();
+  });
+
+  test("starts the work graph on the project with the newest Session and tucks the limits into display settings", async ({
+    page,
+    request,
+  }) => {
+    const [dashboard, projects] = await Promise.all([
+      request.get("/api/dashboard").then((response) => response.json()),
+      request.get("/api/projects").then((response) => response.json()),
+    ]);
+    const tracked = new Set(
+      (projects as Array<{ id: string; status: string }>)
+        .filter((project) => project.status === "tracked")
+        .map((project) => project.id),
+    );
+    const newest = (dashboard.recentSessions as Array<{ projectId: string }>).find((session) =>
+      tracked.has(session.projectId),
+    )?.projectId;
+    expect(newest).toBeTruthy();
+
+    await page.goto("/graph");
+    await expect(page).toHaveURL(new RegExp(`/graph\\?project=${newest}$`));
+    await expect(page.getByTestId("graph-visible-count")).toBeVisible();
+    await expect(page.getByLabel(tt("graph.chooseGraphLoadLimit"))).toHaveCount(0);
+    await expect(page.getByLabel(tt("graph.chooseGraphPreviewSize"))).toHaveCount(0);
+
+    const toggle = page.getByRole("button", { name: tt("graph.displaySettings") });
+    await expect(toggle).not.toHaveAttribute("aria-controls");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(toggle).toHaveAttribute("aria-controls", "graph-display-settings");
+    await expect(page.getByLabel(tt("graph.chooseGraphLoadLimit"))).toBeVisible();
+    await expect(page.getByLabel(tt("graph.chooseGraphPreviewSize"))).toBeVisible();
+  });
+
+  test("keeps the project chosen on the work graph after leaving the page and coming back", async ({ page }) => {
+    const toProjects = page.getByRole("link", { name: tt("nav.projects") }).first();
+    const toGraph = page.getByRole("link", { name: tt("nav.workGraph") }).first();
+
+    await page.goto(`/graph?project=${otherProjectId}`);
+    await expect(page.getByTestId("graph-visible-count")).toBeVisible();
+    await toProjects.click();
+    await expect(page).toHaveURL(/\/projects/);
+    await toGraph.click();
+    await expect(page).toHaveURL(new RegExp(`/graph\\?project=${otherProjectId}$`));
+
+    await page.goto("/graph?project=all");
+    await expect(page.getByTestId("graph-visible-count")).toBeVisible();
+    await toProjects.click();
+    await toGraph.click();
+    await expect(page).toHaveURL(/\/graph\?project=all$/);
+    await page.reload();
+    await expect(page).toHaveURL(/\/graph\?project=all$/);
+  });
+
+  test("shows a retry notice and still loads the work graph when the project data fails", async ({ page }) => {
+    await page.route(
+      (url) => ["/api/projects", "/api/dashboard"].includes(url.pathname),
+      (route) => route.fulfill({ status: 500, json: { error: "Internal server error.", code: "internal_error" } }),
+    );
+    await page.goto("/graph");
+    const notice = page.getByTestId("graph-project-data-error");
+    await expect(notice).toContainText(tt("graph.couldNotLoadProjectData"));
+    await expect(notice.getByRole("button", { name: tt("common.retry") })).toBeVisible();
+    await expect(page.getByTestId("graph-visible-count")).toBeVisible();
+    await page.unrouteAll({ behavior: "wait" });
+
+    await page.goto(`/graph?project=${projectId}`);
+    await expect(page.getByTestId("graph-visible-count")).toBeVisible();
+  });
+
+  test("fades the tab bar edge only while more tabs lie in that direction", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto("/projects");
+    const nav = page.getByTestId("projects-tabs");
+    await expect(nav).toHaveAttribute("data-fade-end", "true");
+    await expect(nav).toHaveAttribute("data-fade-start", "false");
+
+    await page.getByRole("tablist").evaluate((element) => element.scrollTo({ left: element.scrollWidth }));
+    await expect(nav).toHaveAttribute("data-fade-end", "false");
+    await expect(nav).toHaveAttribute("data-fade-start", "true");
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(nav).toHaveAttribute("data-fade-end", "false");
+    await expect(nav).toHaveAttribute("data-fade-start", "false");
+  });
+
+  test("redirects the plural backup and deletion paths to their tabs", async ({ page }) => {
+    await page.goto("/projects/backups");
+    await expect(page).toHaveURL(/\/projects\/backup$/);
+    await page.goto("/projects/deletions");
+    await expect(page).toHaveURL(/\/projects\/deletion-audit$/);
+  });
+
+  test("labels a project folder that is not on this computer neutrally and keeps the relocate action", async ({
+    page,
+  }) => {
+    await page.goto("/projects");
+    const row = page.getByTestId("project-row").filter({ hasText: "Outstanding Filter Fixture" });
+    await expect(row.getByText(tt("projects.folderNotOnThisComputer"))).toBeVisible();
+    await expect(row.getByText(tt("projects.folderNotOnThisComputerHint"))).toHaveCount(0);
+    await expect(page.getByText(tt("projects.folderNotOnThisComputerHint"))).toHaveCount(1);
+    await expect(row.getByRole("button", { name: tt("projects.relocateAction") })).toBeVisible();
+  });
+
+  test("puts personal preferences above the service paths on the system status page", async ({ page }) => {
+    await page.goto("/system-status");
+    const preferences = page.getByTestId("preferences");
+    await expect(preferences).toBeVisible();
+    const preferencesTop = await preferences.evaluate((element) => element.getBoundingClientRect().top);
+    const agentsTop = await page
+      .getByTestId("agent-connections")
+      .evaluate((element) => element.getBoundingClientRect().top);
+    expect(preferencesTop).toBeLessThan(agentsTop);
   });
 
   test("opens changed files in the chosen editor and links a repository safely", async ({ page }) => {
@@ -3748,20 +3950,32 @@ test.describe("Work Intelligence browser regression", () => {
       await page.setViewportSize({ width, height: 900 });
       const expectPanelFill = width >= 960;
 
+      // On a phone the page scrolls and the list has no scroll area of its own.
+      const phone = width < 640;
+
       await page.goto("/sessions");
-      const sessionList = await expectBoundedVirtualList(page, tt("sessions.workHistoryList"));
-      if (expectPanelFill) {
-        await expectPanelToFillViewport(sessionList);
-        await expectListToMeetPagination(sessionList);
+      if (phone) {
+        await expect(page.getByTestId("session-row").first()).toBeVisible();
+        await expect(page.getByRole("list", { name: tt("sessions.workHistoryList") })).toHaveCount(0);
+      } else {
+        const sessionList = await expectBoundedVirtualList(page, tt("sessions.workHistoryList"));
+        if (expectPanelFill) {
+          await expectPanelToFillViewport(sessionList);
+          await expectListToMeetPagination(sessionList);
+        }
       }
       await expectPaginationVisibleWithinViewport(page, tt("sessions.workHistoryPerPage"));
-      await expectUserScrollsListInternally(page, tt("sessions.workHistoryList"));
+      if (!phone) await expectUserScrollsListInternally(page, tt("sessions.workHistoryList"));
       await expectNoHorizontalOverflow(page);
 
       await page.goto("/knowledge/list");
-      const knowledgeList = await expectBoundedVirtualList(page, tt("knowledge.workKnowledgeList"));
-      if (expectPanelFill) {
-        await expectPanelToFillViewport(knowledgeList);
+      if (phone) {
+        await expect(page.getByRole("list", { name: tt("knowledge.workKnowledgeList") })).toHaveCount(0);
+      } else {
+        const knowledgeList = await expectBoundedVirtualList(page, tt("knowledge.workKnowledgeList"));
+        if (expectPanelFill) {
+          await expectPanelToFillViewport(knowledgeList);
+        }
       }
       await expectPaginationVisibleWithinViewport(page, tt("knowledge.knowledgePerPage"));
       await expectNoHorizontalOverflow(page);

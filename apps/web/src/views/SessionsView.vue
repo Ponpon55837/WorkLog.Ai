@@ -24,6 +24,7 @@ import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
+import { useMediaQuery } from "../composables/useMediaQuery";
 import { useProjectChip } from "../composables/useProjectChip";
 import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
@@ -47,6 +48,7 @@ type SessionsTab = "sessions" | "outstanding";
 const sessionTabs: readonly SessionsTab[] = ["sessions", "outstanding"];
 
 const route = useRoute();
+const narrow = useMediaQuery("(max-width: 639px)");
 const sessionsStore = useSessionsStore();
 const {
   sessions,
@@ -110,7 +112,7 @@ useRouteQuery(
   sessionPageSize,
   enumQuery(
     listPageSizeOptions.map((option) => option.value),
-    10,
+    20,
   ),
 );
 useRouteQuery("itemProject", outstandingProjectId, stringQuery());
@@ -375,10 +377,10 @@ onBeforeUnmount(() => {
       <VirtualList
         v-else-if="sessions.length > 0"
         :items="sessions"
-        :enabled="true"
-        fit-viewport
-        fit-viewport-to-panel
-        fill-available-space
+        :enabled="!narrow"
+        :fit-viewport="!narrow"
+        :fit-viewport-to-panel="!narrow"
+        :fill-available-space="!narrow"
         :label="t('sessions.workHistoryList')"
       >
         <template #default="{ item, index }">
@@ -386,13 +388,14 @@ onBeforeUnmount(() => {
           <SessionRow
             :session="item"
             timeline
+            :highlight="sessionsAppliedScope?.q"
             :created-knowledge="dayInsights?.createdBySession.get(item.id)"
             @open="openSession"
           />
         </template>
       </VirtualList>
 
-      <template v-if="sessionsLoaded" #footer>
+      <template v-if="sessionsLoaded && sessionPageInfo.total > 0" #footer>
         <UiPagination
           v-model:page-size="sessionPageSize"
           :page-info="sessionPageInfo"

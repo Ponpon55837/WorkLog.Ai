@@ -9,15 +9,24 @@ import {
   formatRelative,
   wasUpdatedAfterFinalize,
 } from "../../utils/format";
+import { workSummarySectionLabels } from "../../utils/labels";
+import { findSessionMatch, type MatchedField } from "../../utils/session-match";
 import { verificationOf, verificationStatus } from "../../utils/status";
 import UiBoxRow from "../ui/UiBoxRow.vue";
+import UiHighlightedText from "../ui/UiHighlightedText.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
 const props = withDefaults(
-  defineProps<{ session: WorkSessionRecord; showSummary?: boolean; timeline?: boolean; createdKnowledge?: number }>(),
-  { showSummary: true, timeline: false, createdKnowledge: 0 },
+  defineProps<{
+    session: WorkSessionRecord;
+    showSummary?: boolean;
+    timeline?: boolean;
+    createdKnowledge?: number;
+    highlight?: string;
+  }>(),
+  { showSummary: true, timeline: false, createdKnowledge: 0, highlight: "" },
 );
 const emit = defineEmits<{ open: [session: WorkSessionRecord] }>();
 
@@ -25,6 +34,20 @@ const verification = computed(() => verificationStatus[verificationOf(props.sess
 const firstOutcome = computed(
   () => props.session.workSummary?.outcomes[0] ?? formatReadableSummary(props.session.summary).split("\n")[0],
 );
+const match = computed(() =>
+  props.highlight.trim() === ""
+    ? undefined
+    : findSessionMatch(props.session, props.highlight, [
+        props.session.title,
+        ...(props.showSummary && firstOutcome.value ? [firstOutcome.value] : []),
+      ]),
+);
+
+function fieldLabel(field: MatchedField): string {
+  if (field === "summary") return t("session.summary");
+  if (field === "changedFiles") return t("labels.changedFiles");
+  return workSummarySectionLabels.find((section) => section.key === field)?.label ?? field;
+}
 </script>
 
 <template>
@@ -50,7 +73,7 @@ const firstOutcome = computed(
         :aria-label="`Verification ${verification.label}`"
       />
     </template>
-    <template #title>{{ session.title }}</template>
+    <template #title><UiHighlightedText :text="session.title" :query="highlight" /></template>
     <template #meta>
       <span>{{ session.projectName }}</span>
       <template v-if="!timeline">
@@ -73,10 +96,19 @@ const firstOutcome = computed(
         ·
         <span class="session-row__knowledge">{{ t("sessions.newKnowledge", { count: createdKnowledge }) }}</span>
       </template>
-      <template v-if="!timeline && showSummary && firstOutcome"> · {{ firstOutcome }}</template>
+      <template v-if="!timeline && showSummary && firstOutcome">
+        · <UiHighlightedText :text="firstOutcome" :query="highlight"
+      /></template>
     </template>
     <p v-if="timeline && showSummary && firstOutcome" class="session-row__summary" :title="firstOutcome">
-      {{ firstOutcome }}
+      <UiHighlightedText :text="firstOutcome" :query="highlight" />
+    </p>
+    <p v-if="match" class="session-row__match" data-testid="session-match">
+      <template v-if="match.kind === 'excerpt'"
+        >{{ t("sessions.matchedField", { field: fieldLabel(match.field) })
+        }}<UiHighlightedText :text="match.text" :query="highlight"
+      /></template>
+      <template v-else>{{ t("sessions.matchedInEvents") }}</template>
     </p>
     <template #trailing>
       <UiLabel v-if="session.voided" tone="danger" :icon="Ban">{{ t("session.voidedLabel") }}</UiLabel>
@@ -179,12 +211,31 @@ const firstOutcome = computed(
   white-space: nowrap;
 }
 
+.session-row__match {
+  order: 3;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .session-row__knowledge {
   color: var(--accent);
   font-weight: 500;
 }
 
 @media (max-width: 639px) {
+  .session-row__match {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   .session-row__time {
     min-width: 2.75rem;
     font-size: var(--text-xs);
