@@ -227,6 +227,15 @@ function fieldLabel(field: MatchedField): string {
 }
 
 @media (max-width: 639px) {
+  .session-row__match {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   .session-row__time {
     min-width: 2.75rem;
     font-size: var(--text-xs);

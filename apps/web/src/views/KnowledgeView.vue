@@ -36,6 +36,7 @@ import UiSplitLayout from "../components/ui/UiSplitLayout.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
+import { useMediaQuery } from "../composables/useMediaQuery";
 import { useProjectChip } from "../composables/useProjectChip";
 import { useKnowledgeActions } from "../composables/useKnowledge";
 import { useListReload } from "../composables/useListReload";
@@ -59,6 +60,7 @@ const knowledgeTabs: readonly KnowledgeTab[] = ["decisions", "candidates", "list
 const LIST_ONLY_QUERY_KEYS = ["q", "kind", "status", "convention", "page", "size", "knowledge"] as const;
 
 const knowledgeStore = useKnowledgeStore();
+const narrow = useMediaQuery("(max-width: 639px)");
 const {
   knowledgeItems,
   knowledgePage,
@@ -501,10 +503,10 @@ onBeforeUnmount(() => {
           v-else-if="knowledgeItems.length > 0"
           :items="knowledgeItems"
           :item-key="(item) => item.id"
-          :enabled="true"
-          fit-viewport
-          fit-viewport-to-panel
-          fill-available-space
+          :enabled="!narrow"
+          :fit-viewport="!narrow"
+          :fit-viewport-to-panel="!narrow"
+          :fill-available-space="!narrow"
           :estimate-item-height="140"
           :label="t('knowledge.workKnowledgeList')"
         >

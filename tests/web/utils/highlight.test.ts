@@ -55,6 +55,7 @@ describe("search highlighting", () => {
     expect(excerpt.endsWith("…")).toBe(true);
     expect(excerpt).toContain("needle");
     expect(excerpt.length).toBeLessThan(100);
+    expect(excerpt.indexOf("needle")).toBeLessThanOrEqual(11);
     expect(matchExcerpt("short needle\ntext", ["needle"])).toBe("short needle text");
     expect(matchExcerpt("nothing here", ["needle"])).toBeUndefined();
   });

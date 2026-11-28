@@ -27,7 +27,7 @@ export function highlightSegments(text: string, query: string): HighlightSegment
 }
 
 /** One line around the first match, with ellipses where the text was cut. */
-export function matchExcerpt(text: string, terms: string[], before = 24, after = 56): string | undefined {
+export function matchExcerpt(text: string, terms: string[], before = 10, after = 56): string | undefined {
   const flat = text.replace(/\s+/g, " ").trim();
   const found = terms.length > 0 ? termPattern(terms).exec(flat) : null;
   if (!found) return undefined;

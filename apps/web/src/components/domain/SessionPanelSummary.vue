@@ -131,7 +131,7 @@ const sessionTarget = computed<VoidTarget>(() => ({
     </template>
     <dt>{{ t("session.executionStatus") }}</dt>
     <dd><StatusLabel :status="executionStatusVisual" /></dd>
-    <dt>{{ t("labels.verification") }}</dt>
+    <dt>{{ t("common.verification") }}</dt>
     <dd>
       <StatusLabel :status="verification" />
       <span v-if="session.verification?.summary" class="session-panel__muted">{{ session.verification.summary }}</span>

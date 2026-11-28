@@ -193,6 +193,8 @@ async function expectUserScrollsListInternally(page: Page, name: string): Promis
 async function expectPaginationVisibleWithinViewport(page: Page, sizeLabel: string): Promise<void> {
   const selector = page.getByLabel(sizeLabel);
   await expect(selector).toBeVisible();
+  // A list that flows with the page (phone) puts its footer below the fold.
+  await selector.scrollIntoViewIfNeeded();
   const bounds = await selector.evaluate((element) => {
     const footer = element.closest<HTMLElement>(".ui-box__footer");
     const main = element.closest<HTMLElement>("main");
@@ -2252,6 +2254,30 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByLabel(tt("sessions.workHistoryPerPage"))).toHaveCount(0);
   });
 
+  test("keeps the matched word of a search excerpt inside its box on a phone", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto("/sessions?q=README.md");
+    const match = page
+      .getByTestId("session-row")
+      .filter({ hasText: "Browser regression fixture session" })
+      .first()
+      .getByTestId("session-match");
+    const mark = match.locator("mark");
+    await expect(mark).toHaveText("README.md");
+    const [box, markBox] = await Promise.all([match.boundingBox(), mark.boundingBox()]);
+    expect(markBox!.x).toBeGreaterThanOrEqual(box!.x - 1);
+    expect(markBox!.x + markBox!.width).toBeLessThanOrEqual(box!.x + box!.width + 1);
+    expect(markBox!.y + markBox!.height).toBeLessThanOrEqual(box!.y + box!.height + 1);
+  });
+
+  test("lists several Sessions without a nested scroll area on a phone", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/sessions");
+    await expect(page.getByTestId("session-row").first()).toBeVisible();
+    await expect(page.getByRole("list", { name: tt("sessions.workHistoryList") })).toHaveCount(0);
+    expect(await page.getByTestId("session-row").count()).toBeGreaterThan(5);
+  });
+
   test("keeps the Session detail short on a touch phone and drops the keyboard hint", async ({ browser }, testInfo) => {
     const { defaultBrowserType: _ignored, ...phone } = devices["iPhone 13"];
     const context = await browser.newContext({
@@ -2269,6 +2295,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(times).toBeVisible();
     await expect(times).not.toContainText("·");
     await expect(panel.getByText(tt("common.completedStatus"), { exact: true })).toBeVisible();
+    await expect(panel.getByText(tt("common.verification"), { exact: true })).toBeVisible();
     const more = panel.getByText(tt("session.startedAndLastUpdated"));
     await expect(more).toBeVisible();
     await expect(panel.getByText(tt("session.started"), { exact: true })).toBeHidden();
@@ -3923,20 +3950,32 @@ test.describe("Work Intelligence browser regression", () => {
       await page.setViewportSize({ width, height: 900 });
       const expectPanelFill = width >= 960;
 
+      // On a phone the page scrolls and the list has no scroll area of its own.
+      const phone = width < 640;
+
       await page.goto("/sessions");
-      const sessionList = await expectBoundedVirtualList(page, tt("sessions.workHistoryList"));
-      if (expectPanelFill) {
-        await expectPanelToFillViewport(sessionList);
-        await expectListToMeetPagination(sessionList);
+      if (phone) {
+        await expect(page.getByTestId("session-row").first()).toBeVisible();
+        await expect(page.getByRole("list", { name: tt("sessions.workHistoryList") })).toHaveCount(0);
+      } else {
+        const sessionList = await expectBoundedVirtualList(page, tt("sessions.workHistoryList"));
+        if (expectPanelFill) {
+          await expectPanelToFillViewport(sessionList);
+          await expectListToMeetPagination(sessionList);
+        }
       }
       await expectPaginationVisibleWithinViewport(page, tt("sessions.workHistoryPerPage"));
-      await expectUserScrollsListInternally(page, tt("sessions.workHistoryList"));
+      if (!phone) await expectUserScrollsListInternally(page, tt("sessions.workHistoryList"));
       await expectNoHorizontalOverflow(page);
 
       await page.goto("/knowledge/list");
-      const knowledgeList = await expectBoundedVirtualList(page, tt("knowledge.workKnowledgeList"));
-      if (expectPanelFill) {
-        await expectPanelToFillViewport(knowledgeList);
+      if (phone) {
+        await expect(page.getByRole("list", { name: tt("knowledge.workKnowledgeList") })).toHaveCount(0);
+      } else {
+        const knowledgeList = await expectBoundedVirtualList(page, tt("knowledge.workKnowledgeList"));
+        if (expectPanelFill) {
+          await expectPanelToFillViewport(knowledgeList);
+        }
       }
       await expectPaginationVisibleWithinViewport(page, tt("knowledge.knowledgePerPage"));
       await expectNoHorizontalOverflow(page);

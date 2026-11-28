@@ -5,6 +5,7 @@ import { BookMarked, Eye, FilePlus2, Sparkles } from "lucide-vue-next";
 import { KNOWLEDGE_PAGE_DEFAULTS, type KnowledgePageRecord, type ProjectRecord } from "@work-intelligence/core";
 import type { FilterChip } from "../ui/types";
 import { useProjectChip } from "../../composables/useProjectChip";
+import { useMediaQuery } from "../../composables/useMediaQuery";
 import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
 import { errorMessage, formatDate, formatRelative } from "../../utils/format";
@@ -42,6 +43,7 @@ const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 const projectId = defineModel<string>("projectId", { required: true });
 
 const pagesStore = useKnowledgePagesStore();
+const narrow = useMediaQuery("(max-width: 639px)");
 const { pages, pagesLoading, pagesError } = storeToRefs(pagesStore);
 const { showToast } = useToast();
 
@@ -230,10 +232,10 @@ async function requestUpdate(row: PageRow): Promise<void> {
     <VirtualList
       v-else
       :items="listItems"
-      :enabled="true"
-      fit-viewport
-      fit-viewport-to-panel
-      fill-available-space
+      :enabled="!narrow"
+      :fit-viewport="!narrow"
+      :fit-viewport-to-panel="!narrow"
+      :fill-available-space="!narrow"
       :estimate-item-height="96"
       :label="t('knowledge.knowledgePageList')"
     >
