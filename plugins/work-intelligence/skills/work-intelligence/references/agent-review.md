@@ -19,7 +19,7 @@ The `state` values:
 - `stale`: changed after the snapshot. `reviewed`: decided elsewhere. Give neither a verdict.
 - `applied` and `skipped`: this request already decided them.
 
-Page 1 also carries `existingKnowledge` (active Knowledge, archived Knowledge, rejected candidates), so a promotion or acceptance does not repeat or revive them. Truncated fields (`truncated`, `*Truncated` markers) are previews: read the full source Session with `work_get_session` (`view: "handoff"`) before judging an item whose excerpt lacks the detail. Titles counted in `existingKnowledgeOmitted` did not fit; check them with `work_search_knowledge` before promoting. Read every page the snapshot needs.
+Page 1 also carries `existingKnowledge` (titles grouped by status, `active`, `archived`, `rejected`, then by kind), so a promotion or acceptance does not repeat or revive them. Truncated fields (`truncated`, `*Truncated` markers) are previews: read the full source Session with `work_get_session` (`view: "handoff"`) before judging an item whose excerpt lacks the detail. Titles counted in `existingKnowledgeOmitted` did not fit; check them with `work_search_knowledge` before promoting. Read every page the snapshot needs.
 
 ## Decide with evidence
 

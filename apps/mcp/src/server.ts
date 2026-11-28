@@ -830,7 +830,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_agent_review_context", {
     title: "Get Agent review context",
     description:
-      "Start processing an Agent review request (the newest open one of projectRoot, or requestId) and return one page of up to 10 snapshot items, bounded to 24,000 serialized characters: decisions, Knowledge candidates and Knowledge in doubt (decisions and candidates carry sourceSessionId, resolved in the page's sessions list, each Session excerpt once; Knowledge: doubt and laterSessions), state, overlaps and, on page 1, existingKnowledge. Read more pages with page; truncated fields need work_get_session. " +
+      "Start processing an Agent review request (the newest open one of projectRoot, or requestId) and return one page of up to 10 snapshot items, bounded to 24,000 serialized characters: decisions, Knowledge candidates and Knowledge in doubt (decisions and candidates carry sourceSessionId, resolved in the page's sessions list, each Session excerpt once; Knowledge: doubt and laterSessions), state, overlaps and, on page 1, existingKnowledge (titles grouped by status and kind). Read more pages with page; truncated fields need work_get_session. " +
       agentReviewContract,
     inputShape: agentReviewContextQuerySchemaBase.shape,
     schema: agentReviewContextQuerySchema,
@@ -1213,7 +1213,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_knowledge_candidate_context", {
     title: "Get Knowledge candidate context",
     description:
-      "Start processing a Knowledge candidate request (the newest open one of projectRoot, or requestId) and return its source Sessions — summary, the outcomes, decisions, and nextSteps of workSummary (scope and verification are left out; read them with work_get_session view handoff), and raw handoff text within a 40,000-character budget — plus existingKnowledge: titles of the project's active Knowledge, archived Knowledge (status archived), rejected candidates (status rejected), and candidates still proposed from earlier requests (status proposed), so proposals neither repeat nor revive them. Failed or interrupted requests can be processed again. " +
+      "Start processing a Knowledge candidate request (the newest open one of projectRoot, or requestId) and return its source Sessions — summary, the outcomes, decisions, and nextSteps of workSummary (scope and verification are left out; read them with work_get_session view handoff), and raw handoff text within a 40,000-character budget — plus existingKnowledge: titles grouped by status (active, archived, rejected, proposed) and kind, covering the project's Knowledge, rejected candidates and candidates still proposed from earlier requests, so proposals neither repeat nor revive them. Failed or interrupted requests can be processed again. " +
       implementationDetail,
     inputShape: knowledgeCandidateContextQuerySchemaBase.shape,
     schema: knowledgeCandidateContextQuerySchema,

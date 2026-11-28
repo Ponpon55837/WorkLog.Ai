@@ -2276,18 +2276,17 @@ export interface KnowledgeCandidateSourceSession {
   handoffTruncated?: boolean;
 }
 
+export type ExistingKnowledge = Partial<
+  Record<"active" | "archived" | "rejected" | "proposed", Partial<Record<KnowledgeKind, string[]>>>
+>;
+
 export interface KnowledgeCandidateContext {
   outcome: "knowledge_candidate_context";
   request: KnowledgeCandidateRequest;
   sessions: KnowledgeCandidateSourceSession[];
   omittedWorkSummarySections: Array<"scope" | "verification">;
   sessionReadWith: "work_get_session";
-  existingKnowledge: Array<{
-    id: string;
-    kind: KnowledgeKind;
-    title: string;
-    status?: "archived" | "rejected" | "proposed";
-  }>;
+  existingKnowledge: ExistingKnowledge;
   existingKnowledgeOmitted?: number;
 }
 
@@ -3253,7 +3252,7 @@ export interface AgentReviewContext {
   items: AgentReviewContextItem[];
   sessions: AgentReviewSessionContext[];
   pageInfo: PageInfo;
-  existingKnowledge?: Array<{ id: string; kind: KnowledgeKind; title: string; status?: "archived" | "rejected" }>;
+  existingKnowledge?: ExistingKnowledge;
   existingKnowledgeOmitted?: number;
   truncated: boolean;
   hint: string;
