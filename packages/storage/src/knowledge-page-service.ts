@@ -2031,6 +2031,7 @@ export class KnowledgePageService {
     size: KnowledgePageSize,
     seen: ReadonlySet<string>,
   ): KnowledgePageReviewContext | { fallback: KnowledgePageReviewFallback } {
+    if (row.version === 0 || row.update_requested_at) return { fallback: "full_rewrite" };
     const sources = this.reviewSources(row, page);
     const { after, newRows, changedRows } = sources;
     const base: Pick<
@@ -2054,7 +2055,6 @@ export class KnowledgePageService {
       readFullWith: "work_get_knowledge_page_context without reviewOnly (the whole page and every new Session)",
     };
     const layout = page.sections.map((section) => ({ heading: section.heading, chars: section.content.length }));
-    if (row.version === 0 || row.update_requested_at) return { fallback: "full_rewrite" };
     const changedByHeading = new Map((page.reviewSections ?? []).map((section) => [section.heading, section]));
     const consideredNew = newRows.slice(0, CONTEXT_SESSION_LIMIT);
     const consideredNewIds = new Set(consideredNew.map((session) => session.id));
