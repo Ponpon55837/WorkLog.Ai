@@ -4,6 +4,15 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.103] - 2026-11-28
+
+[繁體中文更新說明](docs/releases/1.6.103.md).
+
+### Fixed
+
+- Importing an older export, or the other computer's export, no longer brings back a Session you permanently deleted on this computer. A bundle Session whose id is in the local deletion record (and not present here) is reported as a `deleted` conflict ("already permanently deleted on this computer") and not written, even if the other computer changed it later. Its decisions, outstanding items and events, evidence, links and other child rows are not added either (`dependency` conflicts), and so are its decision review items and decision attention preferences (`deleted`). Knowledge, Knowledge candidates and Knowledge page cursors that cite the deleted Session still sync: the citation is treated as empty, exactly as deletion clears it locally. An outstanding item event whose actor is the deleted Session imports as if the actor were absent. Preview and apply agree, matching is by id only, and the export format and schema are unchanged (#513).
+- The import preview shows "Nothing to import" with a short note, instead of "Nothing can be imported with the current settings", when the only conflicts are deleted rows (Sessions or Knowledge pages) and the rows under them.
+
 ## [1.6.102] - 2026-11-28
 
 [繁體中文更新說明](docs/releases/1.6.102.md).

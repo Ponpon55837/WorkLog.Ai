@@ -9,7 +9,12 @@ import { useProjectsStore } from "../../stores/projects";
 import { useSystemStatusStore } from "../../stores/system-status";
 import { formatBytes, formatDate, formatRelative } from "../../utils/format";
 import { databaseBackupKindLabels, projectDataTableLabels } from "../../utils/labels";
-import { importBreakdown, importCountKinds, totalCount } from "../../utils/project-data-import";
+import {
+  deletedOnlyConflictCount,
+  importBreakdown,
+  importCountKinds,
+  totalCount,
+} from "../../utils/project-data-import";
 import type { ImportBreakdownRow, ImportCountKind } from "../../utils/project-data-import";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
@@ -116,8 +121,12 @@ const previewSummary = computed(() => {
   };
 });
 const conflictCategories = computed(() => new Set(importPreview.value?.conflictGroups.map((group) => group.category)));
+const deletedOnlyCount = computed(() => (importPreview.value ? deletedOnlyConflictCount(importPreview.value) : 0));
 const blockedByConflicts = computed(
-  () => importPreview.value?.writesData === false && (previewSummary.value?.conflicts ?? 0) > 0,
+  () =>
+    importPreview.value?.writesData === false &&
+    (previewSummary.value?.conflicts ?? 0) > 0 &&
+    deletedOnlyCount.value === 0,
 );
 const canUseNewerWins = computed(
   () => importPreview.value?.strategy === "merge" && conflictCategories.value.has("newer_content"),
@@ -646,6 +655,9 @@ onBeforeUnmount(() => {
           <UiFlash tone="accent" :title="t('projects.nothingToImport')" data-testid="project-import-nothing">{{
             t("projects.nothingToImportDetail")
           }}</UiFlash>
+          <p v-if="deletedOnlyCount > 0" data-testid="project-import-deleted-note">
+            {{ t("projects.deletedHereNote", { count: deletedOnlyCount }) }}
+          </p>
           <UiButton class="transfer-preview__action" :disabled="importLoading" @click="finishImport">{{
             t("projects.finishImport")
           }}</UiButton>

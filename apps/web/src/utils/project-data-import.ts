@@ -33,3 +33,11 @@ export function importBreakdown(preview: ProjectDataImportPreview): ImportBreakd
   }
   return rows;
 }
+
+/** Rows deleted on this computer when they are the only reason nothing imports, else 0. */
+export function deletedOnlyConflictCount(preview: ProjectDataImportPreview): number {
+  if (preview.writesData || preview.conflictGroups.length === 0) return 0;
+  if (!preview.conflictGroups.every((group) => group.category === "deleted" || group.category === "dependency"))
+    return 0;
+  return preview.conflictGroups.reduce((total, group) => total + (group.category === "deleted" ? group.count : 0), 0);
+}

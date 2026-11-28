@@ -232,6 +232,7 @@ const MISSING_SESSION_REASON = "所屬 Session 不在匯入檔中。";
 const MISSING_REQUEST_REASON = "報告所屬的請求不在匯入檔中。";
 const MISSING_SUMMARY_REASON = "報告呈現的原始版本不在匯入檔中。";
 const DELETED_PAGE_REASON = "知識頁已在本機刪除，匯入不會把它加回。";
+const DELETED_SESSION_REASON = "Session 已在本機永久刪除，匯入不會把它加回。";
 const AGENT_REVIEW_OPEN_STATUSES: readonly string[] = ["pending", "processing", "failed"];
 
 function redactRow(table: ProjectDataTable, row: ProjectDataRow): ReturnType<typeof redactRowWith> {
@@ -419,6 +420,47 @@ function deletedKnowledgePageIds(db: DatabaseSync, tables: Record<ProjectDataTab
     .prepare("SELECT page_id FROM knowledge_page_deletion_audit WHERE page_id IN (SELECT value FROM json_each(?))")
     .all(JSON.stringify([...new Set(pageIds)])) as Array<{ page_id: string }>;
   return new Set(rows.map((row) => row.page_id));
+}
+
+/** Ids of bundle Sessions deleted here for good; references that deletion only clears become NULL like locally. */
+function applyDeletedSessions(db: DatabaseSync, tables: Record<ProjectDataTable, ProjectDataRow[]>): Set<string> {
+  if (tables.sessions.length === 0) return new Set();
+  const ids = JSON.stringify([...new Set(tables.sessions.map((row) => String(row.id)))]);
+  const rows = db
+    .prepare(
+      `SELECT session_id FROM session_deletion_audit
+       WHERE session_id IN (SELECT value FROM json_each(?))
+         AND session_id NOT IN (SELECT id FROM sessions)`,
+    )
+    .all(ids) as Array<{ session_id: string }>;
+  const deleted = new Set(rows.map((row) => row.session_id));
+  if (deleted.size === 0) return deleted;
+  const clearing: Array<[ProjectDataTable, readonly string[]]> = [
+    ["knowledge", ["session_id", "last_confirmed_session_id"]],
+    ["knowledge_candidates", ["session_id"]],
+    ["knowledge_pages", ["checked_through_session_id"]],
+  ];
+  for (const [table, columns] of clearing) {
+    tables[table] = tables[table].map((row) => {
+      const cleared = columns.filter((column) => typeof row[column] === "string" && deleted.has(String(row[column])));
+      return cleared.length === 0 ? row : { ...row, ...Object.fromEntries(cleared.map((column) => [column, null])) };
+    });
+  }
+  return deleted;
+}
+
+function isDeletedSessionRow(
+  table: ProjectDataTable,
+  row: ProjectDataRow,
+  id: string,
+  deletedSessions: ReadonlySet<string>,
+  deletedDecisionIds: ReadonlySet<string>,
+): boolean {
+  if (table === "sessions") return deletedSessions.has(id);
+  if (table === "agent_review_request_items") {
+    return row.item_kind === "decision" && deletedSessions.has(String(row.source_session_id));
+  }
+  return table === "attention_preferences" && row.kind === "decision" && deletedDecisionIds.has(String(row.source_id));
 }
 
 function citesAnySession(value: ProjectDataValue | undefined, sessionIds: ReadonlySet<string>): boolean {
@@ -1744,6 +1786,12 @@ function makePlan(
     selectedBundle.tables.projects.map((project) => [String(project.id), String(project.root_path)]),
   );
   normalizeLegacyCleanupRows(selectedBundle.tables);
+  const deletedSessions = applyDeletedSessions(db, selectedBundle.tables);
+  const deletedDecisionIds = new Set(
+    selectedBundle.tables.session_decisions.flatMap((row) =>
+      deletedSessions.has(String(row.session_id)) ? [String(row.id)] : [],
+    ),
+  );
   const remappedPaths = applyPathRemaps(selectedBundle.tables, input.remap ?? []);
   // A repository link from another machine is kept only if it is still a safe https URL.
   for (const row of selectedBundle.tables.projects) {
@@ -1930,6 +1978,7 @@ function makePlan(
     for (const session of existingSessionRows) sessionProjectIds.set(session.id, session.project_id);
   }
   for (const session of selectedBundle.tables.sessions) {
+    if (deletedSessions.has(String(session.id))) continue;
     const projectId = String(session.project_id);
     sessionProjectIds.set(String(session.id), projectIds.get(projectId) ?? projectId);
   }
@@ -2136,6 +2185,10 @@ function makePlan(
       const pageId = current ? undefined : knowledgePageIdOf(table, row);
       if (pageId !== undefined && deletedPageIds.has(pageId)) {
         addPlan(table, row, "conflict", DELETED_PAGE_REASON, "deleted");
+        continue;
+      }
+      if (!current && isDeletedSessionRow(table, row, id, deletedSessions, deletedDecisionIds)) {
+        addPlan(table, row, "conflict", DELETED_SESSION_REASON, "deleted");
         continue;
       }
       if (dependencyError) {
