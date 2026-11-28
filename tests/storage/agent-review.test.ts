@@ -408,7 +408,7 @@ describe("Agent review context", () => {
     expect(JSON.stringify(context).length).toBeLessThanOrEqual(24_000);
   });
 
-  it("keeps item text whole and trims existing Knowledge to the remaining budget, active first", () => {
+  it("keeps item text whole and trims existing Knowledge to the remaining budget, keeping archived before active", () => {
     const fixture = setup();
     const long = "y".repeat(1_400);
     const decisionIds = Array.from(
@@ -443,8 +443,8 @@ describe("Agent review context", () => {
     const kept = context.existingKnowledge?.active?.decision ?? [];
     expect(kept.length).toBeGreaterThan(0);
     expect(context.existingKnowledgeOmitted).toBeGreaterThan(0);
-    expect(kept.length + (context.existingKnowledgeOmitted ?? 0)).toBe(250);
-    expect(context.existingKnowledge).not.toHaveProperty("archived");
+    expect(kept.length + (context.existingKnowledgeOmitted ?? 0)).toBe(230);
+    expect(context.existingKnowledge?.archived?.decision).toHaveLength(20);
     expect(kept.every((title) => title.length <= 120)).toBe(true);
     const titleWeight = 123;
     const reservedGroupKeys = 60;

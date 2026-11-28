@@ -284,6 +284,53 @@ describe("Knowledge candidates", () => {
     });
   });
 
+  it("lists one proposed title once and keeps the non-active titles when long active titles fill the cap", () => {
+    const { store, root, finalize, candidate } = setup();
+    const first = finalize("first");
+    const archived = recorded(store, root, "archived", "Meadow pump needs priming");
+    store.updateKnowledge({ projectRoot: root, knowledgeId: archived, status: "archived" });
+    for (let index = 0; index < 200; index += 1) {
+      recorded(store, root, `long-${index}`, `Orchard rule ${String(index).padStart(3, "0")} ${"title ".repeat(14)}`);
+    }
+    const firstRequest = openRequest(store, root);
+    store.getKnowledgeCandidateContext({ requestId: firstRequest });
+    const [rejected, proposedOne, proposedTwo] = submitted(store, firstRequest, [
+      candidate(first, "Meadow fence posts lean north"),
+      candidate(first, "Meadow hose splits in frost"),
+      candidate(first, "Meadow hose snaps in frost"),
+    ]);
+    store.decideKnowledgeCandidate({ candidateId: rejected!.id, decision: "reject" });
+    databaseOf(store)
+      .prepare("UPDATE knowledge_candidates SET title = ? WHERE id IN (?, ?)")
+      .run("Meadow hose splits in frost", proposedOne!.id, proposedTwo!.id);
+    finalize("second");
+
+    const context = store.getKnowledgeCandidateContext({ requestId: openRequest(store, root) });
+    if (context.outcome !== "knowledge_candidate_context") throw new Error("Expected candidate context");
+    expect(context.existingKnowledge.archived).toEqual({ gotcha: ["Meadow pump needs priming"] });
+    expect(context.existingKnowledge.rejected).toEqual({ gotcha: ["Meadow fence posts lean north"] });
+    expect(context.existingKnowledge.proposed).toEqual({ gotcha: ["Meadow hose splits in frost"] });
+    expect(Object.keys(context.existingKnowledge)).toEqual(["active", "archived", "rejected", "proposed"]);
+    const kept = context.existingKnowledge.active?.gotcha ?? [];
+    expect(kept.length).toBeLessThan(200);
+    expect(kept.length + (context.existingKnowledgeOmitted ?? 0)).toBe(200);
+  });
+
+  it("dedupes on the full title and never splits a surrogate pair when shortening", () => {
+    const { store, root, finalize } = setup();
+    finalize("first");
+    const ids = ["one", "two", "three"].map((key) => recorded(store, root, key, `Meadow title ${key}`));
+    const titles = [`${"a".repeat(120)}x`, `${"a".repeat(120)}y`, `${"b".repeat(119)}\u{1F600}`];
+    ids.forEach((id, index) =>
+      databaseOf(store).prepare("UPDATE knowledge SET title = ? WHERE id = ?").run(titles[index]!, id),
+    );
+    const context = store.getKnowledgeCandidateContext({ requestId: openRequest(store, root) });
+    if (context.outcome !== "knowledge_candidate_context") throw new Error("Expected candidate context");
+    expect([...(context.existingKnowledge.active?.gotcha ?? [])].sort()).toEqual(
+      ["a".repeat(120), "a".repeat(120), "b".repeat(119)].sort(),
+    );
+  });
+
   it("never compares candidates across projects", () => {
     const { store, root, finalize, candidate } = setup();
     const otherRoot = mkdtempSync(join(tmpdir(), "work-intelligence-candidates-other-"));

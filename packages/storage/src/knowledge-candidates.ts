@@ -48,9 +48,10 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 
 const MAX_SOURCE_SESSIONS = 10;
-const EXISTING_KNOWLEDGE_LIMITS = { active: 300, archived: 30, rejected: 20, proposed: 30 } as const;
+const EXISTING_KNOWLEDGE_LIMITS = { active: 300, archived: 100, rejected: 50, proposed: 30 } as const;
 const EXISTING_KNOWLEDGE_CHAR_CAP = 12_000;
 const EXISTING_TITLE_LIMIT = 120;
+const EXISTING_STATUS_ORDER: readonly ExistingKnowledgeStatus[] = ["active", "archived", "rejected", "proposed"];
 const HANDOFF_BUDGET = 40_000;
 const PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
 const OPEN_STATUSES: readonly KnowledgeCandidateRequestStatus[] = ["pending", "processing", "failed"];
@@ -257,16 +258,37 @@ export function loadExistingKnowledge(
     },
   ];
   return {
-    entries: uniqueEntries(groups.flatMap(({ status, rows }) => rows.map((row) => toEntry(status, row)))),
+    entries: groups.flatMap(({ status, rows }) => rows.map((row) => toEntry(status, row))),
     omitted: groups.reduce((sum, { rows }) => sum + omittedOf(rows), 0),
   };
 }
 
+/** Drops repeated titles per status and kind, shortens them, and orders them for fitting: the strongest duplicate guards first. */
+export function prepareExistingKnowledge(entries: readonly ExistingKnowledgeEntry[]): ExistingKnowledgeEntry[] {
+  const seen = new Set<string>();
+  const unique = entries.filter((entry) => {
+    const key = JSON.stringify([entry.status, entry.kind, entry.title]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return [...EXISTING_STATUS_ORDER]
+    .reverse()
+    .flatMap((status) =>
+      unique
+        .filter((entry) => entry.status === status)
+        .map((entry) => ({ ...entry, title: shortenTitle(entry.title) })),
+    );
+}
+
 export function groupExistingKnowledge(entries: readonly ExistingKnowledgeEntry[]): ExistingKnowledge {
   const grouped: ExistingKnowledge = {};
-  for (const { status, kind, title } of entries) {
-    const kinds = (grouped[status] ??= {});
-    (kinds[kind] ??= []).push(title);
+  for (const status of EXISTING_STATUS_ORDER) {
+    for (const entry of entries) {
+      if (entry.status !== status) continue;
+      const kinds = (grouped[status] ??= {});
+      (kinds[entry.kind] ??= []).push(entry.title);
+    }
   }
   return grouped;
 }
@@ -286,27 +308,24 @@ function capExistingKnowledge(
   entries: readonly ExistingKnowledgeEntry[],
   omitted: number,
 ): { existingKnowledge: ExistingKnowledge; omitted: number } {
-  let remaining = EXISTING_KNOWLEDGE_CHAR_CAP - JSON.stringify(reserveExistingKnowledge(entries)).length;
-  const kept = entries.filter((entry) => (remaining -= existingKnowledgeWeight(entry)) >= 0);
-  return { existingKnowledge: groupExistingKnowledge(kept), omitted: omitted + entries.length - kept.length };
+  const prepared = prepareExistingKnowledge(entries);
+  let remaining = EXISTING_KNOWLEDGE_CHAR_CAP - JSON.stringify(reserveExistingKnowledge(prepared)).length;
+  const kept = prepared.filter((entry) => (remaining -= existingKnowledgeWeight(entry)) >= 0);
+  return { existingKnowledge: groupExistingKnowledge(kept), omitted: omitted + prepared.length - kept.length };
 }
 
 function toEntry(status: ExistingKnowledgeStatus, row: TitleRow): ExistingKnowledgeEntry {
-  return { status, kind: row.kind, title: row.title.slice(0, EXISTING_TITLE_LIMIT) };
+  return { status, kind: row.kind, title: row.title };
+}
+
+function shortenTitle(title: string): string {
+  const cut = title.slice(0, EXISTING_TITLE_LIMIT);
+  const last = cut.charCodeAt(cut.length - 1);
+  return title.length > EXISTING_TITLE_LIMIT && last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
 }
 
 function omittedOf(rows: readonly TitleRow[]): number {
   return Math.max(0, (rows[0]?.total ?? 0) - rows.length);
-}
-
-function uniqueEntries(entries: readonly ExistingKnowledgeEntry[]): ExistingKnowledgeEntry[] {
-  const seen = new Set<string>();
-  return entries.filter((entry) => {
-    const key = JSON.stringify([entry.status, entry.kind, entry.title]);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }
 
 function loadProposedKnowledge(

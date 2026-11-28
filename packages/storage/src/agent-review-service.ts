@@ -47,6 +47,7 @@ import {
   existingKnowledgeWeight,
   groupExistingKnowledge,
   loadExistingKnowledge,
+  prepareExistingKnowledge,
   reserveExistingKnowledge,
   toCandidate,
   type CandidateRow,
@@ -1023,15 +1024,16 @@ export class AgentReviewService {
         });
     });
     if (existing) {
+      const entries = prepareExistingKnowledge(existing.entries);
       lists.push({
         target: result,
         key: "existingKnowledge",
         omittedKey: "existingKnowledgeOmitted",
-        count: existing.entries.length,
+        count: entries.length,
         omitted: existing.omitted,
-        reserved: reserveExistingKnowledge(existing.entries),
-        weigh: (position) => existingKnowledgeWeight(existing.entries[position]!),
-        shape: (kept) => groupExistingKnowledge(existing.entries.slice(0, kept)),
+        reserved: reserveExistingKnowledge(entries),
+        weigh: (position) => existingKnowledgeWeight(entries[position]!),
+        shape: (kept) => groupExistingKnowledge(entries.slice(0, kept)),
       });
     }
     for (const list of lists) {
