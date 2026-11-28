@@ -16,8 +16,8 @@ export function parseListSearchTerms(query: string): ListSearchTerms {
   const terms: string[] = [];
   const warnings: string[] = [];
   let ignored = 0;
-  for (const match of query.toLowerCase().matchAll(/"([^"]+)"|(\S+)/g)) {
-    const whole = (match[1] ?? match[2] ?? "").replace(/"/g, "").trim();
+  for (const match of query.toLowerCase().matchAll(/"([^"]+)"|\S+/g)) {
+    const whole = (match[1] ?? match[0]).replace(/"/g, "").trim();
     if (!whole) continue;
     const term = Array.from(whole).length > MAX_LIST_SEARCH_TERM_LENGTH ? cutTerm(whole) : whole;
     if (terms.includes(term)) continue;
